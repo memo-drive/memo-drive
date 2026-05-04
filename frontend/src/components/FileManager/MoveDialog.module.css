@@ -1,0 +1,123 @@
+.dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.breadcrumbs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 12px;
+  background: #fbfaf8;
+  padding: 0.55rem 0.7rem;
+}
+
+.crumb {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.crumbBtn {
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: #4b4641;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 0.83rem;
+  font-weight: 700;
+  padding: 0.16rem 0.35rem;
+}
+
+.crumbBtn:hover {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.sep {
+  color: #a39e98;
+  font-size: 0.8rem;
+}
+
+.currentBox {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  border: 1px solid rgba(9, 127, 232, 0.14);
+  border-radius: 14px;
+  background: linear-gradient(135deg, #eff6ff, #ffffff);
+  color: #075da8;
+  padding: 0.75rem;
+}
+
+.currentBox strong {
+  display: block;
+  color: #18181b;
+  font-size: 0.86rem;
+}
+
+.currentBox p {
+  margin: 0.1rem 0 0;
+  color: #615d59;
+  font-size: 0.8rem;
+}
+
+.warning {
+  margin: 0;
+  border-radius: 10px;
+  background: #fff7ed;
+  color: #c2410c;
+  font-size: 0.82rem;
+  font-weight: 700;
+  padding: 0.55rem 0.7rem;
+}
+
+.dirList {
+  min-height: 180px;
+  max-height: 320px;
+  overflow: auto;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 14px;
+  background: #ffffff;
+  padding: 0.35rem;
+}
+
+.dirRow {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) 22px;
+  align-items: center;
+  gap: 0.5rem;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: #3f3a36;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 0.9rem;
+  font-weight: 650;
+  padding: 0.62rem 0.55rem;
+  text-align: left;
+}
+
+.dirRow:hover {
+  background: #fafafa;
+}
+
+.dirRow span:nth-child(2) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 150px;
+  color: #7c756e;
+  font-size: 0.88rem;
+}

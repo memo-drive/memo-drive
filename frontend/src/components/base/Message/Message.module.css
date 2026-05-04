@@ -1,0 +1,140 @@
+.container {
+  position: fixed;
+  z-index: 2000;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+  max-width: 380px;
+}
+
+.topLeft {
+  top: 16px;
+  left: 16px;
+}
+
+.topCenter {
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.topRight {
+  top: 16px;
+  right: 16px;
+}
+
+.bottomLeft {
+  bottom: 16px;
+  left: 16px;
+  flex-direction: column-reverse;
+}
+
+.bottomCenter {
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  flex-direction: column-reverse;
+}
+
+.bottomRight {
+  bottom: 16px;
+  right: 16px;
+  flex-direction: column-reverse;
+}
+
+.toast {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 16px;
+  border-radius: 8px;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  background-color: #ffffff;
+  box-shadow:
+    rgba(0, 0, 0, 0.04) 0px 4px 18px,
+    rgba(0, 0, 0, 0.027) 0px 2.025px 7.84688px,
+    rgba(0, 0, 0, 0.02) 0px 0.8px 2.925px,
+    rgba(0, 0, 0, 0.01) 0px 0.175px 1.04062px;
+  font-family: "Inter", -apple-system, system-ui, sans-serif;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.43;
+  color: rgba(0, 0, 0, 0.95);
+  pointer-events: auto;
+  animation: slideIn 0.2s ease-out;
+  word-break: break-word;
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.icon {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  margin-top: 1px;
+}
+
+.iconSuccess {
+  background-color: #2a9d99;
+  color: #ffffff;
+}
+
+.iconError {
+  background-color: #ba1a1a;
+  color: #ffffff;
+}
+
+.iconWarning {
+  background-color: #dd5b00;
+  color: #ffffff;
+}
+
+.iconInfo {
+  background-color: #0075de;
+  color: #ffffff;
+}
+
+.content {
+  flex: 1;
+  min-width: 0;
+}
+
+.closeBtn {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: #a39e98;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0;
+  margin-top: 1px;
+  transition: color 0.15s;
+}
+
+.closeBtn:hover {
+  color: rgba(0, 0, 0, 0.95);
+}

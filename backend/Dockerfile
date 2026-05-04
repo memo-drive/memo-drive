@@ -1,0 +1,17 @@
+FROM golang:1.24-alpine AS build
+
+WORKDIR /src
+RUN apk add --no-cache build-base
+COPY go.mod go.sum* ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=1 GOOS=linux go build -o /out/memodrive ./cmd/server
+
+FROM alpine:3.22
+
+WORKDIR /app
+RUN apk add --no-cache ca-certificates ffmpeg wget \
+    tesseract-ocr tesseract-ocr-data-eng tesseract-ocr-data-chi_sim
+COPY --from=build /out/memodrive /app/memodrive
+EXPOSE 8080
+CMD ["/app/memodrive"]

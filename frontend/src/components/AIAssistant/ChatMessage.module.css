@@ -1,0 +1,142 @@
+.message {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 8px 0;
+}
+
+.assistant {
+  align-items: flex-start;
+}
+
+.user {
+  align-items: flex-end;
+}
+
+.bubble {
+  max-width: 92%;
+  border-radius: 14px;
+  padding: 10px 12px;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.assistant .bubble {
+  color: #172033;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+  border: 1px solid rgba(0, 117, 222, 0.12);
+  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.06);
+}
+
+.user .bubble {
+  color: #ffffff;
+  background: linear-gradient(135deg, #0075de 0%, #0059aa 100%);
+  box-shadow: 0 8px 20px rgba(0, 117, 222, 0.22);
+}
+
+.userText {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.markdown {
+  overflow-wrap: anywhere;
+}
+
+.markdown :global(p) {
+  margin: 0 0 8px;
+}
+
+.markdown :global(p:last-child) {
+  margin-bottom: 0;
+}
+
+.markdown :global(ul),
+.markdown :global(ol) {
+  margin: 6px 0 8px;
+  padding-left: 18px;
+}
+
+.markdown :global(blockquote) {
+  margin: 8px 0;
+  padding-left: 10px;
+  border-left: 3px solid rgba(0, 117, 222, 0.28);
+  color: #526070;
+}
+
+.markdown :global(a) {
+  color: #0068c9;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.markdown :global(a:hover) {
+  text-decoration: underline;
+}
+
+.inlineCode {
+  padding: 2px 5px;
+  border-radius: 5px;
+  background: #eef5ff;
+  color: #0059aa;
+  font-size: 12px;
+}
+
+.codeBlock {
+  font-size: 12px;
+}
+
+.pre {
+  margin: 8px 0;
+  padding: 10px;
+  overflow-x: auto;
+  border-radius: 10px;
+  background: #f6f8fa;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.table {
+  width: 100%;
+  margin: 8px 0;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.th,
+.td {
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  padding: 6px 8px;
+  text-align: left;
+}
+
+.th {
+  background: #f2f7ff;
+  font-weight: 700;
+}
+
+.cursor {
+  display: inline-block;
+  margin-left: 2px;
+  color: #0075de;
+  animation: blink 1s steps(2, start) infinite;
+}
+
+.placeholder {
+  color: #6b7280;
+}
+
+.error {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #fff1f2;
+  color: #be123c;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+@keyframes blink {
+  to {
+    visibility: hidden;
+  }
+}

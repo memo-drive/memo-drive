@@ -1,0 +1,213 @@
+.tableWrapper {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  text-align: left;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.tableHeadRow {
+  background-color: rgba(250, 250, 250, 0.5); /* zinc-50/50 */
+}
+
+.tableHeadCell {
+  padding: 1rem 1.5rem;
+  font-size: 0.75rem; /* 12px */
+  font-weight: 600;
+  color: #71717a; /* zinc-500 */
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #fafafa;
+  border-bottom: 1px solid #f4f4f5;
+}
+
+.tableHeadCellRight {
+  padding: 1rem 1.5rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #71717a;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  text-align: right;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #fafafa;
+  border-bottom: 1px solid #f4f4f5;
+}
+
+.tbody {
+  /* divide-y divide-zinc-100 equivalent */
+}
+
+.tableRow {
+  transition: background-color 0.15s;
+  cursor: pointer;
+}
+
+.tableRow:hover, .tableRowSelected {
+  background-color: rgba(250, 250, 250, 0.8);
+}
+
+.tableCell {
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid #f4f4f5;
+}
+
+.tableCellRight {
+  padding: 1rem 1.5rem;
+  text-align: right;
+  border-bottom: 1px solid #f4f4f5;
+}
+
+.fileIconWrapper {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.iconBox {
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 0.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.iconBoxDir {
+  background-color: #fff7ed; /* orange-50 */
+  color: #ea580c; /* semantic-orange equivalent */
+}
+
+.iconBoxImg {
+  background-color: #ecfdf5; /* emerald-50 */
+  color: #10b981; /* semantic-green */
+}
+
+.iconBoxFile {
+  background-color: #eff6ff; /* blue-50 */
+  color: #3b82f6; /* primary */
+}
+
+.fileName {
+  font-weight: 500;
+  color: #18181b; /* zinc-900 */
+}
+
+.fileDesc {
+  font-size: 0.75rem;
+  color: #a1a1aa; /* zinc-400 */
+}
+
+.metaText {
+  font-size: 0.875rem;
+  color: #52525b; /* zinc-600 */
+}
+
+.actionButton {
+  padding: 0.5rem;
+  border-radius: 0.5rem;
+  color: #a1a1aa;
+  transition: all 0.15s;
+}
+
+.actionButton:hover {
+  background-color: rgba(228, 228, 231, 0.5); /* zinc-200/50 */
+  color: #52525b;
+}
+
+.popoverMenu {
+  min-width: 140px;
+  padding: 0.25rem 0;
+}
+
+.menuItem {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  font-size: 0.875rem;
+  color: #3f3f46;
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-family: inherit;
+  border-radius: 4px;
+  margin: 0 4px;
+  transition: background-color 0.1s;
+}
+
+.menuItem:hover {
+  background-color: rgba(0, 0, 0, 0.04);
+}
+
+.menuItemDanger {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  font-size: 0.875rem;
+  color: #ba1a1a;
+  width: calc(100% - 8px);
+  text-align: left;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-family: inherit;
+  border-radius: 4px;
+  margin: 0 4px;
+  transition: background-color 0.1s;
+}
+
+.menuItemDanger:hover {
+  background-color: #fef2f2;
+}
+
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  padding: 0.75rem 0;
+  font-size: 0.875rem;
+  color: #52525b;
+}
+
+.pageBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 0.5rem;
+  background: #ffffff;
+  color: #52525b;
+  cursor: pointer;
+  font-size: 1.125rem;
+  transition: background-color 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.pageBtn:hover:not(:disabled) {
+  background-color: rgba(0, 0, 0, 0.05);
+  color: rgba(0, 0, 0, 0.95);
+}
+
+.pageBtn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.pageInfo {
+  user-select: none;
+}

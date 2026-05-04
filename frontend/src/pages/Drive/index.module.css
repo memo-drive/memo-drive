@@ -1,0 +1,185 @@
+.pageWrapper {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.75rem;
+  flex-shrink: 0;
+}
+
+.titleGroup h2 {
+  font-size: 1.63rem;
+  font-weight: 700;
+  color: rgba(0, 0, 0, 0.95);
+  margin: 0;
+}
+
+.titleGroup p {
+  font-size: 0.88rem;
+  color: #615d59;
+  margin-top: 0.25rem;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.75rem;
+  flex-shrink: 0;
+}
+
+/* Breadcrumb */
+.breadcrumbBar {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin-bottom: 0.75rem;
+  flex-shrink: 0;
+}
+
+.backBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 4px;
+  background: #ffffff;
+  color: rgba(0, 0, 0, 0.95);
+  cursor: pointer;
+  font-size: 16px;
+  margin-right: 0.5rem;
+  flex-shrink: 0;
+  transition: background-color 0.15s;
+}
+
+.backBtn:hover {
+  background-color: rgba(0, 0, 0, 0.05);
+}
+
+.crumb {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.crumbBtn {
+  border: none;
+  background: transparent;
+  color: #615d59;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  transition: background-color 0.15s, color 0.15s;
+  font-family: inherit;
+}
+
+.crumbBtn:hover {
+  background-color: rgba(0, 0, 0, 0.05);
+  color: rgba(0, 0, 0, 0.95);
+}
+
+.crumbBtnCurrent {
+  color: rgba(0, 0, 0, 0.95);
+  font-weight: 600;
+}
+
+.crumbSep {
+  color: #a39e98;
+  font-size: 13px;
+  user-select: none;
+}
+
+.mainGrid {
+  flex: 1;
+  overflow: hidden;
+  min-height: 0;
+  display: flex;
+  gap: 1rem;
+}
+
+.fileListSection {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 12px;
+  box-shadow:
+    rgba(0, 0, 0, 0.04) 0px 4px 18px,
+    rgba(0, 0, 0, 0.027) 0px 2.025px 7.84688px,
+    rgba(0, 0, 0, 0.02) 0px 0.8px 2.925px,
+    rgba(0, 0, 0, 0.01) 0px 0.175px 1.04062px;
+  overflow: hidden;
+}
+
+.fileListInner {
+  flex: 1;
+  overflow: auto;
+  min-height: 0;
+}
+
+.searchInput {
+  flex: 1;
+  max-width: 280px;
+  height: 2.25rem;
+  padding: 0 0.75rem;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 0.5rem;
+  background-color: #ffffff;
+  color: rgba(0, 0, 0, 0.95);
+  font-size: 0.875rem;
+  outline: none;
+  transition: all 0.2s;
+}
+
+.searchInput:focus {
+  border-color: #097fe8;
+  box-shadow: 0 0 0 2px rgba(9, 127, 232, 0.2);
+}
+
+.semanticToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: #615d59;
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 600;
+  user-select: none;
+}
+
+.semanticToggle input {
+  width: 0.95rem;
+  height: 0.95rem;
+  accent-color: #097fe8;
+}
+
+@media (max-width: 1024px) {
+  .mainGrid {
+    flex-direction: column;
+  }
+}
+
+@media (max-width: 720px) {
+  .toolbar {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .searchInput {
+    max-width: none;
+  }
+}

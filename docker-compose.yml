@@ -1,0 +1,66 @@
+services:
+  frontend:
+    build: ./frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+  backend:
+    build: ./backend
+    ports:
+      - "8080:8080"
+    volumes:
+      - "${STORAGE_ROOT:-./data/files}:/app/files"
+      - "${DB_PATH:-./data/db}:/app/db"
+      - "./data/tmp:/app/tmp"
+      - "./data/thumbnails:/app/thumbnails"
+      - "./models/whisper:/models"
+    env_file:
+      - .env
+    environment:
+      STORAGE_ROOT: /app/files
+      DB_PATH: /app/db
+      UPLOAD_TEMP_DIR: /app/tmp
+      THUMBNAIL_DIR: /app/thumbnails
+      CHROMA_BASE_URL: http://chroma:8000
+      OLLAMA_BASE_URL: http://ollama:11434
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      TRANSCRIBE_ENABLED: ${TRANSCRIBE_ENABLED:-false}
+      TRANSCRIBE_BIN: ${TRANSCRIBE_BIN:-/usr/local/bin/whisper-cli}
+      TRANSCRIBE_MODEL_PATH: ${TRANSCRIBE_MODEL_PATH:-/models/ggml-base.en.bin}
+    depends_on:
+      chroma:
+        condition: service_healthy
+      ollama:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  chroma:
+    image: chromadb/chroma:latest
+    ports:
+      - "8000:8000"
+    volumes:
+      - "./data/chroma:/data"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8000/api/v1/heartbeat || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - "./data/ollama:/root/.ollama"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:11434/ || exit 1"]
+      interval: 20s
+      timeout: 10s
+      retries: 5

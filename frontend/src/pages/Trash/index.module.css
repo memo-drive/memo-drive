@@ -1,0 +1,50 @@
+.pageWrapper {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+  flex-shrink: 0;
+}
+
+.titleGroup h2 {
+  font-size: 1.63rem;
+  font-weight: 700;
+  color: rgba(0, 0, 0, 0.95);
+  margin: 0;
+}
+
+.titleGroup p {
+  font-size: 0.88rem;
+  color: #615d59;
+  margin-top: 0.25rem;
+}
+
+.card {
+  flex: 1;
+  min-height: 0;
+  background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 12px;
+  box-shadow:
+    rgba(0, 0, 0, 0.04) 0px 4px 18px,
+    rgba(0, 0, 0, 0.027) 0px 2.025px 7.84688px,
+    rgba(0, 0, 0, 0.02) 0px 0.8px 2.925px,
+    rgba(0, 0, 0, 0.01) 0px 0.175px 1.04062px;
+  overflow: auto;
+}
+
+@media (max-width: 720px) {
+  .header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}

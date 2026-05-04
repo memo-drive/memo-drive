@@ -1,0 +1,79 @@
+import { getToken, httpClient } from "./HttpClient";
+import type { DriveFile, FileSearchResponse, MediaMeta } from "../types";
+
+export async function listFiles(path: string, sort = "name") {
+  return httpClient.get<{ files: DriveFile[] }>(
+    `/files?path=${encodeURIComponent(path)}&sort=${encodeURIComponent(sort)}`,
+  );
+}
+
+export async function createFolder(path: string, name: string) {
+  return httpClient.post<DriveFile>("/folders", { path, name });
+}
+
+export async function renameFile(id: string, name: string) {
+  return httpClient.put<DriveFile>(`/files/${id}`, { name });
+}
+
+export async function moveFile(id: string, path: string) {
+  return httpClient.put<DriveFile>(`/files/${id}`, { path });
+}
+
+export async function getFile(id: string) {
+  return httpClient.get<DriveFile>(`/files/${id}`);
+}
+
+export async function getMetadata(id: string) {
+  return httpClient.get<MediaMeta>(`/files/${id}/metadata`);
+}
+
+export async function searchFiles(request: {
+  query: string;
+  path?: string;
+  mime?: string;
+  semantic?: boolean;
+  limit?: number;
+}) {
+  return httpClient.post<FileSearchResponse>("/files/search", request);
+}
+
+export async function getDownloadText(id: string): Promise<string> {
+  const url = httpClient.assetUrl(`/files/${id}/download`);
+  const headers = new Headers();
+  const token = getToken();
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  const response = await fetch(url, { headers });
+  if (!response.ok) {
+    const message = await response.text().catch(() => response.statusText);
+    throw new Error(message || response.statusText);
+  }
+  return response.text();
+}
+
+export async function deleteFile(id: string) {
+  return httpClient.delete<void>(`/files/${id}`);
+}
+
+export async function listTrash() {
+  return httpClient.get<{ files: DriveFile[] }>("/trash");
+}
+
+export async function restoreFile(id: string) {
+  return httpClient.post<DriveFile>(`/trash/${id}/restore`, {});
+}
+
+export async function purgeFile(id: string) {
+  return httpClient.delete<void>(`/trash/${id}`);
+}
+
+export async function emptyTrash() {
+  return httpClient.delete<{ purged: number }>("/trash");
+}
+
+export function downloadUrl(id: string) {
+  return httpClient.assetUrl(`/files/${id}/download`);
+}
+
+export function thumbnailUrl(id: string) {
+  return httpClient.assetUrl(`/files/${id}/thumbnail`);
+}

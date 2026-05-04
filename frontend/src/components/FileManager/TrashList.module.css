@@ -1,0 +1,134 @@
+.tableWrapper {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  text-align: left;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.tableHeadRow {
+  background-color: rgba(250, 250, 250, 0.5);
+}
+
+.tableHeadCell,
+.tableHeadCellRight {
+  padding: 1rem 1.5rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #71717a;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #fafafa;
+  border-bottom: 1px solid #f4f4f5;
+}
+
+.tableHeadCellRight {
+  text-align: right;
+}
+
+.tableRow {
+  transition: background-color 0.15s;
+}
+
+.tableRow:hover {
+  background-color: rgba(250, 250, 250, 0.8);
+}
+
+.tableCell,
+.tableCellRight {
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid #f4f4f5;
+  vertical-align: middle;
+}
+
+.tableCellRight {
+  text-align: right;
+}
+
+.fileIconWrapper {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.iconBox {
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 0.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.iconBoxDir {
+  background-color: #fff7ed;
+  color: #ea580c;
+}
+
+.iconBoxImg {
+  background-color: #ecfdf5;
+  color: #10b981;
+}
+
+.iconBoxFile {
+  background-color: #eff6ff;
+  color: #3b82f6;
+}
+
+.fileName {
+  font-weight: 600;
+  color: #18181b;
+  margin: 0;
+}
+
+.fileDesc,
+.metaText {
+  font-size: 0.875rem;
+  color: #52525b;
+}
+
+.fileDesc {
+  margin: 0.15rem 0 0;
+  color: #a1a1aa;
+}
+
+.actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.empty {
+  min-height: 18rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 0.5rem;
+  color: #71717a;
+  text-align: center;
+}
+
+.empty span {
+  font-size: 3rem;
+  color: #d4d4d8;
+}
+
+.empty h3 {
+  margin: 0;
+  color: #18181b;
+  font-size: 1rem;
+}
+
+.empty p {
+  margin: 0;
+  font-size: 0.875rem;
+}

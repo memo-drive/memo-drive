@@ -1,0 +1,41 @@
+.toggle {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 999px;
+  background: #f6f8fb;
+}
+
+.tab {
+  border: 0;
+  border-radius: 999px;
+  padding: 7px 10px;
+  background: transparent;
+  color: #626d7a;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition:
+    background-color 0.18s,
+    box-shadow 0.18s,
+    color 0.18s,
+    transform 0.18s;
+}
+
+.tab:hover {
+  color: #0f172a;
+}
+
+.tab:focus-visible {
+  outline: 2px solid rgba(9, 127, 232, 0.35);
+  outline-offset: 2px;
+}
+
+.active {
+  background: #ffffff;
+  color: #0068c9;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.08);
+}

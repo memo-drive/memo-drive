@@ -1,0 +1,36 @@
+{
+  "name": "memodrive-frontend",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "vite build",
+    "typecheck": "tsc -b",
+    "preview": "vite preview --host 0.0.0.0"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "^5.0.4",
+    "highlight.js": "^11.11.1",
+    "pdfjs-dist": "4.8.69",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "react-markdown": "^10.1.0",
+    "react-pdf": "^9.2.1",
+    "react-router-dom": "^7.14.2",
+    "rehype-highlight": "^7.0.2",
+    "remark-gfm": "^4.0.1",
+    "typescript": "^5.9.2",
+    "vite": "^7.1.7",
+    "zustand": "^5.0.8"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.1.13",
+    "@types/node": "24.10.1",
+    "@types/react": "^19.1.1",
+    "@types/react-dom": "^19.1.1",
+    "postcss": "^8.5.6",
+    "postcss-nested": "^7.0.2",
+    "tailwindcss": "^4.1.13"
+  }
+}

@@ -1,0 +1,53 @@
+.panel {
+  padding: 1rem;
+}
+
+.muted {
+  color: #a39e98;
+  font-size: 0.875rem;
+}
+
+.eyebrow {
+  margin: 0 0 0.5rem;
+  color: #0075de;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.title {
+  margin: 0 0 1rem;
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: rgba(0,0,0,0.95);
+  word-break: break-all;
+}
+
+.dl {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin: 0;
+}
+
+.row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid rgba(0,0,0,0.05);
+}
+
+.row dt {
+  color: #615d59;
+  font-size: 0.875rem;
+}
+
+.row dd {
+  margin: 0;
+  font-weight: 600;
+  font-size: 0.875rem;
+  color: rgba(0,0,0,0.95);
+  text-align: right;
+}

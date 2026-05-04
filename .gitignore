@@ -1,0 +1,12 @@
+data/
+.env
+node_modules/
+dist/
+coverage/
+*.log
+.DS_Store
+backend/memodrive
+material/
+package-lock.json
+pnpm-lock.yaml
+!frontend/pnpm-lock.yaml

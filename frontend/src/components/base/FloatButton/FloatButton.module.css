@@ -1,0 +1,59 @@
+.fab {
+  position: fixed;
+  z-index: 900;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 50%;
+  background-color: #0075de;
+  color: #ffffff;
+  cursor: pointer;
+  box-shadow:
+    rgba(0, 0, 0, 0.01) 0px 1px 3px,
+    rgba(0, 0, 0, 0.02) 0px 3px 7px,
+    rgba(0, 0, 0, 0.02) 0px 7px 15px,
+    rgba(0, 0, 0, 0.04) 0px 14px 28px,
+    rgba(0, 0, 0, 0.05) 0px 23px 52px;
+  transition: background-color 0.15s, transform 0.15s, box-shadow 0.15s;
+  outline: none;
+  user-select: none;
+}
+
+.fab:focus-visible {
+  box-shadow: 0 0 0 2px #097fe8;
+}
+
+.fab:hover:not(:disabled) {
+  background-color: #005bab;
+  transform: scale(1.08);
+}
+
+.fab:active:not(:disabled) {
+  transform: scale(0.9);
+}
+
+.fab:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+  background-color: #a39e98;
+}
+
+/* Sizes */
+.sm {
+  width: 40px;
+  height: 40px;
+  font-size: 20px;
+}
+
+.md {
+  width: 56px;
+  height: 56px;
+  font-size: 24px;
+}
+
+.lg {
+  width: 64px;
+  height: 64px;
+  font-size: 28px;
+}

@@ -1,0 +1,135 @@
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  font-family: "Inter", -apple-system, system-ui, sans-serif;
+  font-weight: 600;
+  font-size: 14px;
+  line-height: 1.33;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+  transition: background-color 0.15s, color 0.15s, transform 0.15s, box-shadow 0.15s;
+  outline: none;
+}
+
+.btn:focus-visible {
+  box-shadow: 0 0 0 2px #097fe8;
+}
+
+.btn:active:not(:disabled) {
+  transform: scale(0.9);
+}
+
+.btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+/* --- Sizes --- */
+.sizeSm {
+  padding: 4px 10px;
+  font-size: 13px;
+  line-height: 1.33;
+}
+
+.sizeMd {
+  padding: 8px 16px;
+}
+
+.sizeLg {
+  padding: 12px 24px;
+  font-size: 16px;
+}
+
+/* --- Primary --- */
+.primary {
+  background-color: #0075de;
+  color: #ffffff;
+  border-color: transparent;
+}
+
+.primary:hover:not(:disabled) {
+  background-color: #005bab;
+}
+
+/* --- Secondary --- */
+.secondary {
+  background-color: rgba(0, 0, 0, 0.05);
+  color: rgba(0, 0, 0, 0.95);
+  border-color: transparent;
+}
+
+.secondary:hover:not(:disabled) {
+  transform: scale(1.05);
+}
+
+.secondary:active:not(:disabled) {
+  transform: scale(0.9);
+}
+
+/* --- Danger --- */
+.danger {
+  background-color: #ba1a1a;
+  color: #ffffff;
+  border-color: transparent;
+}
+
+.danger:hover:not(:disabled) {
+  background-color: #93000a;
+}
+
+/* --- Ghost --- */
+.ghost {
+  background-color: transparent;
+  color: rgba(0, 0, 0, 0.95);
+  border-color: transparent;
+  text-decoration: none;
+}
+
+.ghost:hover:not(:disabled) {
+  text-decoration: underline;
+}
+
+/* --- Pill --- */
+.pill {
+  background-color: #f2f9ff;
+  color: #097fe8;
+  border-color: transparent;
+  border-radius: 9999px;
+  padding: 4px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.125px;
+  line-height: 1.33;
+}
+
+.pill:hover:not(:disabled) {
+  background-color: #e5f2ff;
+}
+
+/* --- Block --- */
+.block {
+  display: flex;
+  width: 100%;
+}
+
+/* --- Loading spinner --- */
+.spinner {
+  display: inline-block;
+  width: 1em;
+  height: 1em;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.55s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

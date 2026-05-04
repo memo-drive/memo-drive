@@ -1,0 +1,40 @@
+services:
+  edge:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+      frontend:
+        condition: service_started
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/nginx/tls.conf:/etc/nginx/conf.d/default.conf:ro
+      - ${TLS_CERT_PATH:-./deploy/certs/fullchain.pem}:/etc/nginx/certs/fullchain.pem:ro
+      - ${TLS_CERT_KEY_PATH:-./deploy/certs/privkey.pem}:/etc/nginx/certs/privkey.pem:ro
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:80/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  frontend:
+    restart: unless-stopped
+    ports: []
+
+  backend:
+    restart: unless-stopped
+    ports: []
+    environment:
+      HOST: 0.0.0.0
+      PORT: 8080
+
+  chroma:
+    restart: unless-stopped
+    ports: []
+
+  ollama:
+    restart: unless-stopped
+    ports: []

@@ -1,0 +1,134 @@
+.wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.compact {
+  max-width: 92%;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #536171;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.count {
+  min-width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: #e8f3ff;
+  color: #0068c9;
+  font-size: 11px;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.card {
+  border: 1px solid rgba(0, 117, 222, 0.14);
+  border-radius: 12px;
+  padding: 9px 10px;
+  background: #ffffff;
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.05);
+  cursor: pointer;
+  transition:
+    border-color 0.18s,
+    box-shadow 0.18s,
+    transform 0.18s;
+}
+
+.card:hover {
+  border-color: rgba(0, 117, 222, 0.34);
+  box-shadow: 0 12px 26px rgba(15, 23, 42, 0.08);
+  transform: translateY(-1px);
+}
+
+.card:focus-visible {
+  outline: 2px solid rgba(9, 127, 232, 0.35);
+  outline-offset: 2px;
+}
+
+.disabled {
+  opacity: 0.52;
+  cursor: not-allowed;
+  filter: grayscale(0.5);
+}
+
+.disabled:hover {
+  transform: none;
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.05);
+}
+
+.cardTop {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 6px;
+  align-items: center;
+}
+
+.index {
+  color: #0068c9;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.fileName {
+  min-width: 0;
+  color: #172033;
+  font-size: 12px;
+  font-weight: 800;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.score {
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: #eef7ee;
+  color: #29733b;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.heading {
+  margin-top: 5px;
+  color: #536171;
+  font-size: 12px;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.snippet {
+  display: -webkit-box;
+  margin: 6px 0 0;
+  color: #687485;
+  font-size: 12px;
+  line-height: 1.45;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.loading {
+  margin-top: 8px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: #f8fbff;
+  color: #536171;
+  font-size: 12px;
+}
