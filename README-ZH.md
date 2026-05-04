@@ -286,11 +286,11 @@ make test
     - `[✓]` **12-D** 多 query 扩展：LLM 生成 2-3 个替代 query，结果去重合并
     - `[✓]` **12-E** 混合检索：SQLite FTS5/BM25 优先，环境不支持 FTS5 时降级 LIKE，再与 Chroma 向量结果做 RRF 融合
     - `[✓]` **12-F** 父子 chunking：小 chunk 用于检索，大 chunk 用于 LLM 上下文
-- `[ ]` **优先级 13: 传输管理增强 (Transfer Management)**
-    - `[ ]` **13-A** 上传实时进度展示：`useChunkedUpload` chunk 级进度接入 Transfer 页，新建 `transferStore` 替换 mock 数据
-    - `[ ]` **13-B** 取消上传：后端新增 `DELETE /upload/:id` 取消 session 并清理临时文件；前端 `AbortController` 中断传输
-    - `[ ]` **13-C** 暂停 / 断点续传：后端新增 `GET /upload/:id` 查询 session 状态；前端暂停循环 + localStorage 持久化 session 信息
-    - `[ ]` **13-D** 上传记录管理：后端新增 session 列表/单条删除/批量清除接口；前端 Transfer 页支持单条清除和全部清除
+- `[✓]` **优先级 13: 传输管理增强 (Transfer Management)**
+    - `[✓]` **13-A** 上传实时进度展示：`useChunkedUpload` chunk 级进度接入 Transfer 页，新建 `transferStore` 替换 mock 数据
+    - `[✓]` **13-B** 取消上传：后端新增 `DELETE /upload/:id` 取消 session 并清理临时文件；前端 `AbortController` 中断传输
+    - `[✓]` **13-C** 暂停 / 断点续传：后端新增 `GET /upload/:id` 查询 session 状态；前端暂停循环 + localStorage 持久化 session 信息
+    - `[✓]` **13-D** 上传记录管理：后端新增 session 列表/单条删除/批量清除接口；前端 Transfer 页支持单条清除和全部清除
 - `[✓]` **优先级 14: 自然语言意图搜索 (NL Intent Search)**
     - `[✓]` **14-A** 意图解析器：规则 + LLM 两级解析，从自然语言中提取时间范围、文件类型、纯文本关键词
     - `[✓]` **14-B** 存储层过滤扩展：`FileSearchFilter` 增加 `DateFrom/DateTo`，新增 `ListFileIDsByFilter` 按日期和类型预查 file_id 列表

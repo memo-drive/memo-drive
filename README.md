@@ -286,11 +286,11 @@ make test
     - `[✓]` **12-D** Multi-query expansion: LLM generates 2-3 alternate queries, results merged via deduplication.
     - `[✓]` **12-E** Hybrid retrieval: SQLite FTS5 BM25 on chunk text + Reciprocal Rank Fusion with vector results.
     - `[✓]` **12-F** Parent-child chunking: small chunks for retrieval, parent chunks for LLM context.
-- `[ ]` **Priority 13: Transfer Management Enhancement**
-    - `[ ]` **13-A** Real-time upload progress: wire `useChunkedUpload` chunk-level progress into Transfer page via `transferStore`, replacing mock data.
-    - `[ ]` **13-B** Cancel upload: backend `DELETE /upload/:id` to cancel session and cleanup temp files; frontend `AbortController` to interrupt in-flight chunks.
-    - `[ ]` **13-C** Pause / resume upload: backend `GET /upload/:id` to query session state; frontend pause loop + localStorage session persistence for cross-refresh resume.
-    - `[ ]` **13-D** Upload record management: backend list/delete/clear session APIs; frontend single-delete and clear-all on Transfer page.
+- `[✓]` **Priority 13: Transfer Management Enhancement**
+    - `[✓]` **13-A** Real-time upload progress: wire `useChunkedUpload` chunk-level progress into Transfer page via `transferStore`, replacing mock data.
+    - `[✓]` **13-B** Cancel upload: backend `DELETE /upload/:id` to cancel session and cleanup temp files; frontend `AbortController` to interrupt in-flight chunks.
+    - `[✓]` **13-C** Pause / resume upload: backend `GET /upload/:id` to query session state; frontend pause loop + localStorage session persistence for cross-refresh resume.
+    - `[✓]` **13-D** Upload record management: backend list/delete/clear session APIs; frontend single-delete and clear-all on Transfer page.
 - `[✓]` **Priority 14: NL Intent Search**
     - `[✓]` **14-A** Intent parser: two-tier (regex rules + LLM fallback) extraction of date ranges, file types, and text keywords from natural language queries.
     - `[✓]` **14-B** Storage layer filter extension: add `DateFrom/DateTo` to `FileSearchFilter`; new `ListFileIDsByFilter` for pre-filtering file IDs by date and type.
