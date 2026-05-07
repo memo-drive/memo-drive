@@ -6,6 +6,7 @@ import {
   type KeyboardEvent,
   type WheelEvent,
 } from "react";
+import { useTranslation } from "react-i18next";
 import { downloadUrl, getMetadata } from "../../api/fileApi";
 import type { DriveFile, MediaMeta } from "../../types";
 import { MediaMetaBar } from "./MediaMetaBar";
@@ -44,13 +45,14 @@ function ImageMetaPanel({
   fallbackDimensions: { width?: number; height?: number };
   metaError: string;
 }) {
+  const { t } = useTranslation();
   const takenAt = formatDate(meta?.taken_at);
   const hasLocation =
     typeof meta?.latitude === "number" && typeof meta?.longitude === "number";
 
   return (
     <div className={styles.imageMeta}>
-      <h3>图片信息</h3>
+      <h3>{t("preview.imageInfo")}</h3>
       <MediaMetaBar
         mode="image"
         meta={meta}
@@ -60,19 +62,19 @@ function ImageMetaPanel({
       <dl className={styles.metaList}>
         {takenAt && (
           <div>
-            <dt>拍摄时间</dt>
+            <dt>{t("preview.takenAt")}</dt>
             <dd>{takenAt}</dd>
           </div>
         )}
         {meta?.camera && (
           <div>
-            <dt>相机</dt>
+            <dt>{t("preview.camera")}</dt>
             <dd>{meta.camera}</dd>
           </div>
         )}
         {hasLocation && (
           <div>
-            <dt>位置</dt>
+            <dt>{t("preview.location")}</dt>
             <dd>
               <a
                 className={styles.mapLink}
@@ -88,7 +90,7 @@ function ImageMetaPanel({
         {!loading && metaError && (
           <div>
             <dt>元信息</dt>
-            <dd>暂无元信息</dd>
+            <dd>{t("preview.noMetaInfo")}</dd>
           </div>
         )}
       </dl>
@@ -97,6 +99,7 @@ function ImageMetaPanel({
 }
 
 export function ImageViewer({ file }: { file: DriveFile }) {
+  const { t } = useTranslation();
   const [scale, setScale] = useState(1);
   const [fitMode, setFitMode] = useState(true);
   const [showMeta, setShowMeta] = useState(false);
@@ -124,7 +127,7 @@ export function ImageViewer({ file }: { file: DriveFile }) {
       .catch((err) => {
         if (!cancelled) {
           setMeta(null);
-          setMetaError(err instanceof Error ? err.message : "元信息加载失败");
+          setMetaError(err instanceof Error ? err.message : t("preview.metaLoadFailed"));
         }
       })
       .finally(() => {
@@ -191,7 +194,7 @@ export function ImageViewer({ file }: { file: DriveFile }) {
               type="button"
               onClick={() => setShowMeta((value) => !value)}
             >
-              {showMeta ? "隐藏信息" : "图片信息"}
+              {showMeta ? t("preview.hideInfo") : t("preview.imageInfo")}
             </button>
           }
         >
@@ -257,9 +260,9 @@ export function ImageViewer({ file }: { file: DriveFile }) {
           setScale(1);
         }}
       >
-        {!loaded && !loadFailed && <PreviewLoading label="加载图片..." />}
+        {!loaded && !loadFailed && <PreviewLoading label={t("preview.loadingImage")} />}
         {loadFailed ? (
-          <PreviewError message="图片加载失败" onRetry={retry} />
+          <PreviewError message={t("preview.imageLoadFailed")} onRetry={retry} />
         ) : (
           <img
             key={retryKey}

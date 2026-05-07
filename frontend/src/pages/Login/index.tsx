@@ -1,10 +1,12 @@
 import { FormEvent, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Navigate, useNavigate } from "react-router-dom";
 import { getToken, httpClient } from "../../api/client";
 import { Button } from "../../components/base";
 import styles from "./index.module.css";
 
 export function LoginPage() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -32,7 +34,7 @@ export function LoginPage() {
           </div>
           <h1 className={styles.title}>MemoDrive</h1>
           <p className={styles.subtitle}>
-            继续你的个人工作空间。
+            {t("auth.subtitle")}
           </p>
         </div>
 
@@ -40,7 +42,7 @@ export function LoginPage() {
           <div>
             <div className="flex justify-between items-center mb-1">
               <label className={styles.label} htmlFor="password">
-                密码
+                {t("auth.password")}
               </label>
             </div>
             <input
@@ -60,7 +62,7 @@ export function LoginPage() {
           )}
 
           <Button type="submit" block className={styles.submitBtn}>
-            登录
+            {t("auth.login")}
             <span className="material-symbols-outlined text-[18px]">
               arrow_forward
             </span>
@@ -68,9 +70,9 @@ export function LoginPage() {
         </form>
 
         <footer className="mt-8 text-center flex gap-4 text-sm text-zinc-400">
-          <span>私有</span>
-          <span>安全</span>
-          <span>加密</span>
+          <span>{t("auth.private")}</span>
+          <span>{t("auth.secure")}</span>
+          <span>{t("auth.encrypted")}</span>
         </footer>
       </div>
 

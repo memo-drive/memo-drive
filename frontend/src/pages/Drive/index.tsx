@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
 	createFolder,
 	deleteFile,
@@ -23,6 +24,7 @@ import styles from "./index.module.css";
 const MAX_CRUMB_LEVELS = 3;
 
 export function DrivePage() {
+	const { t } = useTranslation();
 	const {
 		currentPath,
 		files,
@@ -55,7 +57,7 @@ export function DrivePage() {
 	// Breadcrumbs (computed on each render, fine for this use case)
 	function buildCrumbs() {
 		const parts = currentPath.split("/").filter(Boolean);
-		const all = [{ label: "根目录", path: "/" }].concat(
+		const all = [{ label: t("drive.rootDir"), path: "/" }].concat(
 			parts.map((part: string, i: number) => ({
 				label: part,
 				path: "/" + parts.slice(0, i + 1).join("/"),
@@ -84,7 +86,7 @@ export function DrivePage() {
 			setFiles(result.files);
 			setError("");
 		} catch (err) {
-			setError(err instanceof Error ? err.message : "加载文件失败");
+			setError(err instanceof Error ? err.message : t("drive.loadError"));
 		}
 	}
 
@@ -166,10 +168,10 @@ export function DrivePage() {
 			setFileToDelete(null);
 			setSelectedFile(undefined);
 			await refresh();
-			message.success(`${fileToDelete.name} 已移到回收站`);
+			message.success(t("drive.deleteSuccess", { name: fileToDelete.name }));
 		} catch (err) {
 			message.error(
-				err instanceof Error ? err.message : "删除失败",
+				err instanceof Error ? err.message : t("drive.deleteFailed"),
 			);
 		} finally {
 			setDeleting(false);
@@ -186,9 +188,9 @@ export function DrivePage() {
 			setRenameTarget(null);
 			setNewName("");
 			await refresh();
-			message.success("已重命名");
+			message.success(t("drive.renameSuccess"));
 		} catch (err) {
-			message.error(isHTTPStatus(err, 409) ? "目标位置已存在同名文件" : "重命名失败");
+			message.error(isHTTPStatus(err, 409) ? t("moveDialog.targetExists") : t("drive.renameFailed"));
 		} finally {
 			setRenaming(false);
 		}
@@ -208,7 +210,7 @@ export function DrivePage() {
 		if (!files || files.length === 0) return;
 		const selected = Array.from(files);
 		message.info(
-			`${selected.length} 个文件已加入传输列表，可在“传输”页查看进度、暂停或取消。`,
+			t("drive.filesAddedToTransfer", { count: selected.length }),
 		);
 		for (const file of selected) {
 			void upload(file, currentPath).catch((err) => {
@@ -246,13 +248,13 @@ export function DrivePage() {
 				<span
 					className={`${previewStyles.statusBadge} ${previewStyles.badgeProcessing}`}
 				>
-					处理中
+					{t("drive.processing")}
 				</span>
 			) : file.status === "failed" ? (
 				<span
 					className={`${previewStyles.statusBadge} ${previewStyles.badgeFailed}`}
 				>
-					处理失败
+					{t("drive.processFailed")}
 				</span>
 			) : null;
 
@@ -265,7 +267,7 @@ export function DrivePage() {
 					href={downloadUrl(file.id)}
 					download={file.name}
 				>
-					下载
+					{t("common.download")}
 				</a>
 			</div>
 		);
@@ -275,8 +277,8 @@ export function DrivePage() {
 		<div className={styles.pageWrapper}>
 			<div className={styles.header}>
 				<div className={styles.titleGroup}>
-					<h2>主页</h2>
-					<p>管理和组织您的个人云存储。</p>
+					<h2>{t("drive.title")}</h2>
+					<p>{t("drive.subtitle")}</p>
 				</div>
 			</div>
 
@@ -286,7 +288,7 @@ export function DrivePage() {
 					<button
 						className={styles.backBtn}
 						onClick={() => setCurrentPath(parentPath)}
-						title="返回上一级"
+						title={t("drive.backToParent")}
 					>
 						<span
 							className="material-symbols-outlined"
@@ -323,7 +325,7 @@ export function DrivePage() {
 						className={styles.searchInput}
 						value={query}
 						onChange={(event: any) => setQuery(event.target.value)}
-						placeholder="搜索文件、内容或照片元信息"
+						placeholder={t("drive.searchPlaceholder")}
 					/>
 					<label className={styles.semanticToggle}>
 						<input
@@ -333,7 +335,7 @@ export function DrivePage() {
 								setIncludeSemantic(Boolean(event.target.checked))
 							}
 						/>
-						<span>包含语义搜索</span>
+						<span>{t("drive.semanticSearchHint")}</span>
 					</label>
 				</div>
 				<div className="flex items-center gap-2">
@@ -341,7 +343,7 @@ export function DrivePage() {
 						<span className="material-symbols-outlined text-[14px]">
 							create_new_folder
 						</span>
-						新建文件夹
+						{t("drive.newFolder")}
 					</Button>
 					<input
 						ref={fileInputRef}
@@ -357,7 +359,7 @@ export function DrivePage() {
 						<span className="material-symbols-outlined text-[14px]">
 							upload_file
 						</span>
-						上传
+						{t("drive.upload")}
 					</Button>
 				</div>
 			</div>
@@ -393,14 +395,14 @@ export function DrivePage() {
 			<Modal
 				open={folderModalOpen}
 				onClose={() => setFolderModalOpen(false)}
-				title="新建文件夹"
+				title={t("drive.newFolder")}
 				footer={
 					<>
 						<Button
 							variant="secondary"
 							onClick={() => setFolderModalOpen(false)}
 						>
-							取消
+							{t("common.cancel")}
 						</Button>
 						<Button
 							variant="primary"
@@ -408,14 +410,14 @@ export function DrivePage() {
 							disabled={!folderName.trim() || creating}
 							loading={creating}
 						>
-							创建
+							{t("common.create")}
 						</Button>
 					</>
 				}
 			>
 				<div className="flex flex-col gap-2">
 					<label className="text-sm font-medium text-warm-gray-500">
-						文件夹名称
+						{t("drive.folderName")}
 					</label>
 					<input
 						type="text"
@@ -429,7 +431,7 @@ export function DrivePage() {
 						onKeyDown={(e: any) => {
 							if (e.key === "Enter") handleCreateFolder();
 						}}
-						placeholder="输入文件夹名称"
+						placeholder={t("drive.folderNamePlaceholder")}
 						autoFocus
 					/>
 				</div>
@@ -439,14 +441,14 @@ export function DrivePage() {
 			<Modal
 				open={!!renameTarget}
 				onClose={() => setRenameTarget(null)}
-				title="重命名"
+				title={t("common.rename")}
 				footer={
 					<>
 						<Button
 							variant="secondary"
 							onClick={() => setRenameTarget(null)}
 						>
-							取消
+							{t("common.cancel")}
 						</Button>
 						<Button
 							variant="primary"
@@ -459,14 +461,14 @@ export function DrivePage() {
 							}
 							loading={renaming}
 						>
-							保存
+							{t("common.save")}
 						</Button>
 					</>
 				}
 			>
 				<div className="flex flex-col gap-2">
 					<label className="text-sm font-medium text-warm-gray-500">
-						新名称
+						{t("drive.newName")}
 					</label>
 					<input
 						type="text"
@@ -480,11 +482,11 @@ export function DrivePage() {
 						onKeyDown={(e: any) => {
 							if (e.key === "Enter") void handleRenameSubmit();
 						}}
-						placeholder="输入新名称"
+						placeholder={t("drive.newNamePlaceholder")}
 						autoFocus
 					/>
 					{newName.includes("/") ? (
-						<p className="text-xs text-red-600">名称不能包含 /</p>
+						<p className="text-xs text-red-600">{t("drive.nameNoSlash")}</p>
 					) : null}
 				</div>
 			</Modal>
@@ -513,31 +515,27 @@ export function DrivePage() {
 			<Modal
 				open={!!fileToDelete}
 				onClose={() => setFileToDelete(null)}
-				title="确认删除"
+				title={t("drive.confirmDelete")}
 				footer={
 					<>
 						<Button
 							variant="secondary"
 							onClick={() => setFileToDelete(null)}
 						>
-							取消
+							{t("common.cancel")}
 						</Button>
 						<Button
 							variant="danger"
 							onClick={handleDeleteConfirm}
 							loading={deleting}
 						>
-							移到回收站
+							{t("drive.deleteToTrash")}
 						</Button>
 					</>
 				}
 			>
 				<p className="text-sm text-warm-gray-500">
-					确定要把{" "}
-					<span className="font-semibold text-notion-black">
-						{fileToDelete?.name}
-					</span>{" "}
-					移到回收站吗？回收站会保留 30 天，期间可以恢复。
+					{t("drive.deleteConfirmBody", { name: fileToDelete?.name })}
 				</p>
 			</Modal>
 

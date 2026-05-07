@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import type { MediaMeta } from "../../types";
 import { formatDuration } from "./formatDuration";
 import styles from "./FilePreview.module.css";
@@ -20,8 +21,10 @@ export function MediaMetaBar({
   mode,
   fallbackDimensions,
 }: MediaMetaBarProps) {
+  const { t } = useTranslation();
+
   if (loading) {
-    return <div className={styles.metaSkeleton}>读取媒体元信息...</div>;
+    return <div className={styles.metaSkeleton}>{t("preview.mediaReading")}</div>;
   }
 
   const width = meta?.width || fallbackDimensions?.width;
@@ -29,24 +32,24 @@ export function MediaMetaBar({
   const items: Array<{ label: string; value: string }> = [];
 
   if ((mode === "video" || mode === "image") && width && height) {
-    items.push({ label: "分辨率", value: `${width} × ${height}` });
+    items.push({ label: t("preview.resolution"), value: `${width} × ${height}` });
   }
   if ((mode === "video" || mode === "audio") && meta?.duration) {
-    items.push({ label: "时长", value: formatDuration(meta.duration) });
+    items.push({ label: t("preview.duration"), value: formatDuration(meta.duration) });
   }
   if ((mode === "video" || mode === "audio") && meta?.codec) {
-    items.push({ label: "编码", value: meta.codec });
+    items.push({ label: t("preview.encoding"), value: meta.codec });
   }
   const bitrate = formatBitrate(meta?.bitrate);
   if ((mode === "video" || mode === "audio") && bitrate) {
-    items.push({ label: "比特率", value: bitrate });
+    items.push({ label: t("preview.bitrate"), value: bitrate });
   }
   if ((mode === "video" || mode === "audio") && meta?.format) {
-    items.push({ label: "格式", value: meta.format });
+    items.push({ label: t("preview.format"), value: meta.format });
   }
 
   if (items.length === 0) {
-    return <div className={styles.metaEmpty}>暂无元信息</div>;
+    return <div className={styles.metaEmpty}>{t("preview.noMetaInfo")}</div>;
   }
 
   return (

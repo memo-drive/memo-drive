@@ -1,4 +1,5 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { clearToken } from "../api/client";
 import { Button } from "../components/base";
 import styles from "./MainLayout.module.css";
@@ -7,6 +8,7 @@ const navLinkBase =
   "flex items-center gap-3 px-3 py-2 rounded-md transition-all duration-150 ease-in-out text-[14px]";
 
 export function MainLayout() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
 
   const handleLogout = () => {
@@ -27,7 +29,7 @@ export function MainLayout() {
               MemoDrive
             </h1>
             <p className="text-[12px] text-zinc-500 font-medium">
-              AI 原生个人云盘
+              {t("layout.tagline")}
             </p>
           </div>
         </NavLink>
@@ -47,7 +49,7 @@ export function MainLayout() {
             <span className="material-symbols-outlined text-[20px]">
               folder
             </span>
-            所有文件
+            {t("layout.allFiles")}
           </NavLink>
           <NavLink
             to="/smart-search"
@@ -62,7 +64,7 @@ export function MainLayout() {
             <span className="material-symbols-outlined text-[20px]">
               auto_awesome
             </span>
-            智能搜索
+            {t("layout.smartSearch")}
           </NavLink>
           <NavLink
             to="/transfer"
@@ -77,7 +79,7 @@ export function MainLayout() {
             <span className="material-symbols-outlined text-[20px]">
               swap_vert
             </span>
-            传输
+            {t("layout.transfer")}
           </NavLink>
           <NavLink
             to="/trash"
@@ -92,7 +94,7 @@ export function MainLayout() {
             <span className="material-symbols-outlined text-[20px]">
               delete
             </span>
-            回收站
+            {t("layout.trash")}
           </NavLink>
         </nav>
 
@@ -106,7 +108,7 @@ export function MainLayout() {
             <span className="material-symbols-outlined text-[20px]">
               logout
             </span>
-            <span className="text-[14px]">退出登录</span>
+            <span className="text-[14px]">{t("layout.logout")}</span>
           </Button>
         </div>
       </aside>

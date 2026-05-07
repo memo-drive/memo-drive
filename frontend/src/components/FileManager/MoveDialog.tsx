@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { listFiles, moveFile } from "../../api/fileApi";
 import type { DriveFile } from "../../types";
 import { Button, message, Modal } from "../base";
@@ -12,6 +13,7 @@ interface Props {
 }
 
 export function MoveDialog({ open, target, onClose, onMoved }: Props) {
+  const { t } = useTranslation();
   const [currentDir, setCurrentDir] = useState("/");
   const [dirs, setDirs] = useState<DriveFile[]>([]);
   const [loading, setLoading] = useState(false);
@@ -33,7 +35,7 @@ export function MoveDialog({ open, target, onClose, onMoved }: Props) {
       })
       .catch((err) => {
         if (cancelled) return;
-        message.error(err instanceof Error ? err.message : "加载目录失败");
+        message.error(err instanceof Error ? err.message : t("drive.loadError"));
         setDirs([]);
       })
       .finally(() => {
@@ -46,6 +48,28 @@ export function MoveDialog({ open, target, onClose, onMoved }: Props) {
 
   if (!target) return null;
 
+  function breadcrumbs(path: string) {
+    const parts = path.split("/").filter(Boolean);
+    return [{ label: t("drive.rootDir"), path: "/" }].concat(
+      parts.map((part, index) => ({
+        label: part,
+        path: "/" + parts.slice(0, index + 1).join("/"),
+      })),
+    );
+  }
+
+  function disabledReason(target: DriveFile, currentDir: string) {
+    if (currentDir === target.path) {
+      return t("moveDialog.alreadyHere");
+    }
+    if (!target.is_dir) return "";
+    const targetVirtual = joinVirtualPath(target.path, target.name);
+    if (currentDir === targetVirtual || currentDir.startsWith(`${targetVirtual}/`)) {
+      return t("moveDialog.cannotMoveToSelf");
+    }
+    return "";
+  }
+
   const reason = disabledReason(target, currentDir);
 
   async function submitMove() {
@@ -53,11 +77,11 @@ export function MoveDialog({ open, target, onClose, onMoved }: Props) {
     setMoving(true);
     try {
       await moveFile(target.id, currentDir);
-      message.success("已移动");
+      message.success(t("moveDialog.success"));
       onClose();
       await onMoved();
     } catch (err) {
-      message.error(isHTTPStatus(err, 409) ? "目标位置已存在同名文件/目录" : "移动失败");
+      message.error(isHTTPStatus(err, 409) ? t("moveDialog.targetExists") : t("moveDialog.failed"));
     } finally {
       setMoving(false);
     }
@@ -67,15 +91,15 @@ export function MoveDialog({ open, target, onClose, onMoved }: Props) {
     <Modal
       open={open}
       onClose={onClose}
-      title={`移动 ${target.name}`}
+      title={t("moveDialog.title", { name: target.name })}
       width={560}
       footer={
         <>
           <Button variant="secondary" onClick={onClose}>
-            取消
+            {t("common.cancel")}
           </Button>
           <Button variant="primary" onClick={submitMove} disabled={!!reason} loading={moving}>
-            移到这里
+            {t("moveDialog.moveHere")}
           </Button>
         </>
       }
@@ -99,7 +123,7 @@ export function MoveDialog({ open, target, onClose, onMoved }: Props) {
         <div className={styles.currentBox}>
           <span className="material-symbols-outlined">folder_open</span>
           <div>
-            <strong>当前位置</strong>
+            <strong>{t("moveDialog.currentLocation")}</strong>
             <p>{currentDir}</p>
           </div>
         </div>
@@ -107,8 +131,8 @@ export function MoveDialog({ open, target, onClose, onMoved }: Props) {
         {reason ? <p className={styles.warning}>{reason}</p> : null}
 
         <div className={styles.dirList}>
-          {loading ? <div className={styles.empty}>正在加载目录...</div> : null}
-          {!loading && dirs.length === 0 ? <div className={styles.empty}>这个目录下没有子文件夹</div> : null}
+          {loading ? <div className={styles.empty}>{t("moveDialog.loadingDirs")}</div> : null}
+          {!loading && dirs.length === 0 ? <div className={styles.empty}>{t("moveDialog.emptyDirs")}</div> : null}
           {!loading
             ? dirs.map((dir) => (
                 <button
@@ -127,28 +151,6 @@ export function MoveDialog({ open, target, onClose, onMoved }: Props) {
       </div>
     </Modal>
   );
-}
-
-function breadcrumbs(path: string) {
-  const parts = path.split("/").filter(Boolean);
-  return [{ label: "根目录", path: "/" }].concat(
-    parts.map((part, index) => ({
-      label: part,
-      path: "/" + parts.slice(0, index + 1).join("/"),
-    })),
-  );
-}
-
-function disabledReason(target: DriveFile, currentDir: string) {
-  if (currentDir === target.path) {
-    return "文件已经在这个目录中";
-  }
-  if (!target.is_dir) return "";
-  const targetVirtual = joinVirtualPath(target.path, target.name);
-  if (currentDir === targetVirtual || currentDir.startsWith(`${targetVirtual}/`)) {
-    return "不能把目录移动到它自己或子目录中";
-  }
-  return "";
 }
 
 function joinVirtualPath(base: string, name: string) {

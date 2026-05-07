@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { downloadUrl, getMetadata, thumbnailUrl } from "../../api/fileApi";
 import type { DriveFile, MediaMeta } from "../../types";
 import { MediaMetaBar } from "./MediaMetaBar";
@@ -7,6 +8,7 @@ import { PreviewError } from "./PreviewState";
 import styles from "./FilePreview.module.css";
 
 export function VideoPlayer({ file }: { file: DriveFile }) {
+  const { t } = useTranslation();
   const [meta, setMeta] = useState<MediaMeta | null>(null);
   const [loadingMeta, setLoadingMeta] = useState(true);
   const [playbackError, setPlaybackError] = useState(false);
@@ -37,7 +39,7 @@ export function VideoPlayer({ file }: { file: DriveFile }) {
       <div className={styles.mediaStack}>
         {playbackError ? (
           <PreviewError
-            message="视频无法播放（可能编码不支持）"
+            message={t("preview.videoError")}
             onRetry={() => setPlaybackError(false)}
           />
         ) : (

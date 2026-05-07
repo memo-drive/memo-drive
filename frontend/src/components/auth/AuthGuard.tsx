@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import { Navigate } from "react-router-dom";
 import { getToken, httpClient } from "../../api/client";
 
@@ -7,6 +8,7 @@ interface Props {
 }
 
 export function AuthGuard({ children }: Props) {
+  const { t } = useTranslation();
   const [status, setStatus] = useState<"checking" | "authed" | "unauthed">("checking");
 
   useEffect(() => {
@@ -25,7 +27,7 @@ export function AuthGuard({ children }: Props) {
   if (status === "checking") {
     return (
       <div className="flex items-center justify-center h-screen text-sm text-gray-500">
-        MemoDrive 正在醒来...
+        {t("auth.wakingUp")}
       </div>
     );
   }

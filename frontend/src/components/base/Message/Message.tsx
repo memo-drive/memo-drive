@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { useTranslation } from "react-i18next";
 import { useMessageStore } from "./messageStore";
 import type { MessagePosition, MessageItem } from "./messageStore";
 import styles from "./Message.module.css";
@@ -25,6 +26,7 @@ interface ToastItemProps {
 }
 
 function ToastItem({ item, onRemove }: ToastItemProps) {
+  const { t } = useTranslation();
   const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   useEffect(() => {
@@ -52,7 +54,7 @@ function ToastItem({ item, onRemove }: ToastItemProps) {
           onRemove(item.id);
           item.onClose?.();
         }}
-        aria-label="关闭"
+        aria-label={t("common.close")}
       >
         ×
       </button>

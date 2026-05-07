@@ -1,9 +1,11 @@
 import {
   useEffect,
+  useMemo,
   useState,
   type FormEvent,
   type HTMLAttributes,
 } from "react";
+import { useTranslation } from "react-i18next";
 import { useAIChat } from "../../hooks/useAIChat";
 import { useAISearch } from "../../hooks/useAISearch";
 import { useChatStore } from "../../stores/chatStore";
@@ -12,8 +14,6 @@ import { ChatMessage } from "./ChatMessage";
 import { ModeToggle } from "./ModeToggle";
 import { SourceReference } from "./SourceReference";
 import styles from "./AssistantPane.module.css";
-
-const SUGGESTIONS = ["总结这次搜索", "找出关键日期", "提取金额", "翻译结果"];
 
 interface AssistantPaneProps {
   floating?: boolean;
@@ -26,6 +26,7 @@ export function AssistantPane({
   onClose,
   headerProps,
 }: AssistantPaneProps) {
+  const { t } = useTranslation();
   const [prompt, setPrompt] = useState("");
   const mode = useChatStore((state) => state.mode);
   const { messages, sending, send, stop } = useAIChat();
@@ -36,6 +37,16 @@ export function AssistantPane({
     error: searchError,
     search,
   } = useAISearch();
+
+  const SUGGESTIONS = useMemo(
+    () => [
+      t("ai.suggestion1"),
+      t("ai.suggestion2"),
+      t("ai.suggestion3"),
+      t("ai.suggestion4"),
+    ],
+    [t],
+  );
 
   useEffect(() => {
     if (mode === "search") {
@@ -62,7 +73,7 @@ export function AssistantPane({
 
   const busy = sending || searching;
   const placeholder =
-    mode === "rag" ? "问一个关于文件的问题..." : "搜索文件中的语义片段...";
+    mode === "rag" ? t("ai.placeholderRag") : t("ai.placeholderSearch");
 
   return (
     <section className={`${styles.pane} ${floating ? styles.floating : ""}`}>
@@ -70,15 +81,15 @@ export function AssistantPane({
         <div className={styles.headerLeft}>
           <span className="material-symbols-outlined">auto_awesome</span>
           <div>
-            <p className={styles.eyebrow}>AI Copilot</p>
-            <h2>AI 助手</h2>
+            <p className={styles.eyebrow}>{t("ai.eyebrow")}</p>
+            <h2>{t("ai.title")}</h2>
           </div>
         </div>
         {onClose ? (
           <button
             className={styles.closeBtn}
             onClick={handleClose}
-            aria-label="关闭 AI 助手"
+            aria-label={t("common.close")}
           >
             <span className="material-symbols-outlined">close</span>
           </button>
@@ -91,7 +102,7 @@ export function AssistantPane({
           {mode === "rag" ? (
             messages.length === 0 ? (
               <div className={styles.empty}>
-                <p>上传文档并完成索引后，就可以和文件直接对话。</p>
+                <p>{t("ai.emptyRag")}</p>
                 <div className={styles.suggestions}>
                   {SUGGESTIONS.map((item) => (
                     <button
@@ -112,10 +123,12 @@ export function AssistantPane({
           ) : (
             <div className={styles.searchPane}>
               {searchQuery ? (
-                <p className={styles.searchQuery}>搜索：{searchQuery}</p>
+                <p className={styles.searchQuery}>
+                  {t("ai.searchQuery", { query: searchQuery })}
+                </p>
               ) : (
                 <div className={styles.empty}>
-                  <p>输入关键词或问题，我会直接返回最相关的文件片段。</p>
+                  <p>{t("ai.emptySearch")}</p>
                   <div className={styles.suggestions}>
                     {SUGGESTIONS.map((item) => (
                       <button
@@ -136,7 +149,7 @@ export function AssistantPane({
                 loading={searching}
               />
               {!searching && searchQuery && searchResults.length === 0 && !searchError ? (
-                <p className={styles.muted}>没有找到相关片段，换个说法试试看。</p>
+                <p className={styles.muted}>{t("ai.noResults")}</p>
               ) : null}
             </div>
           )}
@@ -157,7 +170,13 @@ export function AssistantPane({
           size="sm"
           onClick={sending ? stop : undefined}
         >
-          {sending ? "停止" : searching ? "搜索中" : mode === "rag" ? "发送" : "搜索"}
+          {sending
+            ? t("ai.stop")
+            : searching
+              ? t("ai.searching")
+              : mode === "rag"
+                ? t("ai.send")
+                : "搜索"}
         </Button>
       </form>
     </section>

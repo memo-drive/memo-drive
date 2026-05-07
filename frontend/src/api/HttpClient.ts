@@ -184,7 +184,7 @@ class HttpClient {
       }
     } catch (err) {
       if (signal?.aborted) return;
-      handlers.onError?.(err instanceof Error ? err.message : "AI 响应中断");
+      handlers.onError?.(err instanceof Error ? err.message : "SSE stream interrupted");
       throw err;
     } finally {
       reader.releaseLock();
@@ -253,7 +253,7 @@ function dispatchSSEEvent(rawEvent: string, handlers: SSEHandlers): void {
         handlers.onSources?.(Array.isArray(payload.sources) ? payload.sources : []);
         break;
       case "error":
-        handlers.onError?.(payload.error || "AI 响应出错");
+        handlers.onError?.(payload.error || "SSE event error");
         break;
       case "done":
         handlers.onDone?.();
@@ -265,6 +265,6 @@ function dispatchSSEEvent(rawEvent: string, handlers: SSEHandlers): void {
         break;
     }
   } catch (err) {
-    handlers.onError?.(err instanceof Error ? err.message : "SSE 数据解析失败");
+    handlers.onError?.(err instanceof Error ? err.message : "SSE data parse failed");
   }
 }

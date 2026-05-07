@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type PointerEvent } from "react";
+import { useTranslation } from "react-i18next";
 import { useAIChat } from "../../hooks/useAIChat";
 import { AssistantPane } from "./AssistantPane";
 import styles from "./AIFloatyBall.module.css";
@@ -6,6 +7,7 @@ import styles from "./AIFloatyBall.module.css";
 const DRAG_THRESHOLD = 5;
 
 export function AIFloatyBall() {
+  const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
   const { stop } = useAIChat();
 
@@ -98,7 +100,7 @@ export function AIFloatyBall() {
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
           role="button"
-          aria-label="打开 AI 助手"
+          aria-label={t("ai.openAssistant")}
         >
           <span className={styles.pulseRing} />
           <span className={`material-symbols-outlined ${styles.ballIcon}`}>

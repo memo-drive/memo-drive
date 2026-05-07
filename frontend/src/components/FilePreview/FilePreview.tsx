@@ -1,4 +1,5 @@
 import { lazy, Suspense } from "react";
+import { useTranslation } from "react-i18next";
 import type { DriveFile } from "../../types";
 import { AudioPlayer } from "./AudioPlayer";
 import { CodeViewer } from "./CodeViewer";
@@ -13,12 +14,14 @@ const PdfViewer = lazy(() =>
 );
 
 export function FilePreview({ file }: { file?: DriveFile }) {
+  const { t } = useTranslation();
+
   if (!file) {
     return (
       <section className={styles.placeholder}>
         <p className={styles.eyebrow}>Preview</p>
-        <h3 className={styles.title}>选择文件后在这里预览</h3>
-        <p className={styles.desc}>图片、视频、PDF 会直接展示，其他文件提供下载入口。</p>
+        <h3 className={styles.title}>{t("preview.chooseHint")}</h3>
+        <p className={styles.desc}>{t("preview.chooseSubHint")}</p>
       </section>
     );
   }
@@ -27,7 +30,7 @@ export function FilePreview({ file }: { file?: DriveFile }) {
       <section className={styles.placeholder}>
         <p className={styles.eyebrow}>Folder</p>
         <h3 className={styles.title}>{file.name}</h3>
-        <p className={styles.desc}>双击文件夹进入目录。</p>
+        <p className={styles.desc}>{t("preview.dblClickHint")}</p>
       </section>
     );
   }
@@ -36,7 +39,7 @@ export function FilePreview({ file }: { file?: DriveFile }) {
   if (file.mime_type.startsWith("audio/")) return <AudioPlayer file={file} />;
   if (file.mime_type === "application/pdf") {
     return (
-      <Suspense fallback={<PreviewLoading label="加载 PDF 预览器..." />}>
+      <Suspense fallback={<PreviewLoading label={t("preview.loadingPdf")} />}>
         <PdfViewer file={file} />
       </Suspense>
     );

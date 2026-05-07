@@ -1,4 +1,5 @@
 import { useEffect, useRef, type MouseEvent, type ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import styles from "./Modal.module.css";
 
 export interface ModalProps {
@@ -24,6 +25,7 @@ export function Modal({
   closable = true,
   destroyOnClose = true,
 }: ModalProps) {
+  const { t } = useTranslation();
   const panelRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -64,7 +66,7 @@ export function Modal({
               <button
                 className={styles.closeBtn}
                 onClick={onClose}
-                aria-label="关闭"
+                aria-label={t("common.close")}
               >
                 ×
               </button>

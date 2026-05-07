@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   deleteConversation,
   listConversations,
@@ -14,6 +15,7 @@ interface ConversationDrawerProps {
 }
 
 export function ConversationDrawer({ open, onClose }: ConversationDrawerProps) {
+  const { t, i18n } = useTranslation();
   const conversations = useChatStore((state) => state.conversations);
   const conversationId = useChatStore((state) => state.conversationId);
   const setConversations = useChatStore((state) => state.setConversations);
@@ -59,9 +61,9 @@ export function ConversationDrawer({ open, onClose }: ConversationDrawerProps) {
       setRenamingId("");
       setRenameTitle("");
       await refresh();
-      message.success("会话已重命名");
+      message.success(t("ai.historyRenameSuccess"));
     } catch (err) {
-      message.error(err instanceof Error ? err.message : "重命名失败");
+      message.error(err instanceof Error ? err.message : t("ai.historyRenameFailed"));
     }
   }
 
@@ -75,9 +77,9 @@ export function ConversationDrawer({ open, onClose }: ConversationDrawerProps) {
       }
       setDeleteTargetId("");
       await refresh();
-      message.success("会话已删除");
+      message.success(t("ai.historyDeleteSuccess"));
     } catch (err) {
-      message.error(err instanceof Error ? err.message : "删除会话失败");
+      message.error(err instanceof Error ? err.message : t("ai.historyDeleteFailed"));
     } finally {
       setDeletingId("");
     }
@@ -94,17 +96,17 @@ export function ConversationDrawer({ open, onClose }: ConversationDrawerProps) {
         <div className={styles.header}>
           <div>
             <p>History</p>
-            <h2>历史会话</h2>
+            <h2>{t("ai.historyTitle")}</h2>
           </div>
-          <button className={styles.iconBtn} onClick={onClose} aria-label="关闭历史会话">
+          <button className={styles.iconBtn} onClick={onClose} aria-label={t("common.close")}>
             <span className="material-symbols-outlined">close</span>
           </button>
         </div>
 
         <div className={styles.list}>
-          {loading ? <p className={styles.empty}>正在加载历史...</p> : null}
+          {loading ? <p className={styles.empty}>{t("ai.historyLoading")}</p> : null}
           {!loading && conversations.length === 0 ? (
-            <p className={styles.empty}>还没有历史会话，问出第一句就会自动保存。</p>
+            <p className={styles.empty}>{t("ai.historyEmpty")}</p>
           ) : null}
           {conversations.map((item) => (
             <article
@@ -114,9 +116,9 @@ export function ConversationDrawer({ open, onClose }: ConversationDrawerProps) {
               }`}
             >
               <button className={styles.itemMain} onClick={() => void handleLoad(item.id)}>
-                <span className={styles.title}>{item.title || "新会话"}</span>
+                <span className={styles.title}>{item.title || t("ai.historyNew")}</span>
                 <span className={styles.meta}>
-                  {item.mode === "search" ? "语义搜索" : "文件问答"} ·{" "}
+                  {item.mode === "search" ? t("ai.historySearch") : t("ai.historyRag")} ·{" "}
                   {formatDate(item.updated_at)}
                 </span>
               </button>
@@ -127,7 +129,7 @@ export function ConversationDrawer({ open, onClose }: ConversationDrawerProps) {
                     setRenamingId(item.id);
                     setRenameTitle(item.title || "");
                   }}
-                  aria-label="重命名会话"
+                  aria-label={t("ai.historyRename")}
                 >
                   <span className="material-symbols-outlined">edit</span>
                 </button>
@@ -135,7 +137,7 @@ export function ConversationDrawer({ open, onClose }: ConversationDrawerProps) {
                   className={styles.iconBtn}
                   disabled={deletingId === item.id}
                   onClick={() => setDeleteTargetId(item.id)}
-                  aria-label="删除会话"
+                  aria-label={t("ai.historyDelete")}
                 >
                   <span className="material-symbols-outlined">delete</span>
                 </button>
@@ -148,14 +150,14 @@ export function ConversationDrawer({ open, onClose }: ConversationDrawerProps) {
       <Modal
         open={!!renamingId}
         onClose={() => setRenamingId("")}
-        title="重命名会话"
+        title={t("ai.historyRename")}
         footer={
           <>
             <Button variant="secondary" onClick={() => setRenamingId("")}>
-              取消
+              {t("common.cancel")}
             </Button>
             <Button onClick={handleRename} disabled={!renameTitle.trim()}>
-              保存
+              {t("common.save")}
             </Button>
           </>
         }
@@ -164,7 +166,7 @@ export function ConversationDrawer({ open, onClose }: ConversationDrawerProps) {
           className={styles.renameInput}
           value={renameTitle}
           onChange={(event) => setRenameTitle(event.target.value)}
-          placeholder="输入会话标题"
+          placeholder={t("ai.historyRenamePlaceholder")}
           autoFocus
         />
       </Modal>
@@ -172,37 +174,37 @@ export function ConversationDrawer({ open, onClose }: ConversationDrawerProps) {
       <Modal
         open={!!deleteTargetId}
         onClose={() => setDeleteTargetId("")}
-        title="删除会话"
+        title={t("ai.historyDelete")}
         footer={
           <>
             <Button variant="secondary" onClick={() => setDeleteTargetId("")}>
-              取消
+              {t("common.cancel")}
             </Button>
             <Button
               variant="danger"
               onClick={handleDeleteConfirm}
               loading={deletingId === deleteTargetId}
             >
-              删除
+              {t("ai.historyDelete")}
             </Button>
           </>
         }
       >
         <p className="text-sm text-warm-gray-500">
-          确定要删除这条会话历史吗？删除后将同时移除会话中的全部消息记录。
+          {t("ai.historyDeleteConfirm")}
         </p>
       </Modal>
     </>
   );
-}
 
-function formatDate(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "刚刚";
-  return date.toLocaleString("zh-CN", {
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  function formatDate(value: string) {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return t("ai.historyJustNow");
+    return date.toLocaleString(i18n.language, {
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  }
 }

@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { downloadUrl } from "../../api/fileApi";
 import type { DriveFile } from "../../types";
 import styles from "./FilePreview.module.css";
@@ -14,13 +15,14 @@ export function formatBytes(bytes: number): string {
   return `${value >= 10 || unit === 0 ? value.toFixed(0) : value.toFixed(1)} ${units[unit]}`;
 }
 
-export function PreviewLoading({ label = "加载中..." }: { label?: string }) {
+export function PreviewLoading({ label }: { label?: string }) {
+  const { t } = useTranslation();
   return (
     <div className={styles.placeholder}>
       <span className={styles.spinner} aria-hidden="true" />
       <p className={styles.eyebrow}>Loading</p>
-      <h3 className={styles.title}>{label}</h3>
-      <p className={styles.desc}>正在把文件搬到预览窗口里。</p>
+      <h3 className={styles.title}>{label ?? t("preview.loading")}</h3>
+      <p className={styles.desc}>{t("preview.moving")}</p>
     </div>
   );
 }
@@ -32,15 +34,16 @@ export function PreviewError({
   message: string;
   onRetry?: () => void;
 }) {
+  const { t } = useTranslation();
   return (
     <div className={styles.placeholder}>
       <div className={styles.errorBar} />
       <p className={styles.eyebrow}>Preview Error</p>
       <h3 className={styles.title}>{message}</h3>
-      <p className={styles.desc}>可以稍后重试，或直接下载原文件查看。</p>
+      <p className={styles.desc}>{t("preview.retryHint")}</p>
       {onRetry && (
         <button className={styles.retryBtn} type="button" onClick={onRetry}>
-          重新加载
+          {t("preview.reload")}
         </button>
       )}
     </div>
@@ -49,20 +52,21 @@ export function PreviewError({
 
 export function PreviewUnsupported({
   file,
-  reason = "暂不支持在线预览",
+  reason,
 }: {
   file: DriveFile;
   reason?: string;
 }) {
+  const { t } = useTranslation();
   return (
     <div className={styles.placeholder}>
       <p className={styles.eyebrow}>Unsupported</p>
       <h3 className={styles.title}>{file.name}</h3>
-      <p className={styles.desc}>{reason}</p>
+      <p className={styles.desc}>{reason ?? t("preview.notSupported")}</p>
       <dl className={styles.unsupportedMeta}>
         <div>
-          <dt>类型</dt>
-          <dd>{file.mime_type || "未知类型"}</dd>
+          <dt>{t("preview.type")}</dt>
+          <dd>{file.mime_type || t("preview.unknownType")}</dd>
         </div>
         <div>
           <dt>大小</dt>
@@ -74,7 +78,7 @@ export function PreviewUnsupported({
         type="button"
         onClick={() => window.open(downloadUrl(file.id), "_blank", "noreferrer")}
       >
-        下载文件
+        {t("preview.downloadFile")}
       </button>
     </div>
   );

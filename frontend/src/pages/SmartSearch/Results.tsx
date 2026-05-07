@@ -1,4 +1,5 @@
 import { useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { ChatMessage } from "../../components/AIAssistant/ChatMessage";
 import { getFile } from "../../api/fileApi";
 import { message } from "../../components/base";
@@ -8,6 +9,7 @@ import type { SearchIntent, SourceChunk } from "../../types";
 import styles from "./index.module.css";
 
 export function SmartSearchResults() {
+  const { t, i18n } = useTranslation();
   const mode = useChatStore((state) => state.mode);
   const messages = useChatStore((state) => state.messages);
   const results = useChatStore((state) => state.searchResults);
@@ -24,7 +26,7 @@ export function SmartSearchResults() {
       setSelectedFile(file);
       navigate("/");
     } catch {
-      message.error("源文件不存在或已删除");
+      message.error(t("smartSearch.sourceMissing"));
     }
   }
 
@@ -33,8 +35,8 @@ export function SmartSearchResults() {
       return (
         <section className={styles.resultsEmpty}>
           <span className="material-symbols-outlined">auto_awesome</span>
-          <h2>和你的文件对话</h2>
-          <p>输入问题，AI 会基于文件内容综合回答。</p>
+          <h2>{t("smartSearch.emptyRagTitle")}</h2>
+          <p>{t("smartSearch.emptyRagHint")}</p>
         </section>
       );
     }
@@ -51,8 +53,8 @@ export function SmartSearchResults() {
     return (
       <section className={styles.resultsEmpty}>
         <span className="material-symbols-outlined">travel_explore</span>
-        <h2>先问一句，让 AI 帮你找。</h2>
-        <p>输入关键词或问题，AI 帮你找到最相关的文件片段。</p>
+        <h2>{t("smartSearch.emptySearchTitle")}</h2>
+        <p>{t("smartSearch.placeholder")}</p>
       </section>
     );
   }
@@ -61,8 +63,8 @@ export function SmartSearchResults() {
     return (
       <section className={styles.resultsEmpty}>
         <span className="material-symbols-outlined">search_off</span>
-        <h2>暂时没有命中片段</h2>
-        <p>换一个关键词，或者切到文件问答模式让 AI 综合回答。</p>
+        <h2>{t("smartSearch.noResults")}</h2>
+        <p>{t("smartSearch.noResultsHint")}</p>
         {searchIntent ? <IntentChips intent={searchIntent} /> : null}
       </section>
     );
@@ -76,7 +78,7 @@ export function SmartSearchResults() {
           <h2>{searchQuery}</h2>
           {searchIntent ? <IntentChips intent={searchIntent} /> : null}
         </div>
-        <span>{results.length} 条结果</span>
+        <span>{t("smartSearch.resultCount", { count: results.length })}</span>
       </div>
       {results.map((source, index) => (
         <article key={`${source.id}-${index}`} className={styles.resultRow}>
@@ -84,9 +86,9 @@ export function SmartSearchResults() {
             <span className="material-symbols-outlined">description</span>
           </div>
           <button className={styles.resultMain} onClick={() => void openSource(source)}>
-            <strong>{source.file_name || "未知文件"}</strong>
+            <strong>{source.file_name || t("smartSearch.unknownFile")}</strong>
             <span>
-              {source.heading || "未命名段落"} · Chunk {source.chunk_index}
+              {source.heading || t("smartSearch.untitledSection")} · Chunk {source.chunk_index}
             </span>
             <p>{source.snippet || source.text}</p>
           </button>
@@ -94,7 +96,7 @@ export function SmartSearchResults() {
           <button
             className={styles.openBtn}
             onClick={() => void openSource(source)}
-            aria-label="打开来源文件"
+            aria-label={t("smartSearch.openSource")}
           >
             <span className="material-symbols-outlined">open_in_new</span>
           </button>
@@ -105,11 +107,42 @@ export function SmartSearchResults() {
 }
 
 function IntentChips({ intent }: { intent: SearchIntent }) {
+  const { t, i18n } = useTranslation();
+
+  function formatMimeChip(mime: string) {
+    if (mime === "image/") return t("smartSearch.mimeImage");
+    if (mime === "video/") return t("smartSearch.mimeVideo");
+    if (mime === "audio/") return t("smartSearch.mimeAudio");
+    if (mime.startsWith("text/")) return t("smartSearch.mimeText");
+    if (mime.includes("spreadsheet")) return t("smartSearch.mimeSpreadsheet");
+    if (mime.includes("presentation")) return t("smartSearch.mimePresentation");
+    if (mime.includes("wordprocessing") || mime === "application/msword") return t("smartSearch.mimeWord");
+    if (mime === "application/pdf") return t("smartSearch.mimePdf");
+    return mime;
+  }
+
+  function buildIntentChips(intent: SearchIntent) {
+    const chips: string[] = [];
+    if (intent.extensions?.length) {
+      chips.push(intent.extensions.map((ext) => ext.toUpperCase()).join(" / "));
+    } else if (intent.mime_types?.length) {
+      chips.push(intent.mime_types.map(formatMimeChip).join(" / "));
+    }
+    if (intent.date_from || intent.date_to) {
+      const locale = i18n.language || "zh-CN";
+      const dateFmt = new Intl.DateTimeFormat(locale, { year: "numeric", month: "2-digit", day: "2-digit" });
+      const from = intent.date_from ? dateFmt.format(new Date(intent.date_from)) : "";
+      const to = intent.date_to ? dateFmt.format(new Date(intent.date_to)) : "";
+      chips.push(from && to ? `${from} ~ ${to}` : from || to);
+    }
+    return chips;
+  }
+
   const chips = buildIntentChips(intent);
   if (chips.length === 0) return null;
 
   return (
-    <div className={styles.intentChips} aria-label="已解析的筛选条件">
+    <div className={styles.intentChips} aria-label={t("smartSearch.parsedFilters")}>
       <span className="material-symbols-outlined">filter_alt</span>
       {chips.map((chip) => (
         <span key={chip} className={styles.intentChip}>
@@ -118,31 +151,4 @@ function IntentChips({ intent }: { intent: SearchIntent }) {
       ))}
     </div>
   );
-}
-
-function buildIntentChips(intent: SearchIntent) {
-  const chips: string[] = [];
-  if (intent.extensions?.length) {
-    chips.push(intent.extensions.map((ext) => ext.toUpperCase()).join(" / "));
-  } else if (intent.mime_types?.length) {
-    chips.push(intent.mime_types.map(formatMimeChip).join(" / "));
-  }
-  if (intent.date_from || intent.date_to) {
-    const from = intent.date_from ? new Date(intent.date_from).toLocaleDateString("zh-CN") : "";
-    const to = intent.date_to ? new Date(intent.date_to).toLocaleDateString("zh-CN") : "";
-    chips.push(from && to ? `${from} ~ ${to}` : from || to);
-  }
-  return chips;
-}
-
-function formatMimeChip(mime: string) {
-  if (mime === "image/") return "图片";
-  if (mime === "video/") return "视频";
-  if (mime === "audio/") return "音频";
-  if (mime.startsWith("text/")) return "文本";
-  if (mime.includes("spreadsheet")) return "表格";
-  if (mime.includes("presentation")) return "演示文稿";
-  if (mime.includes("wordprocessing") || mime === "application/msword") return "Word";
-  if (mime === "application/pdf") return "PDF";
-  return mime;
 }

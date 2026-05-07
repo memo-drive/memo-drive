@@ -16,3 +16,6 @@ export { FloatButton } from "./FloatButton/FloatButton";
 
 export { Popover } from "./Popover/Popover";
 export type { PopoverProps } from "./Popover/Popover";
+
+export { Segment } from "./Segment/Segment";
+export type { SegmentOption } from "./Segment/Segment";

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { getMetadata } from "../../api/fileApi";
 import type { DriveFile, MediaMeta } from "../../types";
 import styles from "./MetadataPanel.module.css";
@@ -8,6 +9,7 @@ interface Props {
 }
 
 export function MetadataPanel({ file }: Props) {
+  const { t } = useTranslation();
   const [meta, setMeta] = useState<MediaMeta | null>(null);
   const [error, setError] = useState("");
 
@@ -21,23 +23,23 @@ export function MetadataPanel({ file }: Props) {
       .then(setMeta)
       .catch(() => {
         setMeta(null);
-        setError("暂无媒体元信息");
+        setError(t("media.noMeta"));
       });
   }, [file]);
 
-  if (!file) return <aside className={`${styles.panel} ${styles.muted}`}>选择一个文件查看详情。</aside>;
+  if (!file) return <aside className={`${styles.panel} ${styles.muted}`}>{t("media.selectToView")}</aside>;
   if (error) return <aside className={`${styles.panel} ${styles.muted}`}>{error}</aside>;
-  if (!meta) return <aside className={`${styles.panel} ${styles.muted}`}>元信息解析中或不适用于该文件。</aside>;
+  if (!meta) return <aside className={`${styles.panel} ${styles.muted}`}>{t("media.metaParsing")}</aside>;
 
   const rows = [
-    ["尺寸", meta.width && meta.height ? `${meta.width} x ${meta.height}` : ""],
-    ["时长", meta.duration ? `${meta.duration.toFixed(1)} 秒` : ""],
-    ["拍摄时间", meta.taken_at ? new Date(meta.taken_at).toLocaleString() : ""],
-    ["相机", meta.camera ?? ""],
-    ["位置", meta.latitude && meta.longitude ? `${meta.latitude.toFixed(5)}, ${meta.longitude.toFixed(5)}` : ""],
-    ["编码", meta.codec ?? ""],
-    ["码率", meta.bitrate ? `${Math.round(meta.bitrate / 1000)} kbps` : ""],
-    ["格式", meta.format ?? ""],
+    [t("media.dimensions"), meta.width && meta.height ? `${meta.width} x ${meta.height}` : ""],
+    [t("media.duration"), meta.duration ? `${meta.duration.toFixed(1)} 秒` : ""],
+    [t("media.takenAt"), meta.taken_at ? new Date(meta.taken_at).toLocaleString() : ""],
+    [t("media.camera"), meta.camera ?? ""],
+    [t("media.location"), meta.latitude && meta.longitude ? `${meta.latitude.toFixed(5)}, ${meta.longitude.toFixed(5)}` : ""],
+    [t("media.encoding"), meta.codec ?? ""],
+    [t("media.bitrate"), meta.bitrate ? `${Math.round(meta.bitrate / 1000)} kbps` : ""],
+    [t("media.format"), meta.format ?? ""],
   ].filter(([, value]) => value);
 
   return (
@@ -45,7 +47,7 @@ export function MetadataPanel({ file }: Props) {
       <p className={styles.eyebrow}>Metadata</p>
       <h3 className={styles.title}>{file.name}</h3>
       {rows.length === 0 ? (
-        <p className={styles.muted}>已解析，但没有可展示的字段。</p>
+        <p className={styles.muted}>{t("media.parsedEmpty")}</p>
       ) : (
         <dl className={styles.dl}>
           {rows.map(([label, value]) => (

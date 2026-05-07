@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import type { DriveFile, FileMatchType, FileSearchHit } from "../../types";
 import styles from "./SearchResultList.module.css";
 
@@ -8,30 +9,32 @@ interface Props {
   onPick: (file: DriveFile) => void;
 }
 
-const matchLabels: Record<FileMatchType, string> = {
-  name: "文件名",
-  meta: "元信息",
-  semantic: "内容",
-  filter: "筛选",
-};
-
 export function SearchResultList({ hits, loading = false, onClear, onPick }: Props) {
+  const { t } = useTranslation();
+
+  const matchLabels: Record<FileMatchType, string> = {
+    name: t("searchResultList.matchName"),
+    meta: t("searchResultList.matchMeta"),
+    semantic: t("searchResultList.matchContent"),
+    filter: t("searchResultList.matchLabel"),
+  };
+
   return (
     <div className={styles.wrapper}>
       <div className={styles.infoBar}>
         <div>
           <span className={styles.infoTitle}>
-            {loading ? "正在搜索..." : `找到 ${hits.length} 条`}
+            {loading ? t("searchResultList.searching") : t("searchResultList.foundResults", { count: hits.length })}
           </span>
-          <span className={styles.infoHint}>按文件名、元信息和可选语义内容混合排序</span>
+          <span className={styles.infoHint}>{t("searchResultList.sortHint")}</span>
         </div>
         <button className={styles.clearBtn} onClick={onClear}>
-          清除搜索
+          {t("searchResultList.clearSearch")}
         </button>
       </div>
 
       {!loading && hits.length === 0 ? (
-        <div className={styles.emptyState}>没找到匹配的文件，换个关键词试试</div>
+        <div className={styles.emptyState}>{t("searchResultList.noResults")}</div>
       ) : null}
 
       <div className={styles.list}>

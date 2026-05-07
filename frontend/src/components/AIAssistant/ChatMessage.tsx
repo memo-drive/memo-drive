@@ -2,11 +2,13 @@ import ReactMarkdown from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
 import remarkGfm from "remark-gfm";
 import "highlight.js/styles/github.css";
+import { useTranslation } from "react-i18next";
 import type { ChatMessage as ChatMessageType } from "../../stores/chatStore";
 import { SourceReference } from "./SourceReference";
 import styles from "./ChatMessage.module.css";
 
 export function ChatMessage({ message }: { message: ChatMessageType }) {
+  const { t } = useTranslation();
   const isAssistant = message.role === "assistant";
 
   return (
@@ -41,7 +43,7 @@ export function ChatMessage({ message }: { message: ChatMessageType }) {
                 {message.content}
               </ReactMarkdown>
             ) : message.streaming ? (
-              <span className={styles.placeholder}>正在整理答案</span>
+              <span className={styles.placeholder}>{t("ai.thinking")}</span>
             ) : null}
             {message.streaming ? <span className={styles.cursor}>▍</span> : null}
             {message.error ? <div className={styles.error}>{message.error}</div> : null}

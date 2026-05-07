@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Button, message } from "../../components/base";
 import { useChunkedUpload } from "../../hooks/useChunkedUpload";
 import { useTransferStore } from "../../stores/transferStore";
@@ -19,11 +20,11 @@ function formatSize(bytes: number): string {
   return `${v.toFixed(i === 0 ? 0 : 1)} ${SIZE_UNITS[i]}`;
 }
 
-function formatDuration(seconds: number): string {
+function formatDuration(seconds: number, t: (key: string, options?: Record<string, unknown>) => string): string {
   if (!Number.isFinite(seconds) || seconds <= 0) return "";
-  if (seconds < 60) return `约 ${Math.ceil(seconds)} 秒`;
-  if (seconds < 3600) return `约 ${Math.ceil(seconds / 60)} 分钟`;
-  return `约 ${Math.ceil(seconds / 3600)} 小时`;
+  if (seconds < 60) return t("transfer.etaSeconds", { seconds: Math.ceil(seconds) });
+  if (seconds < 3600) return t("transfer.etaMinutes", { minutes: Math.ceil(seconds / 60) });
+  return t("transfer.etaHours", { hours: Math.ceil(seconds / 3600) });
 }
 
 function formatSpeed(bytesPerSecond: number): string {
@@ -45,23 +46,18 @@ function statusClass(status: TransferStatus): string {
   return styles.statusFailed;
 }
 
-function statusText(status: TransferStatus): string {
-  switch (status) {
-    case "uploading":
-      return "上传中";
-    case "paused":
-      return "已暂停";
-    case "processing":
-      return "处理中";
-    case "done":
-      return "已完成";
-    case "cancelled":
-      return "已取消";
-    case "expired":
-      return "已过期";
-    default:
-      return "失败";
-  }
+const STATUS_KEY_MAP: Record<TransferStatus, string> = {
+  uploading: "transfer.status.uploading",
+  paused: "transfer.status.paused",
+  processing: "transfer.status.processing",
+  done: "transfer.status.done",
+  cancelled: "transfer.status.cancelled",
+  expired: "transfer.status.expired",
+  failed: "transfer.status.failed",
+};
+
+function statusText(status: TransferStatus, t: (key: string) => string): string {
+  return t(STATUS_KEY_MAP[status]);
 }
 
 function isActiveStatus(status: TransferStatus) {
@@ -72,9 +68,9 @@ function uploadedBytes(task: TransferTask) {
   return Math.min(task.uploadedChunks.length * task.chunkSize, task.fileSize);
 }
 
-function remainingText(task: TransferTask) {
+function remainingText(task: TransferTask, t: (key: string, options?: Record<string, unknown>) => string) {
   if (task.status !== "uploading" || task.speed <= 0) return "";
-  return formatDuration((task.fileSize - uploadedBytes(task)) / task.speed);
+  return formatDuration((task.fileSize - uploadedBytes(task)) / task.speed, t);
 }
 
 function TransferCard({
@@ -90,8 +86,9 @@ function TransferCard({
   onCancel: (id: string) => void;
   onRemove: (id: string) => void;
 }) {
+  const { t } = useTranslation();
   const speed = formatSpeed(item.speed);
-  const remaining = remainingText(item);
+  const remaining = remainingText(item, t);
   const showProgress = item.status !== "done";
   return (
     <div className={styles.transferItem}>
@@ -101,12 +98,12 @@ function TransferCard({
       <div className={styles.itemInfo}>
         <div className={styles.itemName}>{item.fileName}</div>
         <div className={styles.itemMeta}>
-          <span>上传</span>
+          <span>{t("transfer.direction")}</span>
           <span>{formatSize(item.fileSize)}</span>
           {speed && item.status === "uploading" && <span>{speed}</span>}
           <span>{formatTime(item.createdAt)}</span>
           {item.expiresAt && item.status === "paused" && (
-            <span>会话到期 {new Date(item.expiresAt).toLocaleString()}</span>
+            <span>{t("transfer.sessionExpiry", { time: new Date(item.expiresAt).toLocaleString() })}</span>
           )}
         </div>
         {item.error && <div className={styles.itemError}>{item.error}</div>}
@@ -127,32 +124,32 @@ function TransferCard({
           </div>
         )}
         <span className={`${styles.statusBadge} ${statusClass(item.status)}`}>
-          {statusText(item.status)}
+          {statusText(item.status, t)}
         </span>
         <div className={styles.actions}>
           {item.status === "uploading" && (
             <>
               <button className={styles.actionBtn} onClick={() => onPause(item.id)}>
-                暂停
+                {t("transfer.actionPause")}
               </button>
               <button className={styles.actionBtn} onClick={() => onCancel(item.id)}>
-                取消
+                {t("transfer.actionCancel")}
               </button>
             </>
           )}
           {item.status === "paused" && (
             <>
               <button className={styles.actionBtn} onClick={() => onResume(item)}>
-                继续
+                {t("transfer.actionResume")}
               </button>
               <button className={styles.actionBtn} onClick={() => onCancel(item.id)}>
-                取消
+                {t("transfer.actionCancel")}
               </button>
             </>
           )}
           {!isActiveStatus(item.status) && (
             <button className={styles.actionBtn} onClick={() => onRemove(item.id)}>
-              删除
+              {t("transfer.actionRemove")}
             </button>
           )}
         </div>
@@ -162,6 +159,7 @@ function TransferCard({
 }
 
 export function TransferPage() {
+  const { t } = useTranslation();
   const [tab, setTab] = useState<TabKey>("active");
   const resumeInputRef = useRef<HTMLInputElement | null>(null);
   const resumeTargetRef = useRef<TransferTask | null>(null);
@@ -180,7 +178,7 @@ export function TransferPage() {
   function handleResume(task: TransferTask) {
     if (task.file) {
       void resume(task.id).catch((err) => {
-        message.error(err instanceof Error ? err.message : "续传失败");
+        message.error(err instanceof Error ? err.message : t("transfer.resumeFailed"));
       });
       return;
     }
@@ -195,7 +193,7 @@ export function TransferPage() {
     try {
       await resume(task.id, files[0]);
     } catch (err) {
-      message.error(err instanceof Error ? err.message : "续传失败");
+      message.error(err instanceof Error ? err.message : t("transfer.resumeFailed"));
     } finally {
       if (resumeInputRef.current) {
         resumeInputRef.current.value = "";
@@ -205,23 +203,23 @@ export function TransferPage() {
 
   async function handleCancel(id: string) {
     await cancel(id);
-    message.success("上传已取消");
+    message.success(t("transfer.cancelSuccess"));
   }
 
   async function handleRemove(id: string) {
     try {
       await removeTask(id);
     } catch (err) {
-      message.error(err instanceof Error ? err.message : "删除传输记录失败");
+      message.error(err instanceof Error ? err.message : t("transfer.removeFailed"));
     }
   }
 
   async function handleClear() {
     try {
       await clearDone();
-      message.success("历史记录已清除");
+      message.success(t("transfer.clearSuccess"));
     } catch (err) {
-      message.error(err instanceof Error ? err.message : "清除历史记录失败");
+      message.error(err instanceof Error ? err.message : t("transfer.clearFailed"));
     }
   }
 
@@ -229,12 +227,12 @@ export function TransferPage() {
     <div className={styles.pageWrapper}>
       <div className={styles.header}>
         <div className={styles.titleGroup}>
-          <h2>传输</h2>
-          <p>管理文件上传任务，支持暂停、取消和断点续传。</p>
+          <h2>{t("transfer.title")}</h2>
+          <p>{t("transfer.subtitle")}</p>
         </div>
         {tab === "history" && historyList.length > 0 && (
           <Button variant="secondary" onClick={handleClear}>
-            清除全部
+            {t("transfer.clearAll")}
           </Button>
         )}
       </div>
@@ -251,14 +249,14 @@ export function TransferPage() {
           className={`${styles.tab} ${tab === "active" ? styles.tabActive : ""}`}
           onClick={() => setTab("active")}
         >
-          传输中
+          {t("transfer.tabActive")}
           {activeList.length > 0 && ` (${activeList.length})`}
         </button>
         <button
           className={`${styles.tab} ${tab === "history" ? styles.tabActive : ""}`}
           onClick={() => setTab("history")}
         >
-          历史记录
+          {t("transfer.tabHistory")}
           {historyList.length > 0 && ` (${historyList.length})`}
         </button>
       </div>
@@ -269,7 +267,7 @@ export function TransferPage() {
             <span className={`material-symbols-outlined ${styles.emptyIcon}`}>
               sync
             </span>
-            <p className={styles.emptyText}>正在同步传输记录...</p>
+            <p className={styles.emptyText}>{t("transfer.syncing")}</p>
           </div>
         ) : list.length === 0 ? (
           <div className={styles.empty}>
@@ -277,7 +275,7 @@ export function TransferPage() {
               {tab === "active" ? "cloud_upload" : "history"}
             </span>
             <p className={styles.emptyText}>
-              {tab === "active" ? "暂无传输任务" : "暂无历史记录"}
+              {tab === "active" ? t("transfer.emptyActive") : t("transfer.emptyHistory")}
             </p>
           </div>
         ) : (

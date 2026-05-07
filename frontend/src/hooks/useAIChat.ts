@@ -84,7 +84,7 @@ export function useAIChat() {
     } catch (err) {
       if (!controller.signal.aborted) {
         updateMessage(assistantId, {
-          error: err instanceof Error ? err.message : "AI 响应失败",
+          error: err instanceof Error ? err.message : "ai.chatFailed",
           streaming: false,
         });
       }

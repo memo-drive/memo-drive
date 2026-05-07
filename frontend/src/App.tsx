@@ -1,4 +1,6 @@
+import { useEffect } from "react";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { MessageContainer } from "./components/base";
 import { AuthGuard } from "./components/auth/AuthGuard";
 import { MainLayout } from "./layouts/MainLayout";
@@ -10,6 +12,12 @@ import { TransferPage } from "./pages/Transfer";
 import { TrashPage } from "./pages/Trash";
 
 export default function App() {
+  const { i18n } = useTranslation();
+
+  useEffect(() => {
+    document.documentElement.lang = i18n.language || "zh-CN";
+  }, [i18n.language]);
+
   return (
     <BrowserRouter>
       <MessageContainer position="top-right" />

@@ -235,10 +235,10 @@ export function useChunkedUpload(onUploaded: (file: DriveFile) => void) {
     const task = useTransferStore.getState().tasks.find((item) => item.id === id);
     const sourceFile = file ?? task?.file;
     if (!sourceFile || !task) {
-      throw new Error("请选择原文件继续上传");
+      throw new Error("upload.selectOriginalFile");
     }
     if (sourceFile.name !== task.fileName || sourceFile.size !== task.fileSize) {
-      throw new Error("请选择同名且大小一致的原文件");
+      throw new Error("upload.selectSameFile");
     }
     const session = await getUploadSession(id);
     if (session.status === "done") {
@@ -248,9 +248,9 @@ export function useChunkedUpload(onUploaded: (file: DriveFile) => void) {
     if (session.status !== "uploading") {
       useTransferStore.getState().updateTask(id, {
         status: session.status === "expired" ? "expired" : "failed",
-        error: `无法续传，当前状态为 ${session.status}`,
+        error: `upload.cannotResume.${session.status}`,
       });
-      throw new Error(`无法续传，当前状态为 ${session.status}`);
+      throw new Error(`upload.cannotResume.${session.status}`);
     }
     return uploadRemainingChunks(sourceFile, session, { onUploaded, setProgress });
   }

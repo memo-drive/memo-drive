@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import type { DriveFile } from "../../types";
 import { Button } from "../base";
 import styles from "./TrashList.module.css";
@@ -17,11 +18,13 @@ export function TrashList({
   onRestore,
   onPurge,
 }: Props) {
+  const { t } = useTranslation();
+
   if (loading && files.length === 0) {
     return (
       <div className={styles.empty}>
         <span className="material-symbols-outlined">hourglass_empty</span>
-        <p>正在加载回收站…</p>
+        <p>{t("trash.loading")}</p>
       </div>
     );
   }
@@ -30,8 +33,8 @@ export function TrashList({
     return (
       <div className={styles.empty}>
         <span className="material-symbols-outlined">delete</span>
-        <h3>回收站是空的</h3>
-        <p>移到回收站的文件会先在这里保留一段时间。</p>
+        <h3>{t("trash.empty")}</h3>
+        <p>{t("trash.emptyHint")}</p>
       </div>
     );
   }
@@ -41,10 +44,10 @@ export function TrashList({
       <table className={styles.table}>
         <thead>
           <tr className={styles.tableHeadRow}>
-            <th className={styles.tableHeadCell}>名称</th>
-            <th className={styles.tableHeadCell}>原路径</th>
-            <th className={styles.tableHeadCell}>删除时间</th>
-            <th className={styles.tableHeadCellRight}>操作</th>
+            <th className={styles.tableHeadCell}>{t("trash.name")}</th>
+            <th className={styles.tableHeadCell}>{t("trash.originalPath")}</th>
+            <th className={styles.tableHeadCell}>{t("trash.deletedAt")}</th>
+            <th className={styles.tableHeadCellRight}>{t("trash.actions")}</th>
           </tr>
         </thead>
         <tbody>
@@ -79,7 +82,7 @@ export function TrashList({
                     loading={actionId === `restore:${file.id}`}
                     onClick={() => onRestore(file)}
                   >
-                    恢复
+                    {t("common.restore")}
                   </Button>
                   <Button
                     size="sm"
@@ -87,7 +90,7 @@ export function TrashList({
                     loading={actionId === `purge:${file.id}`}
                     onClick={() => onPurge(file)}
                   >
-                    永久删除
+                    {t("common.purge")}
                   </Button>
                 </div>
               </td>

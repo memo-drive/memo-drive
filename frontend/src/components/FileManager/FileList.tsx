@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { DriveFile } from "../../types";
 import { Popover } from "../base";
 import styles from "./FileList.module.css";
@@ -26,6 +27,7 @@ export function FileList({
 	onMove,
 	onDownload,
 }: Props) {
+	const { t } = useTranslation();
 	const [page, setPage] = useState(1);
 
 	useEffect(() => {
@@ -36,7 +38,7 @@ export function FileList({
 	if (!files || files.length === 0) {
 		return (
 			<div className="p-8 text-center text-zinc-500">
-				这里还很安静。拖一个文件进来，MemoDrive 就开始记东西。
+				{t("fileList.empty")}
 			</div>
 		);
 	}
@@ -63,10 +65,10 @@ export function FileList({
 			<table className={styles.table}>
 				<thead>
 					<tr className={styles.tableHeadRow}>
-						<th className={styles.tableHeadCell}>名称</th>
-						<th className={styles.tableHeadCell}>修改日期</th>
-						<th className={styles.tableHeadCell}>大小</th>
-						<th className={styles.tableHeadCellRight}>操作</th>
+						<th className={styles.tableHeadCell}>{t("fileList.name")}</th>
+						<th className={styles.tableHeadCell}>{t("fileList.modified")}</th>
+						<th className={styles.tableHeadCell}>{t("fileList.size")}</th>
+						<th className={styles.tableHeadCellRight}>{t("fileList.actions")}</th>
 					</tr>
 				</thead>
 				<tbody className={styles.tbody}>
@@ -134,7 +136,7 @@ export function FileList({
 												<span className="material-symbols-outlined text-[18px]">
 													edit
 												</span>{" "}
-												重命名
+												{t("common.rename")}
 											</button>
 											<button
 												className={styles.menuItem}
@@ -146,7 +148,7 @@ export function FileList({
 												<span className="material-symbols-outlined text-[18px]">
 													drive_file_move
 												</span>{" "}
-												移动到…
+												{t("common.moveTo")}
 											</button>
 											{!file.is_dir && (
 												<button
@@ -159,7 +161,7 @@ export function FileList({
 													<span className="material-symbols-outlined text-[18px]">
 														download
 													</span>{" "}
-													下载
+													{t("common.download")}
 												</button>
 											)}
 											<button
@@ -172,7 +174,7 @@ export function FileList({
 												<span className="material-symbols-outlined text-[18px]">
 													delete
 												</span>{" "}
-												移到回收站
+												{t("drive.deleteToTrash")}
 											</button>
 										</div>
 									}
@@ -205,7 +207,7 @@ export function FileList({
 						</span>
 					</button>
 					<span className={styles.pageInfo}>
-						第 {page} / {totalPages} 页（共 {files.length} 条）
+						{t("fileList.pagination", { current: page, total: totalPages, count: files.length })}
 					</span>
 					<button
 						className={styles.pageBtn}

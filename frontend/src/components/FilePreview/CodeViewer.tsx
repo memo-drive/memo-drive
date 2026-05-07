@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import hljs from "highlight.js";
 import "highlight.js/styles/github.css";
 import ReactMarkdown from "react-markdown";
@@ -24,7 +25,7 @@ interface PreparedContent {
   truncated: boolean;
 }
 
-function prepareContent(content: unknown): PreparedContent {
+function prepareContent(content: unknown, truncationMessage?: string): PreparedContent {
   const raw = typeof content === "string" ? content : "";
   let text = raw;
   let truncated = false;
@@ -42,8 +43,8 @@ function prepareContent(content: unknown): PreparedContent {
     truncated = true;
   }
 
-  if (truncated) {
-    text += "\n\n... [文件已截断，剩余部分请下载查看]";
+  if (truncated && truncationMessage) {
+    text += "\n\n... " + truncationMessage;
   }
 
   return {
@@ -61,6 +62,7 @@ function highlightContent(content: string, language?: string): string {
 }
 
 export function CodeViewer({ file }: { file: DriveFile }) {
+  const { t } = useTranslation();
   const [content, setContent] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -77,7 +79,7 @@ export function CodeViewer({ file }: { file: DriveFile }) {
       })
       .catch((err) => {
         if (!cancelled) {
-          setError(err instanceof Error ? err.message : "文本加载失败");
+          setError(err instanceof Error ? err.message : t("preview.textLoadFailed"));
         }
       })
       .finally(() => {
@@ -88,7 +90,7 @@ export function CodeViewer({ file }: { file: DriveFile }) {
     };
   }, [file.id, file.size, reloadKey]);
 
-  const prepared = useMemo(() => prepareContent(content), [content]);
+  const prepared = useMemo(() => prepareContent(content, t("preview.textTruncated")), [content, t]);
   const language = languageForFile(file);
   const highlighted = useMemo(
     () => highlightContent(prepared.text, language),
@@ -103,14 +105,14 @@ export function CodeViewer({ file }: { file: DriveFile }) {
   );
 
   if (file.size > MAX_TEXT_BYTES) {
-    return <PreviewUnsupported file={file} reason="文件过大，请下载查看" />;
+    return <PreviewUnsupported file={file} reason={t("preview.fileTooLarge")} />;
   }
 
-  if (loading) return <PreviewLoading label="加载文本..." />;
+  if (loading) return <PreviewLoading label={t("preview.loadingText")} />;
   if (error) {
     return (
       <PreviewError
-        message="文本加载失败"
+        message={t("preview.textLoadFailed")}
         onRetry={() => setReloadKey((value) => value + 1)}
       />
     );
@@ -125,10 +127,10 @@ export function CodeViewer({ file }: { file: DriveFile }) {
       toolbar={
         <PreviewToolbar>
           <span className={styles.codeToolbarLabel}>
-            {renderMarkdown ? "Markdown 预览" : language || "自动识别"}
+            {renderMarkdown ? t("preview.markdownPreview") : language || t("preview.autoDetect")}
           </span>
           {prepared.truncated && (
-            <span className={styles.pageIndicator}>已截断显示</span>
+            <span className={styles.pageIndicator}>{t("preview.truncatedPreview")}</span>
           )}
         </PreviewToolbar>
       }
@@ -143,7 +145,7 @@ export function CodeViewer({ file }: { file: DriveFile }) {
           </ReactMarkdown>
           {prepared.truncated && (
             <p className={styles.truncationNote}>
-              文件内容较长，仅显示前面部分。
+              {t("preview.contentTooLong")}
             </p>
           )}
         </article>
@@ -162,7 +164,7 @@ export function CodeViewer({ file }: { file: DriveFile }) {
           </div>
           {prepared.truncated && (
             <p className={styles.truncationNote}>
-              文件内容较长，仅显示前面部分。
+              {t("preview.contentTooLong")}
             </p>
           )}
         </>

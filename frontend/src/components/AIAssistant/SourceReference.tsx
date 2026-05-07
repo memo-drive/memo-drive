@@ -1,4 +1,5 @@
 import { useState, type KeyboardEvent } from "react";
+import { useTranslation } from "react-i18next";
 import { getFile } from "../../api/fileApi";
 import { message } from "../base";
 import { useFileStore } from "../../stores/fileStore";
@@ -14,16 +15,18 @@ interface SourceReferenceProps {
 
 export function SourceReference({
   sources,
-  title = "引用来源",
+  title,
   compact = false,
   loading = false,
 }: SourceReferenceProps) {
+  const { t } = useTranslation();
+  const displayTitle = title ?? t("ai.sourceTitle");
   const setCurrentPath = useFileStore((state) => state.setCurrentPath);
   const setSelectedFile = useFileStore((state) => state.setSelectedFile);
   const [disabledIDs, setDisabledIDs] = useState<Set<string>>(() => new Set());
 
   if (loading) {
-    return <div className={styles.loading}>正在查找相关来源...</div>;
+    return <div className={styles.loading}>{t("ai.sourceLoading")}</div>;
   }
   if (!sources.length) return null;
 
@@ -35,7 +38,7 @@ export function SourceReference({
       setSelectedFile(file);
     } catch {
       setDisabledIDs((previous) => new Set(previous).add(source.id));
-      message.error("源文件不存在或已删除");
+      message.error(t("ai.sourceMissing"));
     }
   }
 
@@ -49,7 +52,7 @@ export function SourceReference({
   return (
     <section className={`${styles.wrapper} ${compact ? styles.compact : ""}`}>
       <div className={styles.header}>
-        <span>{title}</span>
+        <span>{displayTitle}</span>
         <span className={styles.count}>{sources.length}</span>
       </div>
       <div className={styles.list}>
@@ -67,7 +70,7 @@ export function SourceReference({
             >
               <div className={styles.cardTop}>
                 <span className={styles.index}>[{index + 1}]</span>
-                <span className={styles.fileName}>{source.file_name || "未知文件"}</span>
+                <span className={styles.fileName}>{source.file_name || t("ai.sourceUnknownFile")}</span>
                 <span className={styles.score}>{Math.round(source.score * 100)}%</span>
               </div>
               {source.heading ? <div className={styles.heading}>{source.heading}</div> : null}

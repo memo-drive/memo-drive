@@ -1,16 +1,18 @@
+import { useTranslation } from "react-i18next";
 import { useChatStore, type AIMode } from "../../stores/chatStore";
 import styles from "./ModeToggle.module.css";
 
-const modes: { key: AIMode; label: string; hint: string }[] = [
-  { key: "rag", label: "文件问答", hint: "基于已索引文件回答" },
-  { key: "search", label: "语义搜索", hint: "查找相关来源片段" },
-];
-
 export function ModeToggle() {
+  const { t } = useTranslation();
   const { mode, setMode } = useChatStore();
 
+  const modes: { key: AIMode; label: string; hint: string }[] = [
+    { key: "rag", label: t("ai.modeRag"), hint: t("ai.modeRagHint") },
+    { key: "search", label: t("ai.modeSearch"), hint: t("ai.modeSearchHint") },
+  ];
+
   return (
-    <div className={styles.toggle} role="tablist" aria-label="AI 模式">
+    <div className={styles.toggle} role="tablist" aria-label={t("ai.modeLabel")}>
       {modes.map((item) => {
         const active = item.key === mode;
         return (

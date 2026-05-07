@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { downloadUrl, getMetadata } from "../../api/fileApi";
 import type { DriveFile, MediaMeta } from "../../types";
 import { MediaMetaBar } from "./MediaMetaBar";
@@ -7,6 +8,7 @@ import { PreviewError } from "./PreviewState";
 import styles from "./FilePreview.module.css";
 
 export function AudioPlayer({ file }: { file: DriveFile }) {
+  const { t } = useTranslation();
   const [meta, setMeta] = useState<MediaMeta | null>(null);
   const [loadingMeta, setLoadingMeta] = useState(true);
   const [playbackError, setPlaybackError] = useState(false);
@@ -34,7 +36,7 @@ export function AudioPlayer({ file }: { file: DriveFile }) {
       <div className={styles.mediaStack}>
         {playbackError ? (
           <PreviewError
-            message="音频无法播放（可能编码不支持）"
+            message={t("preview.audioError")}
             onRetry={() => setPlaybackError(false)}
           />
         ) : (

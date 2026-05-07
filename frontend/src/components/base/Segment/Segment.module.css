@@ -1,0 +1,40 @@
+.segment {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 999px;
+  background: #f6f8fb;
+}
+
+.option {
+  border: 0;
+  border-radius: 999px;
+  padding: 6px 14px;
+  background: transparent;
+  color: #626d7a;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background-color 0.18s,
+    box-shadow 0.18s,
+    color 0.18s;
+}
+
+.option:hover {
+  color: #0f172a;
+}
+
+.option:focus-visible {
+  outline: 2px solid rgba(9, 127, 232, 0.35);
+  outline-offset: 2px;
+}
+
+.active {
+  background: #ffffff;
+  color: #111827;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
+}

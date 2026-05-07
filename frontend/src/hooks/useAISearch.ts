@@ -34,7 +34,7 @@ export function useAISearch() {
       setSearchResults(response.results);
       setSearchIntent(response.intent);
     } catch (err) {
-      const message = err instanceof Error ? err.message : "语义搜索失败";
+      const message = err instanceof Error ? err.message : "ai.semanticSearchFailed";
       setError(message);
       setSearchResults([]);
       setSearchIntent(undefined);

@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from "react";
+import { useTranslation } from "react-i18next";
 import { ConversationDrawer } from "../../components/AIAssistant/ConversationDrawer";
 import { ModeToggle } from "../../components/AIAssistant/ModeToggle";
 import { Button } from "../../components/base";
@@ -10,6 +11,7 @@ import { SmartSearchResults } from "./Results";
 import styles from "./index.module.css";
 
 export function SmartSearchPage() {
+  const { t } = useTranslation();
   const [query, setQuery] = useState("");
   const [historyOpen, setHistoryOpen] = useState(false);
   const mode = useChatStore((state) => state.mode);
@@ -36,27 +38,27 @@ export function SmartSearchPage() {
   }
 
   const placeholder =
-    mode === "rag" ? "问一个关于文件的问题..." : "搜索文件里的相关片段...";
+    mode === "rag" ? t("smartSearch.chatPlaceholder") : t("smartSearch.searchPlaceholder");
 
   return (
     <div className={styles.page}>
       <div className={styles.toolbar}>
         <div>
           <p>AI Workspace</p>
-          <h2>智能搜索</h2>
+          <h2>{t("smartSearch.title")}</h2>
         </div>
         <div className={styles.toolbarActions}>
           <ModeToggle />
           {conversationId ? (
-            <span className={styles.sessionBadge}>会话已保存</span>
+            <span className={styles.sessionBadge}>{t("smartSearch.conversationSaved")}</span>
           ) : null}
           <Button variant="ghost" onClick={() => setHistoryOpen(true)}>
             <span className="material-symbols-outlined">history</span>
-            历史会话
+            {t("smartSearch.history")}
           </Button>
           <Button variant="ghost" onClick={() => setConversationId(undefined)}>
             <span className="material-symbols-outlined">add</span>
-            新对话
+            {t("smartSearch.newChat")}
           </Button>
         </div>
       </div>
@@ -76,7 +78,7 @@ export function SmartSearchPage() {
             disabled={busy}
           />
           <Button type="submit" loading={busy} disabled={!query.trim()}>
-            {mode === "search" ? "搜索" : "Ask AI"}
+            {mode === "search" ? t("ai.modeSearch") : "Ask AI"}
           </Button>
         </form>
       </div>

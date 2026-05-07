@@ -5,6 +5,7 @@ import {
   useState,
   type KeyboardEvent,
 } from "react";
+import { useTranslation } from "react-i18next";
 import { Document, Page } from "react-pdf";
 import "react-pdf/dist/Page/AnnotationLayer.css";
 import "react-pdf/dist/Page/TextLayer.css";
@@ -36,18 +37,19 @@ function withRetryParam(src: string, retryKey: number) {
   return `${src}${sep}preview_retry=${retryKey}`;
 }
 
-function pdfErrorMessage(message?: string) {
+function pdfErrorMessage(message: string | undefined, t: (key: string) => string): string {
   const text = message?.toLowerCase() ?? "";
   if (text.includes("network") || text.includes("fetch")) {
-    return "网络异常，请稍后重试";
+    return t("preview.networkError");
   }
   if (text.includes("password") || text.includes("encrypted")) {
-    return "PDF 已加密，无法在线预览";
+    return t("preview.pdfEncrypted");
   }
-  return "PDF 已损坏或无法解析";
+  return t("preview.pdfCorrupted");
 }
 
 export function PdfViewer({ file }: { file: DriveFile }) {
+  const { t } = useTranslation();
   const [page, setPage] = useState(1);
   const [pageInput, setPageInput] = useState("1");
   const [numPages, setNumPages] = useState<number | null>(null);
@@ -91,7 +93,7 @@ export function PdfViewer({ file }: { file: DriveFile }) {
   ]);
 
   if (file.size > PDF_MAX_BYTES) {
-    return <PreviewUnsupported file={file} reason="文件过大，请下载查看" />;
+    return <PreviewUnsupported file={file} reason={t("preview.fileTooLarge")} />;
   }
 
   const goToPage = (next: number) => {
@@ -153,13 +155,13 @@ export function PdfViewer({ file }: { file: DriveFile }) {
             disabled={page <= 1}
             onClick={() => goToPage(page - 1)}
           >
-            上一页
+            {t("preview.prevPage")}
           </button>
           <input
             className={styles.pageInput}
             value={pageInput}
             inputMode="numeric"
-            aria-label="PDF 页码"
+            aria-label={t("preview.pdfPageLabel")}
             onChange={(event) => setPageInput(event.target.value)}
             onBlur={applyPageInput}
             onKeyDown={(event) => {
@@ -173,7 +175,7 @@ export function PdfViewer({ file }: { file: DriveFile }) {
             disabled={Boolean(numPages && page >= numPages)}
             onClick={() => goToPage(page + 1)}
           >
-            下一页
+            {t("preview.nextPage")}
           </button>
           <select
             className={styles.select}
@@ -183,7 +185,7 @@ export function PdfViewer({ file }: { file: DriveFile }) {
                 event.target.value as (typeof SCALE_OPTIONS)[number]["value"],
               )
             }
-            aria-label="PDF 缩放"
+            aria-label={t("preview.pdfZoomLabel")}
           >
             {SCALE_OPTIONS.map((item) => (
               <option key={item.value} value={item.value}>
@@ -206,15 +208,15 @@ export function PdfViewer({ file }: { file: DriveFile }) {
           <Document
             key={retryKey}
             file={source}
-            loading={<PreviewLoading label="加载 PDF..." />}
-            error={<PreviewError message="无法加载 PDF" onRetry={retry} />}
+            loading={<PreviewLoading label={t("preview.loadingPdfText")} />}
+            error={<PreviewError message={t("preview.pdfLoadFailed")} onRetry={retry} />}
             onLoadSuccess={(pdf: LoadedPDF) => {
               pdfRef.current = pdf;
               setNumPages(pdf.numPages);
               setPage(1);
               setError("");
             }}
-            onLoadError={(err) => setError(pdfErrorMessage(err.message))}
+            onLoadError={(err) => setError(pdfErrorMessage(err.message, t))}
           >
             <Page
               pageNumber={page}
@@ -222,7 +224,7 @@ export function PdfViewer({ file }: { file: DriveFile }) {
               scale={fixedScale}
               renderAnnotationLayer
               renderTextLayer
-              loading={<PreviewLoading label="渲染页面..." />}
+              loading={<PreviewLoading label={t("preview.renderingPage")} />}
             />
           </Document>
         )}
