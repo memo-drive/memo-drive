@@ -113,8 +113,8 @@ func TestSearchReturnsSourceChunks(t *testing.T) {
 	if response.Results[0].FileID != "file-a" || response.Results[0].FileName != "Guide.md" {
 		t.Fatalf("unexpected first source: %#v", response.Results[0])
 	}
-	if response.Results[0].Score < 0.999 || response.Results[0].Score > 1.001 {
-		t.Fatalf("expected normalized score 1.0, got %f", response.Results[0].Score)
+	if response.Results[0].Score < 0.89 || response.Results[0].Score > 0.91 {
+		t.Fatalf("expected raw cosine similarity score ~0.90, got %f", response.Results[0].Score)
 	}
 	if vector.queryNResults != 2 {
 		t.Fatalf("expected query topK 2, got %d", vector.queryNResults)
@@ -453,5 +453,64 @@ func seedSearchServiceFiles(t *testing.T, db *store.Store) {
 		MetaJSON: `{"camera":"Sony A7M3","format":"JPEG"}`,
 	}); err != nil {
 		t.Fatalf("upsert metadata: %v", err)
+	}
+}
+
+// Regression: single low-quality result should NOT get score=1.0.
+// normalizeScores used to force every top result to 1.0 regardless of actual similarity.
+func TestSearchPreservesRawSimilarityScoreForSingleResult(t *testing.T) {
+	vector := &mockVectorStore{queryResult: &vectordb.QueryResult{
+		IDs:       []string{"bad#0"},
+		Documents: []string{"unrelated content"},
+		Distances: []float32{0.85},
+		Metadatas: []map[string]any{
+			{"file_id": "bad", "file_name": "unrelated.md", "chunk_index": 0},
+		},
+	}}
+	service := NewSearchService(&config.Config{RAG: config.RAGConfig{SearchTopK: 5}}, nil, &mockSearchProvider{}, vector)
+
+	response, err := service.Search(context.Background(), SearchRequest{Query: "relevant query"})
+	if err != nil {
+		t.Fatalf("Search returned error: %v", err)
+	}
+	if len(response.Results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(response.Results))
+	}
+	score := response.Results[0].Score
+	if score > 0.9 {
+		t.Fatalf("low-quality result (raw similarity ~0.15) should NOT have score %.4f > 0.9", score)
+	}
+	if score < 0.10 || score > 0.20 {
+		t.Fatalf("expected score near raw cosine similarity 0.15, got %.4f", score)
+	}
+}
+
+// Regression: scores should be differentiated after search, not all clamped to 1.0.
+func TestSearchScoresAreDifferentiated(t *testing.T) {
+	vector := &mockVectorStore{queryResult: &vectordb.QueryResult{
+		IDs:       []string{"good#0", "poor#1"},
+		Documents: []string{"relevant content", "unrelated content"},
+		Distances: []float32{0.1, 0.8},
+		Metadatas: []map[string]any{
+			{"file_id": "good", "file_name": "relevant.md", "chunk_index": 0},
+			{"file_id": "poor", "file_name": "unrelated.md", "chunk_index": 1},
+		},
+	}}
+	service := NewSearchService(&config.Config{RAG: config.RAGConfig{SearchTopK: 5}}, nil, &mockSearchProvider{}, vector)
+
+	response, err := service.Search(context.Background(), SearchRequest{Query: "relevant"})
+	if err != nil {
+		t.Fatalf("Search returned error: %v", err)
+	}
+	if len(response.Results) != 2 {
+		t.Fatalf("expected 2 results, got %d", len(response.Results))
+	}
+	goodScore := response.Results[0].Score
+	poorScore := response.Results[1].Score
+	if goodScore-poorScore < 0.3 {
+		t.Fatalf("scores should be differentiated: good=%.4f poor=%.4f (diff=%.4f)", goodScore, poorScore, goodScore-poorScore)
+	}
+	if goodScore > 0.95 {
+		t.Fatalf("good score %.4f should not be inflated to near 1.0", goodScore)
 	}
 }

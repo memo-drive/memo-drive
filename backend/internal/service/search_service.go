@@ -160,7 +160,11 @@ func (s *SearchService) searchSingle(ctx context.Context, query string, fileIDs 
 	if len(sources) > topK {
 		sources = sources[:topK]
 	}
-	sources = normalizeScores(sources)
+	// Only normalize when RRF fusion was used (produces small rank-based scores).
+	// Raw cosine similarity scores from Chroma are already in [0,1] with intuitive meaning.
+	if s.hybridSearch() {
+		sources = normalizeScores(sources)
+	}
 	log.Printf("level=info component=search event=query_complete candidates=%d results=%d candidate_top_k=%d query_duration_ms=%d duration_ms=%d",
 		queryResultLen(result), len(sources), candidateTopK, time.Since(queryStarted).Milliseconds(), time.Since(started).Milliseconds())
 	return sources, nil
