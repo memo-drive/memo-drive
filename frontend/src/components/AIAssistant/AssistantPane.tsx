@@ -1,6 +1,9 @@
 import {
+  useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
+  useRef,
   useState,
   type FormEvent,
   type HTMLAttributes,
@@ -54,6 +57,27 @@ export function AssistantPane({
     }
   }, [mode, stop]);
 
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const prevMessageCountRef = useRef(messages.length);
+  const [autoScroll, setAutoScroll] = useState(true);
+
+  const handleScroll = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+    setAutoScroll(atBottom);
+  }, []);
+
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const isNewMessage = messages.length > prevMessageCountRef.current;
+    prevMessageCountRef.current = messages.length;
+    if (isNewMessage || autoScroll) {
+      el.scrollTop = el.scrollHeight;
+    }
+  }, [messages, autoScroll]);
+
   async function onSubmit(event: FormEvent) {
     event.preventDefault();
     const text = prompt.trim();
@@ -98,7 +122,7 @@ export function AssistantPane({
 
       <div className={styles.body}>
         <ModeToggle />
-        <div className={styles.scrollRegion}>
+        <div className={styles.scrollRegion} ref={scrollRef} onScroll={handleScroll}>
           {mode === "rag" ? (
             messages.length === 0 ? (
               <div className={styles.empty}>
