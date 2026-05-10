@@ -195,6 +195,18 @@ LIMIT ?`, clauses)
 	return ids, rows.Err()
 }
 
+func (s *Store) TotalActiveFileSize(ctx context.Context) (int64, error) {
+	var total int64
+	if err := s.db.QueryRowContext(ctx, `
+SELECT COALESCE(SUM(size), 0)
+FROM files
+WHERE is_dir = 0
+  AND deleted_at IS NULL`).Scan(&total); err != nil {
+		return 0, err
+	}
+	return total, nil
+}
+
 func (s *Store) ListDescendants(ctx context.Context, virtualPath string) ([]model.File, error) {
 	virtualPath = cleanFileSearchPath(virtualPath)
 	if virtualPath == "" {

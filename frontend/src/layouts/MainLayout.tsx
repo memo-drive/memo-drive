@@ -1,7 +1,11 @@
+import { useEffect, useState } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { clearToken } from "../api/client";
+import { getStorageUsage } from "../api/fileApi";
 import { Button } from "../components/base";
+import type { StorageUsage } from "../types";
+import { formatBytes } from "../utils/formatBytes";
 import styles from "./MainLayout.module.css";
 
 const navLinkBase =
@@ -10,11 +14,38 @@ const navLinkBase =
 export function MainLayout() {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const [storageUsage, setStorageUsage] = useState<StorageUsage | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    getStorageUsage()
+      .then((usage) => {
+        if (!cancelled) {
+          setStorageUsage(usage);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setStorageUsage(null);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleLogout = () => {
     clearToken();
     navigate("/login", { replace: true });
   };
+
+  const storagePercent =
+    storageUsage && storageUsage.total_bytes > 0
+      ? Math.min(
+          100,
+          Math.max(0, (storageUsage.used_bytes / storageUsage.total_bytes) * 100),
+        )
+      : 0;
 
   return (
     <div className={styles.appShell}>
@@ -99,6 +130,30 @@ export function MainLayout() {
         </nav>
 
         <div className="px-2 pb-4 pt-4 border-t border-zinc-100 space-y-1">
+          {storageUsage && (
+            <div className={styles.storageUsage}>
+              <div className={styles.storageUsageHeader}>
+                <span className="material-symbols-outlined text-[17px]">
+                  database
+                </span>
+                <span>{t("layout.storage")}</span>
+              </div>
+              <div className={styles.storageUsageText}>
+                {t("layout.storageUsage", {
+                  used: formatBytes(storageUsage.used_bytes),
+                  total: formatBytes(storageUsage.total_bytes),
+                })}
+              </div>
+              {storageUsage.total_bytes > 0 && (
+                <div className={styles.storageUsageTrack}>
+                  <div
+                    className={styles.storageUsageFill}
+                    style={{ width: `${storagePercent}%` }}
+                  />
+                </div>
+              )}
+            </div>
+          )}
           <Button
             onClick={handleLogout}
             variant="ghost"

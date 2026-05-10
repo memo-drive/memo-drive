@@ -36,6 +36,8 @@
     "smartSearch": "智能搜索",
     "transfer": "传输",
     "trash": "回收站",
+    "storage": "存储空间",
+    "storageUsage": "{{used}} / {{total}}",
     "logout": "退出登录"
   },
   "drive": {

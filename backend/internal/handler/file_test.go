@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -146,6 +147,34 @@ func TestRenameMoveMapsConflictTo409(t *testing.T) {
 	}
 }
 
+func TestStorageUsageEndpointReturnsUsage(t *testing.T) {
+	app, cleanup := newStorageUsageTestApp(t)
+	defer cleanup()
+
+	req := httptest.NewRequest(http.MethodGet, "/storage/usage", nil)
+	resp, err := app.Test(req)
+	if err != nil {
+		t.Fatalf("storage usage request failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	var body struct {
+		UsedBytes  int64 `json:"used_bytes"`
+		TotalBytes int64 `json:"total_bytes"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body.UsedBytes != 12 {
+		t.Fatalf("expected used bytes 12, got %d", body.UsedBytes)
+	}
+	if body.TotalBytes <= 0 {
+		t.Fatalf("expected positive total bytes, got %d", body.TotalBytes)
+	}
+}
+
 func newFileDownloadTestApp(t *testing.T, content []byte) (*fiber.App, func()) {
 	t.Helper()
 	root := t.TempDir()
@@ -187,6 +216,45 @@ func newFileDownloadTestApp(t *testing.T, content []byte) (*fiber.App, func()) {
 
 	app := fiber.New()
 	NewFileHandler(service.NewFileService(cfg, db, nil), nil).Register(app)
+	return app, func() {
+		_ = db.Close()
+	}
+}
+
+func newStorageUsageTestApp(t *testing.T) (*fiber.App, func()) {
+	t.Helper()
+	root := t.TempDir()
+	storageRoot := filepath.Join(root, "files")
+	cfg := &config.Config{
+		Storage: config.StorageConfig{
+			Root:         storageRoot,
+			DBPath:       filepath.Join(root, "db", "memodrive.db"),
+			TempDir:      filepath.Join(root, "tmp"),
+			ThumbnailDir: filepath.Join(root, "thumbs"),
+		},
+	}
+	if err := cfg.EnsureDirs(); err != nil {
+		t.Fatalf("ensure dirs: %v", err)
+	}
+	db, err := store.Open(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	for _, file := range []*model.File{
+		{ID: "active", Name: "active.txt", Path: "/", StoragePath: "active.txt", Size: 12, MimeType: "text/plain", Status: model.FileStatusReady},
+		{ID: "dir", Name: "dir", Path: "/", StoragePath: "dir", IsDir: true, Status: model.FileStatusReady},
+		{ID: "trashed", Name: "trashed.txt", Path: "/", StoragePath: "trashed.txt", Size: 50, MimeType: "text/plain", Status: model.FileStatusReady},
+	} {
+		if err := db.CreateFile(context.Background(), file); err != nil {
+			t.Fatalf("create file %s: %v", file.ID, err)
+		}
+	}
+	if err := db.SoftDeleteFile(context.Background(), "trashed", "trashed"); err != nil {
+		t.Fatalf("soft delete trashed: %v", err)
+	}
+
+	app := fiber.New()
+	NewStorageHandler(service.NewFileService(cfg, db, nil)).Register(app)
 	return app, func() {
 		_ = db.Close()
 	}

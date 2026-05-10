@@ -18,6 +18,11 @@ export interface DriveFile {
   metadata?: FileMetadata;
 }
 
+export interface StorageUsage {
+  used_bytes: number;
+  total_bytes: number;
+}
+
 export interface FileMetadata {
   file_id: string;
   meta_json: string;

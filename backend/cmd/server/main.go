@@ -86,6 +86,7 @@ func main() {
 	handler.NewAuthHandler(cfg).Register(api)
 
 	protected := api.Group("", appmw.NewAuthMiddleware(cfg.Auth), appmw.RateLimit())
+	handler.NewStorageHandler(fileService).Register(protected)
 	handler.NewFileHandler(fileService, searchService).Register(protected)
 	handler.NewTrashHandler(fileService).Register(protected)
 	handler.NewUploadHandler(uploadService, pipelineService).Register(protected)

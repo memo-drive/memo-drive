@@ -1,10 +1,14 @@
 import { getToken, httpClient } from "./HttpClient";
-import type { DriveFile, FileSearchResponse, MediaMeta } from "../types";
+import type { DriveFile, FileSearchResponse, MediaMeta, StorageUsage } from "../types";
 
 export async function listFiles(path: string, sort = "name") {
   return httpClient.get<{ files: DriveFile[] }>(
     `/files?path=${encodeURIComponent(path)}&sort=${encodeURIComponent(sort)}`,
   );
+}
+
+export async function getStorageUsage() {
+  return httpClient.get<StorageUsage>("/storage/usage");
 }
 
 export async function createFolder(path: string, name: string) {

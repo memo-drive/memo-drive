@@ -36,6 +36,8 @@
     "smartSearch": "Smart Search",
     "transfer": "Transfers",
     "trash": "Trash",
+    "storage": "Storage",
+    "storageUsage": "{{used}} / {{total}}",
     "logout": "Logout"
   },
   "drive": {

@@ -131,6 +131,22 @@ func TestListFileIDsByFilterFiltersTypeExtensionAndDate(t *testing.T) {
 	}
 }
 
+func TestTotalActiveFileSizeExcludesDirectoriesAndTrash(t *testing.T) {
+	db := newSearchTestStore(t)
+	seedDescendantFiles(t, db)
+	if err := db.SoftDeleteFile(context.Background(), "bar", "bar"); err != nil {
+		t.Fatalf("soft delete bar: %v", err)
+	}
+
+	total, err := db.TotalActiveFileSize(context.Background())
+	if err != nil {
+		t.Fatalf("TotalActiveFileSize returned error: %v", err)
+	}
+	if total != 10 {
+		t.Fatalf("expected only active non-directory bytes, got %d", total)
+	}
+}
+
 func TestListDescendants(t *testing.T) {
 	db := newSearchTestStore(t)
 	seedDescendantFiles(t, db)

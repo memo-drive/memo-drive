@@ -1,19 +1,10 @@
 import { useTranslation } from "react-i18next";
 import { downloadUrl } from "../../api/fileApi";
 import type { DriveFile } from "../../types";
+import { formatBytes } from "../../utils/formatBytes";
 import styles from "./FilePreview.module.css";
 
-export function formatBytes(bytes: number): string {
-  if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
-  const units = ["B", "KB", "MB", "GB", "TB"];
-  let value = bytes;
-  let unit = 0;
-  while (value >= 1024 && unit < units.length - 1) {
-    value /= 1024;
-    unit += 1;
-  }
-  return `${value >= 10 || unit === 0 ? value.toFixed(0) : value.toFixed(1)} ${units[unit]}`;
-}
+export { formatBytes };
 
 export function PreviewLoading({ label }: { label?: string }) {
   const { t } = useTranslation();
