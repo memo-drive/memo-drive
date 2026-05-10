@@ -225,6 +225,27 @@ func TestRestoreWithConflictUsesRestoredName(t *testing.T) {
 	}
 }
 
+func TestRestoreRejectsActiveFile(t *testing.T) {
+	service, db, root := newFileServiceTestHarness(t)
+	createServiceTestFile(t, db, root, &model.File{
+		ID:          "active",
+		Name:        "active.txt",
+		Path:        "/",
+		StoragePath: "active.txt",
+		Size:        3,
+		MimeType:    "text/plain",
+		Status:      model.FileStatusReady,
+	}, "active")
+
+	_, err := service.Restore(context.Background(), "active")
+	if !errors.Is(err, ErrNotInTrash) {
+		t.Fatalf("expected ErrNotInTrash, got %v", err)
+	}
+	if _, err := db.GetFile(context.Background(), "active"); err != nil {
+		t.Fatalf("expected active file to remain available: %v", err)
+	}
+}
+
 func TestRestoreDirectoryRecursively(t *testing.T) {
 	service, db, root := newFileServiceTestHarness(t)
 	seedServiceDirectoryTree(t, db, root)
@@ -315,6 +336,48 @@ func TestPurgeRemovesSoftDeletedFileAndVectors(t *testing.T) {
 			t.Fatalf("expected vector delete ids %v, got %v", want, vectorDB.deletedIDs)
 		}
 	}
+}
+
+func TestPurgeDirectoryRemovesDescendantsChunksVectorsAndStorage(t *testing.T) {
+	service, db, root := newFileServiceTestHarness(t)
+	vectorDB := &recordingVectorStore{}
+	service.vectorDB = vectorDB
+	seedServiceDirectoryTree(t, db, root)
+	if err := db.UpdateFileChunkCount(context.Background(), "foo", 2); err != nil {
+		t.Fatalf("update foo chunk count: %v", err)
+	}
+	if err := db.UpdateFileChunkCount(context.Background(), "bar", 1); err != nil {
+		t.Fatalf("update bar chunk count: %v", err)
+	}
+	if err := db.UpsertChunks(context.Background(), []store.ChunkRow{
+		{ID: "foo#0", FileID: "foo", FileName: "foo.txt", ChunkIndex: 0, Text: "foo one"},
+		{ID: "foo#1", FileID: "foo", FileName: "foo.txt", ChunkIndex: 1, Text: "foo two"},
+		{ID: "bar#0", FileID: "bar", FileName: "bar.txt", ChunkIndex: 0, Text: "bar one"},
+	}); err != nil {
+		t.Fatalf("upsert chunks: %v", err)
+	}
+	if err := service.SoftDelete(context.Background(), "dir-b"); err != nil {
+		t.Fatalf("soft delete directory: %v", err)
+	}
+
+	if err := service.Purge(context.Background(), "dir-b"); err != nil {
+		t.Fatalf("Purge returned error: %v", err)
+	}
+
+	for _, id := range []string{"dir-b", "foo", "sub", "bar"} {
+		if _, err := db.GetFileIncludeDeleted(context.Background(), id); !errors.Is(err, store.ErrNotFound) {
+			t.Fatalf("expected file %s to be purged, got %v", id, err)
+		}
+	}
+	for _, chunkID := range []string{"foo#0", "foo#1", "bar#0"} {
+		if _, err := db.GetChunkText(context.Background(), chunkID); !errors.Is(err, store.ErrNotFound) {
+			t.Fatalf("expected chunk %s to be purged, got %v", chunkID, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(root, "A", "B")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expected physical directory tree to be removed, got %v", err)
+	}
+	assertDeletedVectorIDs(t, vectorDB.deletedIDs, []string{"foo#0", "foo#1", "bar#0"})
 }
 
 func TestPurgeRejectsActiveFile(t *testing.T) {
@@ -426,4 +489,20 @@ func (r *recordingVectorStore) Query(context.Context, string, []float32, int) (*
 func (r *recordingVectorStore) Delete(_ context.Context, _ string, ids []string) error {
 	r.deletedIDs = append(r.deletedIDs, ids...)
 	return nil
+}
+
+func assertDeletedVectorIDs(t *testing.T, got, want []string) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("expected vector delete ids %v, got %v", want, got)
+	}
+	seen := make(map[string]bool, len(got))
+	for _, id := range got {
+		seen[id] = true
+	}
+	for _, id := range want {
+		if !seen[id] {
+			t.Fatalf("expected vector delete ids %v, got %v", want, got)
+		}
+	}
 }

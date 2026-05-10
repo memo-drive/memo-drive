@@ -57,7 +57,7 @@ func (s *UploadService) Init(ctx context.Context, input InitUploadInput) (*model
 		ChunkSize:      s.cfg.Storage.ChunkSize,
 		UploadedChunks: []int{},
 		DestPath:       CleanVirtualPath(input.DestPath),
-		Status:         "uploading",
+		Status:         model.UploadStatusUploading,
 		ExpiresAt:      time.Now().UTC().Add(s.cfg.Storage.UploadTTL),
 	}
 	if err := os.MkdirAll(s.sessionDir(session.ID), 0o755); err != nil {
@@ -79,12 +79,12 @@ func (s *UploadService) GetSession(ctx context.Context, id string) (*model.Uploa
 	if err != nil {
 		return nil, err
 	}
-	if session.Status == "uploading" && time.Now().UTC().After(session.ExpiresAt) {
-		if err := s.store.UpdateUploadStatus(ctx, id, "expired"); err != nil {
+	if uploadStatusCanExpire(session.Status) && time.Now().UTC().After(session.ExpiresAt) {
+		if err := s.store.UpdateUploadStatus(ctx, id, model.UploadStatusExpired); err != nil {
 			log.Printf("level=warn component=upload event=session_expire_mark_failed upload_id=%s err=%q", id, err)
 			return nil, err
 		}
-		session.Status = "expired"
+		session.Status = model.UploadStatusExpired
 		log.Printf("level=info component=upload event=session_expired upload_id=%s expires_at=%s", id, session.ExpiresAt.Format(time.RFC3339))
 	}
 	return session, nil
@@ -98,12 +98,12 @@ func (s *UploadService) ListSessions(ctx context.Context, limit int) ([]model.Up
 	}
 	now := time.Now().UTC()
 	for i := range sessions {
-		if sessions[i].Status == "uploading" && now.After(sessions[i].ExpiresAt) {
-			if err := s.store.UpdateUploadStatus(ctx, sessions[i].ID, "expired"); err != nil {
+		if uploadStatusCanExpire(sessions[i].Status) && now.After(sessions[i].ExpiresAt) {
+			if err := s.store.UpdateUploadStatus(ctx, sessions[i].ID, model.UploadStatusExpired); err != nil {
 				log.Printf("level=warn component=upload event=list_session_expire_mark_failed upload_id=%s err=%q", sessions[i].ID, err)
 				continue
 			}
-			sessions[i].Status = "expired"
+			sessions[i].Status = model.UploadStatusExpired
 		}
 	}
 	log.Printf("level=info component=upload event=list_sessions_complete count=%d limit=%d", len(sessions), limit)
@@ -117,11 +117,11 @@ func (s *UploadService) CancelSession(ctx context.Context, id string) error {
 		log.Printf("level=warn component=upload event=cancel_lookup_failed upload_id=%s err=%q", id, err)
 		return err
 	}
-	if !isActiveUploadStatus(session.Status) {
+	if !canCancelUploadStatus(session.Status) {
 		log.Printf("level=warn component=upload event=cancel_rejected upload_id=%s status=%q", id, session.Status)
 		return fmt.Errorf("upload session is %s", session.Status)
 	}
-	if err := s.store.UpdateUploadStatus(ctx, id, "cancelled"); err != nil {
+	if err := s.store.UpdateUploadStatus(ctx, id, model.UploadStatusCancelled); err != nil {
 		log.Printf("level=error component=upload event=cancel_status_failed upload_id=%s err=%q", id, err)
 		return err
 	}
@@ -141,7 +141,7 @@ func (s *UploadService) DeleteSession(ctx context.Context, id string) error {
 		log.Printf("level=warn component=upload event=delete_session_lookup_failed upload_id=%s err=%q", id, err)
 		return err
 	}
-	if session.Status == "merging" {
+	if !canDeleteUploadStatus(session.Status) {
 		log.Printf("level=warn component=upload event=delete_session_rejected upload_id=%s status=%q", id, session.Status)
 		return fmt.Errorf("upload session is %s", session.Status)
 	}
@@ -175,12 +175,12 @@ func (s *UploadService) SaveChunk(ctx context.Context, id string, chunkIndex int
 		log.Printf("level=error component=upload event=save_chunk_lookup_failed upload_id=%s chunk_index=%d err=%q", id, chunkIndex, err)
 		return nil, err
 	}
-	if session.Status != "uploading" {
+	if !canReceiveUploadChunk(session.Status) {
 		log.Printf("level=warn component=upload event=save_chunk_rejected upload_id=%s chunk_index=%d status=%q", id, chunkIndex, session.Status)
 		return nil, fmt.Errorf("upload session is %s", session.Status)
 	}
 	if time.Now().UTC().After(session.ExpiresAt) {
-		_ = s.store.UpdateUploadStatus(ctx, id, "expired")
+		_ = s.store.UpdateUploadStatus(ctx, id, model.UploadStatusExpired)
 		log.Printf("level=warn component=upload event=save_chunk_expired upload_id=%s chunk_index=%d expires_at=%s", id, chunkIndex, session.ExpiresAt.Format(time.RFC3339))
 		return nil, errors.New("upload session expired")
 	}
@@ -220,7 +220,7 @@ func (s *UploadService) Complete(ctx context.Context, id string) (*model.File, e
 		log.Printf("level=error component=upload event=complete_lookup_failed upload_id=%s err=%q", id, err)
 		return nil, err
 	}
-	if session.Status != "uploading" {
+	if !canCompleteUploadStatus(session.Status) {
 		log.Printf("level=warn component=upload event=complete_rejected upload_id=%s status=%q", id, session.Status)
 		return nil, fmt.Errorf("upload session is %s", session.Status)
 	}
@@ -237,8 +237,14 @@ func (s *UploadService) Complete(ctx context.Context, id string) (*model.File, e
 		}
 	}
 
-	if err := s.store.UpdateUploadStatus(ctx, id, "merging"); err != nil {
+	if err := s.store.UpdateUploadStatus(ctx, id, model.UploadStatusMerging); err != nil {
 		log.Printf("level=error component=upload event=complete_status_failed upload_id=%s target_status=merging err=%q", id, err)
+		return nil, err
+	}
+	failMerge := func(err error) (*model.File, error) {
+		if statusErr := s.store.UpdateUploadStatus(ctx, id, model.UploadStatusFailed); statusErr != nil {
+			log.Printf("level=error component=upload event=complete_status_failed upload_id=%s target_status=failed err=%q", id, statusErr)
+		}
 		return nil, err
 	}
 	log.Printf("level=info component=upload event=merge_begin upload_id=%s file_name=%q file_size=%d expected_chunks=%d dest_path=%q", id, session.FileName, session.FileSize, expectedChunks, session.DestPath)
@@ -247,12 +253,12 @@ func (s *UploadService) Complete(ctx context.Context, id string) (*model.File, e
 	absPath := filepath.Join(s.cfg.Storage.Root, filepath.FromSlash(storageRel))
 	if err := os.MkdirAll(filepath.Dir(absPath), 0o755); err != nil {
 		log.Printf("level=error component=upload event=merge_mkdir_failed upload_id=%s file_id=%s storage_path=%q err=%q", id, fileID, storageRel, err)
-		return nil, err
+		return failMerge(err)
 	}
 	out, err := os.Create(absPath)
 	if err != nil {
 		log.Printf("level=error component=upload event=merge_create_failed upload_id=%s file_id=%s storage_path=%q err=%q", id, fileID, storageRel, err)
-		return nil, err
+		return failMerge(err)
 	}
 	defer out.Close()
 
@@ -260,18 +266,18 @@ func (s *UploadService) Complete(ctx context.Context, id string) (*model.File, e
 		in, err := os.Open(s.chunkPath(id, i))
 		if err != nil {
 			log.Printf("level=error component=upload event=merge_open_chunk_failed upload_id=%s chunk_index=%d err=%q", id, i, err)
-			return nil, err
+			return failMerge(err)
 		}
 		if _, err := io.Copy(out, in); err != nil {
 			_ = in.Close()
 			log.Printf("level=error component=upload event=merge_copy_chunk_failed upload_id=%s chunk_index=%d err=%q", id, i, err)
-			return nil, err
+			return failMerge(err)
 		}
 		_ = in.Close()
 	}
 	if err := out.Sync(); err != nil {
 		log.Printf("level=error component=upload event=merge_sync_failed upload_id=%s file_id=%s storage_path=%q err=%q", id, fileID, storageRel, err)
-		return nil, err
+		return failMerge(err)
 	}
 	mimeType := detectMime(absPath, session.FileName)
 
@@ -287,11 +293,11 @@ func (s *UploadService) Complete(ctx context.Context, id string) (*model.File, e
 	}
 	if err := s.store.CreateFile(ctx, file); err != nil {
 		log.Printf("level=error component=upload event=complete_create_file_failed upload_id=%s file_id=%s storage_path=%q err=%q", id, fileID, storageRel, err)
-		return nil, err
+		return failMerge(err)
 	}
-	if err := s.store.UpdateUploadStatus(ctx, id, "done"); err != nil {
+	if err := s.store.UpdateUploadStatus(ctx, id, model.UploadStatusDone); err != nil {
 		log.Printf("level=error component=upload event=complete_status_failed upload_id=%s target_status=done err=%q", id, err)
-		return nil, err
+		return failMerge(err)
 	}
 	_ = os.RemoveAll(s.sessionDir(id))
 	log.Printf("level=info component=upload event=complete upload_id=%s file_id=%s file_name=%q storage_path=%q mime_type=%q size=%d expected_chunks=%d duration_ms=%d",
@@ -328,10 +334,6 @@ func containsInt(values []int, needle int) bool {
 		}
 	}
 	return false
-}
-
-func isActiveUploadStatus(status string) bool {
-	return status == "uploading" || status == "merging"
 }
 
 func detectMime(absPath, name string) string {

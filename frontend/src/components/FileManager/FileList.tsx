@@ -2,6 +2,11 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { DriveFile } from "../../types";
 import { Popover } from "../base";
+import {
+	filePresentation,
+	fileSizeLabel,
+	type FilePresentationKind,
+} from "./filePresentation";
 import styles from "./FileList.module.css";
 
 interface Props {
@@ -46,19 +51,13 @@ export function FileList({
 	const totalPages = Math.ceil(files?.length / PAGE_SIZE);
 	const paged = files.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
-	function getIconClass(file: DriveFile) {
-		if (file.is_dir) return styles.iconBoxDir;
-		if (file.mime_type.startsWith("image/")) return styles.iconBoxImg;
-		return styles.iconBoxFile;
-	}
-
-	function getIconName(file: DriveFile) {
-		if (file.is_dir) return "folder";
-		if (file.mime_type.startsWith("image/")) return "image";
-		if (file.mime_type.startsWith("video/")) return "video_library";
-		if (file.mime_type.startsWith("audio/")) return "audio_file";
-		return "description";
-	}
+	const iconClasses: Record<FilePresentationKind, string> = {
+		audio: styles.iconBoxFile,
+		file: styles.iconBoxFile,
+		folder: styles.iconBoxDir,
+		image: styles.iconBoxImg,
+		video: styles.iconBoxFile,
+	};
 
 	return (
 		<div className={styles.tableWrapper}>
@@ -73,35 +72,104 @@ export function FileList({
 				</thead>
 				<tbody className={styles.tbody}>
 					{paged.map((file) => (
-						<tr
+						<FileRow
 							key={file.id}
-							className={`${styles.tableRow} ${selectedId === file.id ? styles.tableRowSelected : ""}`}
-							onClick={() => {
-								onSelect(file);
-								if (file.is_dir) onOpenFolder(file);
-							}}
-						>
-							<td className={styles.tableCell}>
-								<div className={styles.fileIconWrapper}>
-									<div
-										className={`${styles.iconBox} ${getIconClass(file)}`}
-									>
-										<span className="material-symbols-outlined">
-											{getIconName(file)}
-										</span>
-									</div>
-									<div>
-										<p className={styles.fileName}>
-											{file.name}
-										</p>
-										<p className={styles.fileDesc}>
-											{file.is_dir
-												? "Folder"
-												: file.mime_type || "File"}
-										</p>
-									</div>
-								</div>
-							</td>
+							file={file}
+							iconClasses={iconClasses}
+							onDelete={onDelete}
+							onDownload={onDownload}
+							onMove={onMove}
+							onOpenFolder={onOpenFolder}
+							onRename={onRename}
+							onSelect={onSelect}
+							selected={selectedId === file.id}
+							t={t}
+						/>
+					))}
+				</tbody>
+			</table>
+			{totalPages > 1 && (
+				<div className={styles.pagination}>
+					<button
+						className={styles.pageBtn}
+						disabled={page <= 1}
+						onClick={() => setPage((p) => p - 1)}
+					>
+						<span className="material-symbols-outlined">
+							chevron_left
+						</span>
+					</button>
+					<span className={styles.pageInfo}>
+						{t("fileList.pagination", { current: page, total: totalPages, count: files.length })}
+					</span>
+					<button
+						className={styles.pageBtn}
+						disabled={page >= totalPages}
+						onClick={() => setPage((p) => p + 1)}
+					>
+						<span className="material-symbols-outlined">
+							chevron_right
+						</span>
+					</button>
+				</div>
+			)}
+		</div>
+	);
+}
+
+interface FileRowProps {
+	file: DriveFile;
+	iconClasses: Record<FilePresentationKind, string>;
+	onOpenFolder: (file: DriveFile) => void;
+	onSelect: (file: DriveFile) => void;
+	onDelete: (file: DriveFile) => void;
+	onRename: (file: DriveFile) => void;
+	onMove: (file: DriveFile) => void;
+	onDownload: (file: DriveFile) => void;
+	selected: boolean;
+	t: (key: string, options?: Record<string, unknown>) => string;
+}
+
+function FileRow({
+	file,
+	iconClasses,
+	onDelete,
+	onDownload,
+	onMove,
+	onOpenFolder,
+	onRename,
+	onSelect,
+	selected,
+	t,
+}: FileRowProps) {
+	const presentation = filePresentation(file);
+	return (
+		<tr
+			className={`${styles.tableRow} ${selected ? styles.tableRowSelected : ""}`}
+			onClick={() => {
+				onSelect(file);
+				if (file.is_dir) onOpenFolder(file);
+			}}
+		>
+			<td className={styles.tableCell}>
+				<div className={styles.fileIconWrapper}>
+					<div
+						className={`${styles.iconBox} ${iconClasses[presentation.kind]}`}
+					>
+						<span className="material-symbols-outlined">
+							{presentation.iconName}
+						</span>
+					</div>
+					<div>
+						<p className={styles.fileName}>
+							{file.name}
+						</p>
+						<p className={styles.fileDesc}>
+							{presentation.description}
+						</p>
+					</div>
+				</div>
+			</td>
 							<td className={styles.tableCell}>
 								<span className={styles.metaText}>
 									{new Date(file.updated_at).toLocaleString(
@@ -118,7 +186,7 @@ export function FileList({
 							</td>
 							<td className={styles.tableCell}>
 								<span className={styles.metaText}>
-									{file.is_dir ? "--" : formatSize(file.size)}
+									{fileSizeLabel(file)}
 								</span>
 							</td>
 							<td className={styles.tableCellRight}>
@@ -192,42 +260,5 @@ export function FileList({
 								</Popover>
 							</td>
 						</tr>
-					))}
-				</tbody>
-			</table>
-			{totalPages > 1 && (
-				<div className={styles.pagination}>
-					<button
-						className={styles.pageBtn}
-						disabled={page <= 1}
-						onClick={() => setPage((p) => p - 1)}
-					>
-						<span className="material-symbols-outlined">
-							chevron_left
-						</span>
-					</button>
-					<span className={styles.pageInfo}>
-						{t("fileList.pagination", { current: page, total: totalPages, count: files.length })}
-					</span>
-					<button
-						className={styles.pageBtn}
-						disabled={page >= totalPages}
-						onClick={() => setPage((p) => p + 1)}
-					>
-						<span className="material-symbols-outlined">
-							chevron_right
-						</span>
-					</button>
-				</div>
-			)}
-		</div>
 	);
-}
-
-function formatSize(size: number) {
-	if (size < 1024) return `${size} B`;
-	if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
-	if (size < 1024 * 1024 * 1024)
-		return `${(size / 1024 / 1024).toFixed(1)} MB`;
-	return `${(size / 1024 / 1024 / 1024).toFixed(2)} GB`;
 }

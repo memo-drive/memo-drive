@@ -10,4 +10,11 @@ const (
 	TaskStatusProcessing = "processing"
 	TaskStatusDone       = "done"
 	TaskStatusFailed     = "failed"
+
+	UploadStatusUploading = "uploading"
+	UploadStatusMerging   = "merging"
+	UploadStatusDone      = "done"
+	UploadStatusCancelled = "cancelled"
+	UploadStatusExpired   = "expired"
+	UploadStatusFailed    = "failed"
 )

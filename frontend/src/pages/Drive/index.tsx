@@ -19,6 +19,45 @@ import { useChunkedUpload } from "../../hooks/useChunkedUpload";
 import { useFileStore } from "../../stores/fileStore";
 import type { DriveFile, FileSearchHit } from "../../types";
 
+import {
+	buildDriveCrumbs,
+	driveFolderPath,
+	driveParentPath,
+	type DriveCrumb,
+} from "./drivePath";
+import {
+	canSubmitDriveFolder,
+	completeDriveFolderCreate,
+	driveFolderPayloadName,
+	startDriveFolderCreate,
+} from "./driveCreateFolder";
+import {
+	completeDriveMove,
+	startDriveMove,
+} from "./driveMove";
+import {
+	confirmDriveDelete,
+	startDriveDelete,
+} from "./driveDelete";
+import {
+	pickDriveFile,
+	pickSearchResult,
+} from "./driveSelection";
+import {
+	canSubmitDriveRename,
+	driveRenameErrorKey,
+	driveRenamePayloadName,
+	startDriveRename,
+} from "./driveRename";
+import {
+	buildDrivePreviewTitle,
+	type DrivePreviewBadgeTone,
+} from "./drivePreview";
+import { buildDriveSearchRequest } from "./driveSearch";
+import {
+	selectedDriveUploadFiles,
+	shouldStartDriveUpload,
+} from "./driveUpload";
 import styles from "./index.module.css";
 
 const MAX_CRUMB_LEVELS = 3;
@@ -54,31 +93,12 @@ export function DrivePage() {
 	});
 	const searchSerial = useRef(0);
 
-	// Breadcrumbs (computed on each render, fine for this use case)
-	function buildCrumbs() {
-		const parts = currentPath.split("/").filter(Boolean);
-		const all = [{ label: t("drive.rootDir"), path: "/" }].concat(
-			parts.map((part: string, i: number) => ({
-				label: part,
-				path: "/" + parts.slice(0, i + 1).join("/"),
-			})),
-		) as { label: string; path: string }[];
-		if (all.length <= MAX_CRUMB_LEVELS) return all;
-		return [
-			all[0],
-			{ label: "...", path: "" },
-			...all.slice(all.length - (MAX_CRUMB_LEVELS - 1)),
-		];
-	}
-	const crumbs = buildCrumbs();
-
-	function getParentPath() {
-		if (currentPath === "/") return null;
-		const parts = currentPath.split("/").filter(Boolean);
-		parts.pop();
-		return parts.length === 0 ? "/" : "/" + parts.join("/");
-	}
-	const parentPath = getParentPath();
+	const crumbs = buildDriveCrumbs(
+		currentPath,
+		t("drive.rootDir"),
+		MAX_CRUMB_LEVELS,
+	);
+	const parentPath = driveParentPath(currentPath);
 
 	async function refresh(path = currentPath) {
 		try {
@@ -95,8 +115,12 @@ export function DrivePage() {
 	}, [currentPath]);
 
 	useEffect(() => {
-		const text = query.trim();
-		if (!text) {
+		const request = buildDriveSearchRequest(
+			query,
+			currentPath,
+			includeSemantic,
+		);
+		if (!request) {
 			searchSerial.current += 1;
 			setSearchHits(null);
 			setSearching(false);
@@ -107,12 +131,7 @@ export function DrivePage() {
 		const timer = window.setTimeout(async () => {
 			setSearching(true);
 			try {
-				const response = await searchFiles({
-					query: text,
-					path: currentPath,
-					semantic: includeSemantic,
-					limit: 50,
-				});
+				const response = await searchFiles(request);
 				if (searchSerial.current !== requestID) return;
 				setSearchHits(response.hits);
 			} catch (err) {
@@ -129,17 +148,20 @@ export function DrivePage() {
 	}, [query, currentPath, includeSemantic]);
 
 	function openCreateFolder() {
-		setFolderName("");
-		setFolderModalOpen(true);
+		const draft = startDriveFolderCreate();
+		setFolderName(draft.draftName);
+		setFolderModalOpen(draft.open);
 	}
 
 	async function handleCreateFolder() {
-		const name = folderName.trim();
-		if (!name) return;
+		if (!canSubmitDriveFolder(folderName)) return;
+		const name = driveFolderPayloadName(folderName);
 		setCreating(true);
 		try {
 			await createFolder(currentPath, name);
-			setFolderModalOpen(false);
+			const next = completeDriveFolderCreate();
+			setFolderModalOpen(next.open);
+			setFolderName(next.draftName);
 			await refresh();
 		} finally {
 			setCreating(false);
@@ -147,12 +169,13 @@ export function DrivePage() {
 	}
 
 	function onDelete(file: DriveFile) {
-		setFileToDelete(file);
+		setFileToDelete(startDriveDelete(file).target);
 	}
 
 	function onRename(file: DriveFile) {
-		setRenameTarget(file);
-		setNewName(file.name);
+		const draft = startDriveRename(file);
+		setRenameTarget(draft.target);
+		setNewName(draft.draftName);
 	}
 
 	function onDownload(file: DriveFile) {
@@ -165,8 +188,9 @@ export function DrivePage() {
 		setDeleting(true);
 		try {
 			await deleteFile(fileToDelete.id);
-			setFileToDelete(null);
-			setSelectedFile(undefined);
+			const next = confirmDriveDelete();
+			setFileToDelete(next.deleteTarget);
+			setSelectedFile(next.selectedFile);
 			await refresh();
 			message.success(t("drive.deleteSuccess", { name: fileToDelete.name }));
 		} catch (err) {
@@ -179,12 +203,11 @@ export function DrivePage() {
 	}
 
 	async function handleRenameSubmit() {
-		if (!renameTarget) return;
-		const trimmed = newName.trim();
-		if (!trimmed || trimmed === renameTarget.name || trimmed.includes("/")) return;
+		if (!canSubmitDriveRename(renameTarget, newName)) return;
+		const trimmed = driveRenamePayloadName(newName);
 		setRenaming(true);
 		try {
-			await renameFile(renameTarget.id, trimmed);
+			await renameFile(renameTarget!.id, trimmed);
 			setRenameTarget(null);
 			setNewName("");
 			await refresh();
@@ -196,10 +219,10 @@ export function DrivePage() {
 		}
 	}
 
+	const renameErrorKey = driveRenameErrorKey(newName);
+
 	function openFolder(file: DriveFile) {
-		setCurrentPath(
-			file.path === "/" ? `/${file.name}` : `${file.path}/${file.name}`,
-		);
+		setCurrentPath(driveFolderPath(file));
 	}
 
 	function triggerUpload() {
@@ -207,8 +230,8 @@ export function DrivePage() {
 	}
 
 	async function handleFiles(files: FileList | null) {
-		if (!files || files.length === 0) return;
-		const selected = Array.from(files);
+		if (!shouldStartDriveUpload(files)) return;
+		const selected = selectedDriveUploadFiles(files);
 		message.info(
 			t("drive.filesAddedToTransfer", { count: selected.length }),
 		);
@@ -221,51 +244,47 @@ export function DrivePage() {
 	}
 
 	function handleFileClick(file: DriveFile) {
-		setSelectedFile(file);
-		if (!file.is_dir) {
-			setPreviewFile(file);
-		}
+		const pick = pickDriveFile(file);
+		setSelectedFile(pick.selectedFile);
+		setPreviewFile(pick.previewFile);
 	}
 
 	function handleSearchPick(file: DriveFile) {
-		setSelectedFile(file);
-		if (file.is_dir) {
-			openFolder(file);
-			return;
-		}
-		setPreviewFile(file);
+		const pick = pickSearchResult(file);
+		setSelectedFile(pick.selectedFile);
+		setPreviewFile(pick.previewFile);
+		if (pick.nextPath) setCurrentPath(pick.nextPath);
 	}
 
 	async function handleMoveComplete() {
-		setMoveTarget(null);
-		setSelectedFile(undefined);
+		const next = completeDriveMove();
+		setMoveTarget(next.moveTarget);
+		setSelectedFile(next.selectedFile);
 		await refresh();
 	}
 
 	function previewTitle(file: DriveFile) {
-		const badge =
-			file.status === "processing" ? (
+		const title = buildDrivePreviewTitle(file, downloadUrl(file.id));
+		const badgeClass: Record<DrivePreviewBadgeTone, string> = {
+			failed: previewStyles.badgeFailed,
+			processing: previewStyles.badgeProcessing,
+		};
+		const badge = title.badge ? (
 				<span
-					className={`${previewStyles.statusBadge} ${previewStyles.badgeProcessing}`}
+					className={`${previewStyles.statusBadge} ${badgeClass[title.badge.tone]}`}
 				>
-					{t("drive.processing")}
-				</span>
-			) : file.status === "failed" ? (
-				<span
-					className={`${previewStyles.statusBadge} ${previewStyles.badgeFailed}`}
-				>
-					{t("drive.processFailed")}
+					{t(title.badge.labelKey)}
 				</span>
 			) : null;
 
 		return (
 			<div className={previewStyles.modalTitle}>
-				<span className={previewStyles.modalFileName}>{file.name}</span>
+				<span className={previewStyles.modalFileName}>{title.fileName}</span>
 				{badge}
 				<a
 					className={previewStyles.downloadLink}
-					href={downloadUrl(file.id)}
-					download={file.name}
+					href={title.downloadHref}
+					download={title.downloadFileName}
 				>
 					{t("common.download")}
 				</a>
@@ -299,7 +318,7 @@ export function DrivePage() {
 					</button>
 				)}
 				{crumbs.map(
-					(crumb: { label: string; path: string }, i: number) => (
+					(crumb: DriveCrumb, i: number) => (
 						<span key={crumb.path || i} className={styles.crumb}>
 							<button
 								className={`${styles.crumbBtn} ${i === crumbs.length - 1 ? styles.crumbBtnCurrent : ""}`}
@@ -376,7 +395,7 @@ export function DrivePage() {
 								onSelect={handleFileClick}
 								onDelete={onDelete}
 								onRename={onRename}
-								onMove={setMoveTarget}
+								onMove={(file) => setMoveTarget(startDriveMove(file).target)}
 								onDownload={onDownload}
 							/>
 						) : (
@@ -407,7 +426,7 @@ export function DrivePage() {
 						<Button
 							variant="primary"
 							onClick={handleCreateFolder}
-							disabled={!folderName.trim() || creating}
+							disabled={!canSubmitDriveFolder(folderName) || creating}
 							loading={creating}
 						>
 							{t("common.create")}
@@ -453,12 +472,7 @@ export function DrivePage() {
 						<Button
 							variant="primary"
 							onClick={handleRenameSubmit}
-							disabled={
-								!newName.trim() ||
-								newName.trim() === renameTarget?.name ||
-								newName.includes("/") ||
-								renaming
-							}
+							disabled={!canSubmitDriveRename(renameTarget, newName) || renaming}
 							loading={renaming}
 						>
 							{t("common.save")}
@@ -485,8 +499,8 @@ export function DrivePage() {
 						placeholder={t("drive.newNamePlaceholder")}
 						autoFocus
 					/>
-					{newName.includes("/") ? (
-						<p className="text-xs text-red-600">{t("drive.nameNoSlash")}</p>
+					{renameErrorKey ? (
+						<p className="text-xs text-red-600">{t(renameErrorKey)}</p>
 					) : null}
 				</div>
 			</Modal>

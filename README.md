@@ -2,23 +2,23 @@
 
 MemoDrive is a private, single-user cloud drive with AI capabilities. By combining local storage solutions and utilizing mainstream large model capabilities, it can automatically process files based on the files type when storing them, extracting file content and building vector indexes to create a cloud drive experience in the AI era.
 
-[English](./README.md) | [中文](./README-ZH.md)
+English | [中文](./README-ZH.md)
 
 ## What Works Now
 
 - Single-user auth with `ADMIN_PASSWORD`; empty password means no login required.
 - Configurable storage root, SQLite database path, upload temp path, and thumbnail path.
 - File listing, folder creation, rename/move API, Trash soft-delete/restore/purge, and download with HTTP Range support.
-- Chunked upload with resumable session records, merge-on-complete, and a real Transfer page for progress, pause/resume, cancel, and history cleanup.
-- Async Pipeline task creation after upload.
+- Chunked upload with explicit Upload Session states, resumable session records, merge-on-complete, and a real Transfer page for progress, pause/resume, cancel, and history cleanup.
+- Async File Indexing Pipeline with durable Pipeline Tasks, bounded worker concurrency, startup recovery, panic failure marking, and graceful shutdown.
 - Image metadata extraction with dimensions, JPEG EXIF, and thumbnail generation.
 - Video/audio metadata extraction through `ffprobe` when available.
 - Media text indexing: image OCR is enabled by default via Tesseract when available; audio/video transcription is optional via whisper.cpp or OpenAI-compatible Whisper APIs.
-- Pipeline resilience: startup recovery for interrupted tasks, stuck-task failure marking, and periodic orphan thumbnail cleanup.
+- Janitor Sweep resilience: interrupted Pipeline Task recovery, stuck-task failure marking, expired Trash Entry purging, and periodic orphan thumbnail cleanup.
 - PDF, DOCX, Markdown, and plain-text parsing with section-aware smart chunking.
 - OpenAI-compatible and Ollama LLM providers with automatic fallback.
 - ChromaDB REST client for collection management, vector upsert, query, and delete.
-- React frontend with login, file manager, upload progress, preview, metadata panel, and streaming AI chat panel.
+- React frontend with login, Drive workflow helpers, upload progress, preview, metadata panel, and streaming AI chat panel.
 - Standalone smart search page with a docked AI assistant, semantic result list, and conversation history drawer.
 - AI conversation persistence backed by `conversations` / `messages`, including history list, switching, rename, and delete APIs.
 - RAG quality upgrades: query condense, heading-aware indexing, dynamic score filtering, multi-query expansion, hybrid keyword/vector retrieval, and parent-child chunks.
@@ -26,48 +26,121 @@ MemoDrive is a private, single-user cloud drive with AI capabilities. By combini
 
 ## Architecture
 
+MemoDrive's implementation is organized around stable product vocabulary. The
+HTTP surface stays small, while deeper internal modules hide sequencing details
+for uploads, indexing, search, trash, and Drive workflows.
+
 ```mermaid
 flowchart TB
-    Client("💻 Frontend (React + Vite)")
+    Client("💻 Browser")
 
-    subgraph Backend ["⚙️ Backend (Go Fiber)"]
+    subgraph Frontend ["Frontend (React + Vite)"]
+        Drive["Drive Workflow\n(path, search, selection, file actions)"]
+        Transfer["Transfer Projection\n(upload session status)"]
+        SmartUI["Smart Search UI\n(results + assistant)"]
+    end
+
+    subgraph Backend ["Backend (Go Fiber)"]
         Gateway{"API Gateway & Auth"}
 
-        subgraph Services ["Services Layer"]
-            FileSvc["File & Upload Service"]
-            PipeSvc["AI Pipeline Service"]
-            RAGSvc["RAG & Search Service"]
+        subgraph FileModules ["File Modules"]
+            FileSvc["File Service"]
+            Trash["Trash Lifecycle"]
+            Upload["Upload Session State Machine"]
         end
 
-        subgraph Core ["Core Modules"]
-            Parser["Document Parser & OCR"]
+        subgraph PipelineModules ["File Indexing Pipeline"]
+            PipeSvc["Pipeline Service"]
+            Worker["Worker Pool"]
+            Parser["Parsed Document + Chunking"]
+            Indexer["Embedding + Vector Index Upsert"]
+        end
+
+        subgraph SearchModules ["Smart Search and RAG"]
+            Search["Smart Search\n(intent, filters, retrieval, ranking)"]
+            RAG["RAG Query"]
             LLM["LLM Provider Interface"]
+        end
+
+        subgraph Maintenance ["Maintenance"]
+            Janitor["Janitor Sweep\n(task recovery, orphan cleanup, expired Trash Entries)"]
         end
     end
 
-    subgraph Storage ["💾 Infrastructure & Data"]
-        DB[("SQLite (Metadata)")]
-        Files[("Local Volume (Files)")]
-        Chroma[("Chroma (Vector DB)")]
+    subgraph Storage ["Infrastructure & Data"]
+        DB[("SQLite\nFiles, Upload Sessions, Tasks, Chunks, Conversations")]
+        Files[("Local Volume\nstored Files, temp uploads, thumbnails")]
+        Chroma[("Chroma\nVector Index")]
         Ollama{{"Ollama / OpenAI"}}
     end
 
-    Client -- "HTTP / SSE" --> Gateway
-    Gateway --> FileSvc & PipeSvc & RAGSvc
+    Client --> Frontend
+    Frontend -- "HTTP / SSE" --> Gateway
 
+    Gateway --> FileSvc
+    Gateway --> Upload
+    Gateway --> Search
+    Gateway --> RAG
+
+    FileSvc --> Trash
     FileSvc --> DB
     FileSvc --> Files
+    Upload --> DB
+    Upload --> Files
+    Upload --> PipeSvc
 
-    PipeSvc --> Parser
-    Parser --> LLM
-    PipeSvc --> Chroma
     PipeSvc --> DB
+    PipeSvc --> Worker
+    Worker --> Parser
+    Worker --> Indexer
+    Indexer --> LLM
+    Indexer --> Chroma
+    Indexer --> DB
 
-    RAGSvc --> Chroma
-    RAGSvc --> LLM
+    Search --> DB
+    Search --> Chroma
+    Search --> LLM
+    RAG --> Search
+    RAG --> LLM
 
+    Trash --> DB
+    Trash --> Files
+    Trash --> Chroma
+    Janitor --> PipeSvc
+    Janitor --> Trash
+    Janitor --> Files
     LLM -. "HTTP API" .-> Ollama
 ```
+
+### Architectural Modules
+
+- **Upload Session State Machine**: resumable upload sessions move through explicit backend statuses (`uploading`, `merging`, `done`, `cancelled`, `expired`, `failed`), and the frontend transfer store projects those statuses instead of inventing a second state model.
+- **File Indexing Pipeline**: uploaded Files enqueue durable Pipeline Tasks into a bounded Worker Pool. Parsing, chunking, embedding, metadata updates, vector upserts, panic handling, recovery, and graceful shutdown are kept behind the Pipeline interface.
+- **Smart Search and RAG**: intent parsing, file filtering, multi-query expansion, hybrid keyword/vector retrieval, parent-child Chunk restoration, score filtering, and RAG evidence assembly are split into focused internal modules while callers still use compact Search and RAG APIs.
+- **Trash Lifecycle**: soft delete, restore, permanent purge, descendant handling, Chunk cleanup, Vector Index cleanup, physical storage cleanup, and Janitor Sweep purging are concentrated in one lifecycle implementation.
+- **Drive Workflow**: Drive page path, search, selection, rename, delete, move, create-Folder, upload, preview, and file-presentation rules are split into tested workflow helpers, leaving the page to compose UI and side effects.
+
+### Architecture Vocabulary
+
+- **File**: a stored user item with metadata, a virtual path, and a physical storage path.
+- **Folder**: a virtual path entry used to organize Files.
+- **Upload Session**: a resumable transfer record before one File is registered.
+- **Pipeline Task**: a durable work record for AI processing of one File.
+- **File Indexing Pipeline**: the flow that turns a File into metadata, Chunks, embeddings, and Vector Index entries.
+- **Parsed Document**: text and structure extracted from a File before chunking.
+- **Parent Chunk / Child Chunk**: large context Chunks and smaller retrieval Chunks used by Smart Search and RAG.
+- **Vector Index**: the external searchable store of Chunk embeddings.
+- **Smart Search**: retrieval that combines intent parsing, semantic search, keyword search, filters, and ranking.
+- **RAG Query**: a user question answered with retrieved File evidence and an LLM.
+- **Trash Entry**: a soft-deleted File that can be restored or purged.
+- **Janitor Sweep**: periodic maintenance for Pipeline Tasks, orphaned storage, thumbnails, and expired Trash Entries.
+
+### Architecture Optimization Priorities
+
+1. **Pipeline Worker and File Indexing Pipeline**: keep concurrency, recovery, panic failure marking, and shutdown behind one Pipeline interface.
+2. **Upload Session State Machine**: make transfer states explicit across backend, HTTP behavior, and frontend projections.
+3. **Smart Search and RAG Depth**: keep caller APIs compact while internal modules handle query understanding, retrieval planning, evidence retrieval, and ranking.
+4. **File, Trash, and Drive Workflow**: centralize Trash lifecycle rules and split Drive page behavior by user intent without adding unnecessary public seams.
 
 ## Project Structure
 
@@ -79,7 +152,7 @@ MemoDrive/
 │   │   ├── components/       # UI Components (FileManager, AIAssistant, FilePreview)
 │   │   ├── hooks/            # Custom React hooks (useAIChat, useChunkedUpload)
 │   │   ├── layouts/          # Page layouts (MainLayout)
-│   │   ├── pages/            # Next-level pages (DrivePage, LoginPage)
+│   │   ├── pages/            # Pages and workflow helpers (Drive, SmartSearch, Login)
 │   │   ├── stores/           # Zustand state management
 │   │   └── types/            # TypeScript interfaces
 │   ├── index.html            # Vite entry HTML
@@ -94,7 +167,7 @@ MemoDrive/
 │   │   ├── middleware/       # Fiber middlewares (auth, cors, ratelimit)
 │   │   ├── model/            # Data models and structures
 │   │   ├── parser/           # Document and media parsers, OCR, text splitter
-│   │   ├── service/          # Core business logic (file, upload, pipeline, rag, search)
+│   │   ├── service/          # Deep modules (file, upload, pipeline, trash, rag, search)
 │   │   ├── store/            # SQLite database interactions
 │   │   ├── vectordb/         # Vector database client (Chroma)
 │   │   └── worker/           # Async task pool
@@ -231,6 +304,13 @@ make build-mac
 
 # Run backend tests
 make test
+
+# Run backend tests directly
+cd backend && go test ./...
+
+# Run frontend workflow tests and TypeScript checks
+cd frontend && pnpm test
+cd frontend && pnpm typecheck
 ```
 
 ## Core Unfinished Feature Tasks

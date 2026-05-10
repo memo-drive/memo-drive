@@ -126,7 +126,14 @@ func (r *Reconciler) recoverTasks(ctx context.Context, olderThan time.Time) (Swe
 			stats.TasksFailed++
 			continue
 		}
-		go r.pipeline.run(context.Background(), task.ID, file)
+		if err := r.pipeline.Requeue(ctx, task.ID, file); err != nil {
+			msg := "task cannot be requeued"
+			_ = r.store.MarkTaskFailed(ctx, task.ID, msg)
+			_ = r.store.UpdateFileStatus(ctx, task.FileID, model.FileStatusFailed)
+			stats.TasksFailed++
+			log.Printf("level=warn component=reconciler event=requeue_failed task_id=%s file_id=%s err=%q", task.ID, task.FileID, err)
+			continue
+		}
 		stats.TasksRecovered++
 		log.Printf("level=info component=reconciler event=requeued_task old_task_id=%s file_id=%s retry_count=%d", task.ID, task.FileID, task.RetryCount+1)
 	}

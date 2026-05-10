@@ -27,7 +27,8 @@ func main() {
 	log.SetFlags(log.LstdFlags | log.Lmicroseconds | log.LUTC)
 	log.Printf("level=info component=server event=startup_begin")
 
-	ctx := context.Background()
+	ctx, stopBackground := context.WithCancel(context.Background())
+	defer stopBackground()
 	cfg, err := config.Load()
 	if err != nil {
 		log.Fatalf("level=fatal component=config event=load_failed err=%q", err)
@@ -94,9 +95,9 @@ func main() {
 	handler.NewAIHandler(llmProvider, ragService, searchService, conversationService).Register(protected)
 	handler.NewConversationHandler(conversationService).Register(protected)
 
-	go cleanupUploads(uploadService)
+	go cleanupUploads(ctx, uploadService)
 	if cfg.Janitor.Enabled {
-		go runReconcilerLoop(reconciler, cfg.Janitor.Interval)
+		go runReconcilerLoop(ctx, reconciler, cfg.Janitor.Interval)
 	}
 
 	go func() {
@@ -118,27 +119,43 @@ func main() {
 	} else {
 		log.Printf("level=info component=server event=shutdown_complete")
 	}
+	stopBackground()
+	if err := pipelineService.Shutdown(shutdownCtx); err != nil {
+		log.Printf("level=warn component=pipeline event=shutdown_incomplete err=%q", err)
+	} else {
+		log.Printf("level=info component=pipeline event=shutdown_complete")
+	}
 }
 
-func cleanupUploads(uploads *service.UploadService) {
+func cleanupUploads(ctx context.Context, uploads *service.UploadService) {
 	ticker := time.NewTicker(10 * time.Minute)
 	defer ticker.Stop()
-	for range ticker.C {
-		if err := uploads.CleanupExpired(context.Background()); err != nil {
-			log.Printf("level=warn component=upload event=cleanup_failed err=%q", err)
+	for {
+		select {
+		case <-ticker.C:
+			if err := uploads.CleanupExpired(ctx); err != nil {
+				log.Printf("level=warn component=upload event=cleanup_failed err=%q", err)
+			}
+		case <-ctx.Done():
+			return
 		}
 	}
 }
 
-func runReconcilerLoop(reconciler *service.Reconciler, interval time.Duration) {
+func runReconcilerLoop(ctx context.Context, reconciler *service.Reconciler, interval time.Duration) {
 	if interval <= 0 {
 		interval = 10 * time.Minute
 	}
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
-	for range ticker.C {
-		if err := reconciler.PeriodicSweep(context.Background()); err != nil {
-			log.Printf("level=warn component=janitor event=sweep_failed err=%q", err)
+	for {
+		select {
+		case <-ticker.C:
+			if err := reconciler.PeriodicSweep(ctx); err != nil {
+				log.Printf("level=warn component=janitor event=sweep_failed err=%q", err)
+			}
+		case <-ctx.Done():
+			return
 		}
 	}
 }

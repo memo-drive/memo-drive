@@ -11,4 +11,4 @@ material/
 package-lock.json
 pnpm-lock.yaml
 !frontend/pnpm-lock.yaml
-
+docs/

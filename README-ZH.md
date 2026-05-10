@@ -2,23 +2,23 @@
 
 MemoDrive 是一个私有的、单用户的智能云盘。通过结合个人网盘的本地存储方案，并利用主流的大模型能力，在存储文件时，可根据文件类型，自动对文件进行 AI 处理，提取文件内容，构建向量索引，实现在 AI 时代下的网盘体验。
 
-[English](./README.md) | [中文](./README-ZH.md)
+[English](./README.md) | 中文
 
 ## 当前已实现功能
 
 - 单用户鉴权系统：通过 `ADMIN_PASSWORD` 控制，密码为空则无需登录即可访问。
 - 可配置的存储选项：支持自定义存储根目录、SQLite 数据库路径、上传临时目录以及缩略图目录。
 - 文件管理核心：文件列表、创建文件夹、重命名/移动 API、回收站软删/还原/永久删除，以及支持 HTTP Range 的断点下载。
-- 大文件分片上传：支持分片上传、上传会话记录、断点续传、完成后自动合并，以及真实传输页进度、暂停/继续、取消和历史清理。
-- 异步处理队列：文件上传后自动创建后台 Pipeline 任务进行处理。
+- 大文件分片上传：支持显式 Upload Session 状态、上传会话记录、断点续传、完成后自动合并，以及真实传输页进度、暂停/继续、取消和历史清理。
+- 异步 File Indexing Pipeline：文件上传后创建持久 Pipeline Task，进入有界 Worker Pool，支持启动恢复、panic 失败标记和优雅关闭。
 - 媒体元信息提取：支持图片尺寸提取、JPEG EXIF 解析及缩略图生成。
 - 音视频元信息提取：环境支持时自动调用 `ffprobe` 提取时长等元信息。
 - 媒体文本入库：图片 OCR 默认开启并在安装 Tesseract 时自动提取文字；音频/视频转录可选接入 whisper.cpp 或 OpenAI 兼容 Whisper 接口。
-- Pipeline 鲁棒性：支持启动期恢复中断任务、失败化卡住任务，并周期清理孤儿缩略图。
+- Janitor Sweep 鲁棒性：支持启动期恢复中断 Pipeline Task、失败化卡住任务、清理过期 Trash Entry，并周期清理孤儿缩略图。
 - 文档解析与智能切片：支持 PDF、DOCX、Markdown、纯文本解析，并按章节/段落进行滑动窗口切片。
 - 大模型基础能力：支持 OpenAI 兼容接口与 Ollama Provider，并可根据 `OPENAI_API_KEY` 自动降级。
 - 向量库基础能力：支持 ChromaDB collection 管理、向量入库、检索与删除。
-- 现代化前端界面：基于 React 开发，包含登录页、文件管理、上传进度展示、文件预览、元数据面板及流式 AI 助手侧边栏。
+- 现代化前端界面：基于 React 开发，包含登录页、Drive workflow helpers、上传进度展示、文件预览、元数据面板及流式 AI 助手侧边栏。
 - 智能搜索独立页：3 栏布局、常驻 AI 助手、历史会话抽屉，支持流式问答与语义检索切换。
 - AI 会话持久化：自动落库 `conversations` / `messages`，支持历史会话列表、切换、重命名与删除。
 - RAG 检索质量增强：多轮 query 改写、heading-aware 索引、动态分数过滤、多 query 扩展、关键词/向量混合检索与父子 chunk。
@@ -26,48 +26,120 @@ MemoDrive 是一个私有的、单用户的智能云盘。通过结合个人网�
 
 ## 系统架构
 
+MemoDrive 的实现围绕稳定的产品词汇组织。HTTP 入口保持简洁，上传、索引、搜索、
+回收站和 Drive 工作流的顺序细节由更深的内部模块承载。
+
 ```mermaid
 flowchart TB
-    Client("💻 前端 (React + Vite)")
+    Client("💻 浏览器")
 
-    subgraph Backend ["⚙️ 后端 (Go Fiber)"]
+    subgraph Frontend ["前端 (React + Vite)"]
+        Drive["Drive Workflow\n(路径、搜索、选择、文件操作)"]
+        Transfer["传输状态投影\n(Upload Session 状态)"]
+        SmartUI["智能搜索界面\n(结果列表 + AI 助手)"]
+    end
+
+    subgraph Backend ["后端 (Go Fiber)"]
         Gateway{"API 网关与鉴权"}
 
-        subgraph Services ["业务逻辑层"]
-            FileSvc["文件与上传服务"]
-            PipeSvc["AI 处理 Pipeline"]
-            RAGSvc["RAG 检索与问答"]
+        subgraph FileModules ["File 模块"]
+            FileSvc["File Service"]
+            Trash["Trash Lifecycle"]
+            Upload["Upload Session State Machine"]
         end
 
-        subgraph Core ["核心能力层"]
-            Parser["文档解析与切片"]
+        subgraph PipelineModules ["File Indexing Pipeline"]
+            PipeSvc["Pipeline Service"]
+            Worker["Worker Pool"]
+            Parser["Parsed Document + Chunking"]
+            Indexer["Embedding + Vector Index 入库"]
+        end
+
+        subgraph SearchModules ["Smart Search and RAG"]
+            Search["Smart Search\n(意图、过滤、检索、排序)"]
+            RAG["RAG Query"]
             LLM["大模型统一接口"]
+        end
+
+        subgraph Maintenance ["维护任务"]
+            Janitor["Janitor Sweep\n(任务恢复、孤儿清理、过期 Trash Entry 清理)"]
         end
     end
 
-    subgraph Storage ["💾 存储与基建"]
-        DB[("SQLite (元数据)")]
-        Files[("本地存储盘 (文件)")]
-        Chroma[("Chroma (向量数据库)")]
+    subgraph Storage ["存储与基建"]
+        DB[("SQLite\nFiles、Upload Sessions、Tasks、Chunks、Conversations")]
+        Files[("本地存储盘\n文件、上传临时文件、缩略图")]
+        Chroma[("Chroma\nVector Index")]
         Ollama{{"Ollama / OpenAI"}}
     end
 
-    Client -- "HTTP / SSE" --> Gateway
-    Gateway --> FileSvc & PipeSvc & RAGSvc
+    Client --> Frontend
+    Frontend -- "HTTP / SSE" --> Gateway
 
+    Gateway --> FileSvc
+    Gateway --> Upload
+    Gateway --> Search
+    Gateway --> RAG
+
+    FileSvc --> Trash
     FileSvc --> DB
     FileSvc --> Files
+    Upload --> DB
+    Upload --> Files
+    Upload --> PipeSvc
 
-    PipeSvc --> Parser
-    Parser --> LLM
-    PipeSvc --> Chroma
     PipeSvc --> DB
+    PipeSvc --> Worker
+    Worker --> Parser
+    Worker --> Indexer
+    Indexer --> LLM
+    Indexer --> Chroma
+    Indexer --> DB
 
-    RAGSvc --> Chroma
-    RAGSvc --> LLM
+    Search --> DB
+    Search --> Chroma
+    Search --> LLM
+    RAG --> Search
+    RAG --> LLM
 
+    Trash --> DB
+    Trash --> Files
+    Trash --> Chroma
+    Janitor --> PipeSvc
+    Janitor --> Trash
+    Janitor --> Files
     LLM -. "HTTP API" .-> Ollama
 ```
+
+### 架构模块
+
+- **Upload Session State Machine**：断点续传会话使用明确后端状态（`uploading`、`merging`、`done`、`cancelled`、`expired`、`failed`），前端传输列表只是这些状态的投影，不再维护第二套状态模型。
+- **File Indexing Pipeline**：上传完成后的 File 会创建持久 Pipeline Task，并进入有界 Worker Pool。解析、切片、Embedding、元数据更新、Vector Index 入库、panic 兜底、启动恢复和优雅关闭都封装在 Pipeline 接口后。
+- **Smart Search and RAG**：意图解析、File 过滤、多 query 扩展、关键词/向量混合检索、父子 Chunk 还原、分数过滤和 RAG 证据组装拆成聚焦的内部模块，对调用方仍保持简洁的 Search / RAG 接口。
+- **Trash Lifecycle**：软删除、恢复、永久删除、子项处理、Chunk 清理、Vector Index 清理、物理存储清理，以及 Janitor Sweep 的过期 Trash Entry 清理，都集中在一个生命周期实现中。
+- **Drive Workflow**：Drive 页面中的路径、搜索、选择、重命名、删除、移动、创建 Folder、上传、预览和文件展示规则已拆成有测试的 workflow helper，页面负责组合 UI 和副作用。
+
+### 架构词汇
+
+- **File**：带元数据、虚拟路径和物理存储路径的用户文件对象。
+- **Folder**：用于组织 File 的虚拟路径条目。
+- **Upload Session**：一个 File 注册入库前的断点续传记录。
+- **Pipeline Task**：一个 File 进入 AI 处理流程时生成的持久任务记录。
+- **File Indexing Pipeline**：把 File 转换为元数据、Chunk、Embedding 和 Vector Index 条目的流程。
+- **Parsed Document**：File 被切分前提取出的文本和结构。
+- **Parent Chunk / Child Chunk**：用于恢复上下文的大 Chunk，以及用于检索的小 Chunk。
+- **Vector Index**：存放 Chunk Embedding 的外部可检索索引。
+- **Smart Search**：组合意图解析、语义检索、关键词检索、过滤和排序的检索工作流。
+- **RAG Query**：用检索到的 File 证据和大模型回答的用户问题。
+- **Trash Entry**：已软删除、可恢复或永久删除的 File。
+- **Janitor Sweep**：周期维护流程，用于恢复 Pipeline Task、清理孤儿存储/缩略图和过期 Trash Entry。
+
+### 架构优化优先级
+
+1. **Pipeline Worker and File Indexing Pipeline**：把并发、恢复、panic 失败标记和优雅关闭收进一个 Pipeline 接口。
+2. **Upload Session State Machine**：让上传状态在后端、HTTP 行为和前端状态投影中保持显式一致。
+3. **Smart Search and RAG Depth**：调用接口保持简洁，内部模块分别处理查询理解、检索规划、证据检索和排序。
+4. **File, Trash, and Drive Workflow**：集中 Trash 生命周期规则，并按用户意图拆分 Drive 页面行为，避免过早增加公开接口。
 
 ## 项目骨架结构
 
@@ -79,7 +151,7 @@ MemoDrive/
 │   │   ├── components/       # UI 组件库 (文件管理, AI 助手, 文件预览)
 │   │   ├── hooks/            # 自定义 React Hooks (AI 对话, 分片上传)
 │   │   ├── layouts/          # 页面布局结构 (MainLayout)
-│   │   ├── pages/            # 核心路由页面 (DrivePage, LoginPage)
+│   │   ├── pages/            # 页面与 workflow helpers (Drive, SmartSearch, Login)
 │   │   ├── stores/           # Zustand 全局状态管理
 │   │   └── types/            # TypeScript 类型定义
 │   ├── index.html            # Vite 入口 HTML 文件
@@ -94,7 +166,7 @@ MemoDrive/
 │   │   ├── middleware/       # Fiber 中间件 (JWT鉴权, CORS跨域, 接口限流)
 │   │   ├── model/            # 数据库结构与对象模型
 │   │   ├── parser/           # 文档与媒体解析器, OCR提取, 文本切片
-│   │   ├── service/          # 核心业务逻辑实现 (文件, 上传, Pipeline, RAG检索, 搜索)
+│   │   ├── service/          # 深模块实现 (文件, 上传, Pipeline, Trash, RAG, 搜索)
 │   │   ├── store/            # SQLite 数据库持久化层操作
 │   │   ├── vectordb/         # 向量数据库客户端交互 (Chroma)
 │   │   └── worker/           # 异步任务处理线程池
@@ -231,6 +303,13 @@ make build-mac
 
 # 运行单元测试
 make test
+
+# 直接运行后端测试
+cd backend && go test ./...
+
+# 运行前端 workflow 测试与 TypeScript 检查
+cd frontend && pnpm test
+cd frontend && pnpm typecheck
 ```
 
 # 核心未完成功能任务清单

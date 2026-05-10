@@ -91,6 +91,26 @@ function isActiveStatus(status: TransferStatus) {
   return status === "uploading" || status === "paused" || status === "processing";
 }
 
+function transferStatusFromSession(
+  session: UploadSession,
+  existing?: TransferTask,
+): TransferStatus {
+  switch (session.status) {
+    case "done":
+      return "done";
+    case "cancelled":
+      return "cancelled";
+    case "expired":
+      return "expired";
+    case "failed":
+      return "failed";
+    case "merging":
+      return "processing";
+    case "uploading":
+      return existing?.file && existing.status === "uploading" ? "uploading" : "paused";
+  }
+}
+
 function taskFromSession(
   session: UploadSession,
   existing?: TransferTask,
@@ -101,27 +121,7 @@ function taskFromSession(
   );
   const uploadedChunks = session.uploaded_chunks ?? [];
   const uploadedPercent = Math.round((uploadedChunks.length / totalChunks) * 90);
-  let status: TransferStatus;
-  switch (session.status) {
-    case "done":
-      status = "done";
-      break;
-    case "cancelled":
-      status = "cancelled";
-      break;
-    case "expired":
-      status = "expired";
-      break;
-    case "merging":
-      status = "processing";
-      break;
-    case "uploading":
-      status = existing?.file && existing.status === "uploading" ? "uploading" : "paused";
-      break;
-    default:
-      status = "failed";
-      break;
-  }
+  const status = transferStatusFromSession(session, existing);
   return {
     id: session.id,
     fileName: session.file_name,

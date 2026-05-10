@@ -58,6 +58,51 @@ func TestReconcilerPeriodicSweepFailsStuckTasks(t *testing.T) {
 	}
 }
 
+func TestReconcilerRecoverOnBootRequeuesThroughPipeline(t *testing.T) {
+	cfg, db := newPipelineTestStore(t)
+	cfg.Pipeline.Workers = 1
+	cfg.Pipeline.EmbedBatchSize = 1
+	provider := newBlockingEmbedProvider()
+	pipeline := NewPipelineService(cfg, db, provider, noopVectorStore{}, nil, nil)
+	reconciler := NewReconciler(cfg, db, pipeline, NewFileService(cfg, db, nil))
+
+	activeFile := createPipelineTestFile(t, cfg, db, "active-file", "active.md")
+	recoveredFile := createPipelineTestFile(t, cfg, db, "recovered-file", "recovered.md")
+	activeTask, err := pipeline.Enqueue(context.Background(), activeFile)
+	if err != nil {
+		t.Fatalf("enqueue active file: %v", err)
+	}
+	provider.waitForEmbed(t)
+	if err := db.UpdateTask(context.Background(), activeTask.ID, model.TaskStatusDone, 100, nil); err != nil {
+		t.Fatalf("hide active task from recovery query: %v", err)
+	}
+
+	recoveredTask := &model.Task{
+		ID:       "recovered-task",
+		FileID:   recoveredFile.ID,
+		Type:     "pipeline",
+		Status:   model.TaskStatusPending,
+		Progress: 0,
+	}
+	if err := db.CreateTask(context.Background(), recoveredTask); err != nil {
+		t.Fatalf("create recovered task: %v", err)
+	}
+
+	if err := reconciler.RecoverOnBoot(context.Background()); err != nil {
+		t.Fatalf("RecoverOnBoot returned error: %v", err)
+	}
+	defer provider.releaseEmbeds()
+
+	updated, err := db.GetTask(context.Background(), recoveredTask.ID)
+	if err != nil {
+		t.Fatalf("get recovered task: %v", err)
+	}
+	if updated.RetryCount != 1 {
+		t.Fatalf("expected recovered task retry count 1, got %d", updated.RetryCount)
+	}
+	assertTaskStaysStatus(t, pipeline, recoveredTask.ID, model.TaskStatusPending, 150*time.Millisecond)
+}
+
 func TestReconcilerSweepThumbnailsRemovesOrphans(t *testing.T) {
 	cfg, db := newReconcilerTestStore(t)
 	reconciler := NewReconciler(cfg, db, nil, NewFileService(cfg, db, nil))

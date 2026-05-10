@@ -224,6 +224,29 @@ func TestSearchExpandsQueries(t *testing.T) {
 	}
 }
 
+func TestSearchUsesMultiQueryExpansionThroughSearchInterface(t *testing.T) {
+	provider := &mockSearchProvider{completeResult: "1. contract amount\n2. agreement price"}
+	vector := &mockVectorStore{queryResult: sampleQueryResult()}
+	service := NewSearchService(&config.Config{RAG: config.RAGConfig{SearchTopK: 2, MultiQuery: true, MultiQueryCount: 2}}, nil, provider, vector)
+
+	response, err := service.Search(context.Background(), SearchRequest{Query: "合同金额"})
+	if err != nil {
+		t.Fatalf("Search returned error: %v", err)
+	}
+	if provider.completeCalls != 1 {
+		t.Fatalf("expected one query expansion call, got %d", provider.completeCalls)
+	}
+	if vector.queryCalls != 3 {
+		t.Fatalf("expected vector query for original plus two variants, got %d", vector.queryCalls)
+	}
+	if len(response.Results) != 2 {
+		t.Fatalf("expected deduped results from expanded queries, got %#v", response.Results)
+	}
+	if response.Results[0].FileID != "file-a" || response.Results[1].FileID != "file-b" {
+		t.Fatalf("unexpected merged results: %#v", response.Results)
+	}
+}
+
 func TestHybridSearchFallsBackToChunkStoreAndParentText(t *testing.T) {
 	db := newSearchServiceStore(t)
 	file := &model.File{ID: "code-file", Name: "api.md", Path: "/", StoragePath: "api.md", Size: 100, MimeType: "text/markdown", Status: model.FileStatusReady}

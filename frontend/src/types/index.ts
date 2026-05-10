@@ -43,6 +43,14 @@ export interface MediaMeta {
   format?: string;
 }
 
+export type UploadSessionStatus =
+  | "uploading"
+  | "merging"
+  | "done"
+  | "cancelled"
+  | "expired"
+  | "failed";
+
 export interface UploadSession {
   id: string;
   file_name: string;
@@ -50,7 +58,7 @@ export interface UploadSession {
   chunk_size: number;
   uploaded_chunks: number[];
   dest_path: string;
-  status: string;
+  status: UploadSessionStatus;
   created_at: string;
   expires_at: string;
 }
