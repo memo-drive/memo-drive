@@ -4,7 +4,7 @@ import type { DriveFile } from "../../types";
 import { AudioPlayer } from "./AudioPlayer";
 import { CodeViewer } from "./CodeViewer";
 import { ImageViewer } from "./ImageViewer";
-import { PreviewLoading, PreviewUnsupported } from "./PreviewState";
+import { PreviewLoading, PreviewUnsupported, usePreviewChrome } from "./PreviewState";
 import { isTextLikeFile } from "./textTypes";
 import { VideoPlayer } from "./VideoPlayer";
 import styles from "./FilePreview.module.css";
@@ -15,11 +15,12 @@ const PdfViewer = lazy(() =>
 
 export function FilePreview({ file }: { file?: DriveFile }) {
   const { t } = useTranslation();
+  const { showEyebrow } = usePreviewChrome();
 
   if (!file) {
     return (
       <section className={styles.placeholder}>
-        <p className={styles.eyebrow}>Preview</p>
+        {showEyebrow ? <p className={styles.eyebrow}>Preview</p> : null}
         <h3 className={styles.title}>{t("preview.chooseHint")}</h3>
         <p className={styles.desc}>{t("preview.chooseSubHint")}</p>
       </section>
@@ -28,7 +29,7 @@ export function FilePreview({ file }: { file?: DriveFile }) {
   if (file.is_dir) {
     return (
       <section className={styles.placeholder}>
-        <p className={styles.eyebrow}>Folder</p>
+        {showEyebrow ? <p className={styles.eyebrow}>Folder</p> : null}
         <h3 className={styles.title}>{file.name}</h3>
         <p className={styles.desc}>{t("preview.dblClickHint")}</p>
       </section>

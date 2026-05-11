@@ -1,3 +1,4 @@
+import { createContext, useContext, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { downloadUrl } from "../../api/fileApi";
 import type { DriveFile } from "../../types";
@@ -6,12 +7,33 @@ import styles from "./FilePreview.module.css";
 
 export { formatBytes };
 
+const PreviewChromeContext = createContext({ showEyebrow: true });
+
+export function PreviewChromeProvider({
+  children,
+  showEyebrow,
+}: {
+  children: ReactNode;
+  showEyebrow: boolean;
+}) {
+  return (
+    <PreviewChromeContext.Provider value={{ showEyebrow }}>
+      {children}
+    </PreviewChromeContext.Provider>
+  );
+}
+
+export function usePreviewChrome() {
+  return useContext(PreviewChromeContext);
+}
+
 export function PreviewLoading({ label }: { label?: string }) {
   const { t } = useTranslation();
+  const { showEyebrow } = usePreviewChrome();
   return (
     <div className={styles.placeholder}>
       <span className={styles.spinner} aria-hidden="true" />
-      <p className={styles.eyebrow}>Loading</p>
+      {showEyebrow ? <p className={styles.eyebrow}>Loading</p> : null}
       <h3 className={styles.title}>{label ?? t("preview.loading")}</h3>
       <p className={styles.desc}>{t("preview.moving")}</p>
     </div>
@@ -26,10 +48,11 @@ export function PreviewError({
   onRetry?: () => void;
 }) {
   const { t } = useTranslation();
+  const { showEyebrow } = usePreviewChrome();
   return (
     <div className={styles.placeholder}>
       <div className={styles.errorBar} />
-      <p className={styles.eyebrow}>Preview Error</p>
+      {showEyebrow ? <p className={styles.eyebrow}>Preview Error</p> : null}
       <h3 className={styles.title}>{message}</h3>
       <p className={styles.desc}>{t("preview.retryHint")}</p>
       {onRetry && (
@@ -49,9 +72,10 @@ export function PreviewUnsupported({
   reason?: string;
 }) {
   const { t } = useTranslation();
+  const { showEyebrow } = usePreviewChrome();
   return (
     <div className={styles.placeholder}>
-      <p className={styles.eyebrow}>Unsupported</p>
+      {showEyebrow ? <p className={styles.eyebrow}>Unsupported</p> : null}
       <h3 className={styles.title}>{file.name}</h3>
       <p className={styles.desc}>{reason ?? t("preview.notSupported")}</p>
       <dl className={styles.unsupportedMeta}>

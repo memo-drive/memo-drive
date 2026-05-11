@@ -18,11 +18,14 @@ English | [中文](./README-ZH.md)
 - PDF, DOCX, Markdown, and plain-text parsing with section-aware smart chunking.
 - OpenAI-compatible and Ollama LLM providers with automatic fallback.
 - ChromaDB REST client for collection management, vector upsert, query, and delete.
-- React frontend with login, Drive workflow helpers, upload progress, preview, metadata panel, and streaming AI chat panel.
+- React frontend with separate desktop and mobile H5 surfaces sharing API clients, hooks, stores, types, upload logic, AI streaming, and preview renderers.
+- Desktop Web routes for Drive, Smart Search, Transfer, Trash, and Settings.
+- Mobile H5 entry under `/m/*` with mobile Files, full-screen AI, Transfer, Me, Trash, full-screen Preview, bottom navigation, URL-backed Folder paths, fixed upload FAB, lightweight mobile prompts, and current-folder search with semantic search opt-in.
 - Standalone smart search page with a docked AI assistant, semantic result list, and conversation history drawer.
 - AI conversation persistence backed by `conversations` / `messages`, including history list, switching, rename, and delete APIs.
 - RAG quality upgrades: query condense, heading-aware indexing, dynamic score filtering, multi-query expansion, hybrid keyword/vector retrieval, and parent-child chunks.
-- Docker Compose stack for frontend, backend, Chroma, and Ollama.
+- Production `edge` nginx for TLS termination, direct `/api/` routing, and phone-only bare-domain redirect from `/` to `/m`.
+- Docker Compose stack for edge nginx, frontend, backend, Chroma, and Ollama.
 
 ## Architecture
 
@@ -32,12 +35,21 @@ for uploads, indexing, search, trash, and Drive workflows.
 
 ```mermaid
 flowchart TB
-    Client("💻 Browser")
+    DesktopClient("💻 Desktop Browser")
+    PhoneClient("📱 Phone Browser")
+
+    subgraph Edge ["Edge nginx (production)"]
+        TLS["TLS termination\nHTTP -> HTTPS"]
+        MobileRedirect["Phone-only / -> 302 /m"]
+        ApiRoute["/api/* -> backend:8080"]
+        SpaRoute["SPA routes -> frontend:80"]
+    end
 
     subgraph Frontend ["Frontend (React + Vite)"]
-        Drive["Drive Workflow\n(path, search, selection, file actions)"]
-        Transfer["Transfer Projection\n(upload session status)"]
-        SmartUI["Smart Search UI\n(results + assistant)"]
+        Router["BrowserRouter + AuthGuard\nredirect-aware login"]
+        Shared["Shared frontend core\napi, hooks, stores, types, utils"]
+        DesktopUI["Desktop Web\n/, /smart-search, /transfer, /trash, /settings"]
+        MobileUI["Mobile H5\n/m, /m/ai, /m/transfer, /m/me, /m/trash, /m/preview/:id"]
     end
 
     subgraph Backend ["Backend (Go Fiber)"]
@@ -74,8 +86,19 @@ flowchart TB
         Ollama{{"Ollama / OpenAI"}}
     end
 
-    Client --> Frontend
-    Frontend -- "HTTP / SSE" --> Gateway
+    DesktopClient --> Edge
+    PhoneClient --> Edge
+    TLS --> MobileRedirect
+    MobileRedirect --> SpaRoute
+    TLS --> ApiRoute
+    TLS --> SpaRoute
+    SpaRoute --> Router
+    Router --> DesktopUI
+    Router --> MobileUI
+    DesktopUI --> Shared
+    MobileUI --> Shared
+    Shared -- "HTTP / SSE" --> ApiRoute
+    ApiRoute --> Gateway
 
     Gateway --> FileSvc
     Gateway --> Upload
@@ -119,6 +142,8 @@ flowchart TB
 - **Smart Search and RAG**: intent parsing, file filtering, multi-query expansion, hybrid keyword/vector retrieval, parent-child Chunk restoration, score filtering, and RAG evidence assembly are split into focused internal modules while callers still use compact Search and RAG APIs.
 - **Trash Lifecycle**: soft delete, restore, permanent purge, descendant handling, Chunk cleanup, Vector Index cleanup, physical storage cleanup, and Janitor Sweep purging are concentrated in one lifecycle implementation.
 - **Drive Workflow**: Drive page path, search, selection, rename, delete, move, create-Folder, upload, preview, and file-presentation rules are split into tested workflow helpers, leaving the page to compose UI and side effects.
+- **Mobile H5 Surface**: mobile routes live under `frontend/src/mobile` and use independent pages/CSS for phone ergonomics. They share stable business logic with desktop but keep layout, navigation, prompts, AI workspace, upload entry, and preview shells mobile-specific.
+- **Production Edge Routing**: the `edge` nginx terminates TLS, sends `/api/*` directly to the backend, serves all SPA routes through the frontend, and redirects phone User-Agents opening the bare `/` path to `/m` with a temporary `302`.
 
 ### Architecture Vocabulary
 
@@ -134,6 +159,8 @@ flowchart TB
 - **RAG Query**: a user question answered with retrieved File evidence and an LLM.
 - **Trash Entry**: a soft-deleted File that can be restored or purged.
 - **Janitor Sweep**: periodic maintenance for Pipeline Tasks, orphaned storage, thumbnails, and expired Trash Entries.
+- **Mobile H5 Entry**: the phone-first SPA surface under `/m/*`; it is not a responsive shrink of the desktop UI.
+- **Edge nginx**: production TLS and routing front door; it handles HTTPS, `/api/*` proxying, and phone-only `/` to `/m` entry routing.
 
 ### Architecture Optimization Priorities
 
@@ -141,6 +168,25 @@ flowchart TB
 2. **Upload Session State Machine**: make transfer states explicit across backend, HTTP behavior, and frontend projections.
 3. **Smart Search and RAG Depth**: keep caller APIs compact while internal modules handle query understanding, retrieval planning, evidence retrieval, and ranking.
 4. **File, Trash, and Drive Workflow**: centralize Trash lifecycle rules and split Drive page behavior by user intent without adding unnecessary public seams.
+
+## Frontend Route Surfaces
+
+Desktop and mobile share backend APIs and business helpers, but their routes and UI surfaces are intentionally separate.
+
+| Surface | Routes | Notes |
+|---------|--------|-------|
+| Desktop Web | `/`, `/smart-search`, `/transfer`, `/trash`, `/settings` | Full productivity surface with desktop layout, table/list controls, docked AI assistant, and settings. |
+| Mobile H5 | `/m`, `/m/ai`, `/m/transfer`, `/m/me`, `/m/trash`, `/m/preview/:fileId` | Phone-first surface with bottom navigation, full-screen AI/Preview, fixed upload FAB, mobile prompts, and URL-backed Folder paths. |
+| Auth | `/login` | `AuthGuard` redirects unauthenticated users to `/login?redirect=...`; after login the user returns to the original desktop or mobile target. |
+| API | `/api/*` | Production edge nginx routes API traffic directly to `backend:8080`; frontend dev server proxies `/api` to the local backend. |
+
+Mobile behavior is explicit, not device-autodetected inside React. In production, only the bare root path is redirected for phones:
+
+```text
+Phone:   https://drive.example.com/ -> 302 /m
+Tablet:  https://drive.example.com/ -> desktop root
+Any:     /m/*, /login, /api/*, and other deep links stay on their requested paths
+```
 
 ## Project Structure
 
@@ -150,8 +196,10 @@ MemoDrive/
 │   ├── src/
 │   │   ├── api/              # API clients for auth, files, ai, and upload
 │   │   ├── components/       # UI Components (FileManager, AIAssistant, FilePreview)
+│   │   ├── components/auth/  # AuthGuard and safe login redirect helpers
 │   │   ├── hooks/            # Custom React hooks (useAIChat, useChunkedUpload)
 │   │   ├── layouts/          # Page layouts (MainLayout)
+│   │   ├── mobile/           # Standalone Mobile H5 routes, pages, CSS, and tests
 │   │   ├── pages/            # Pages and workflow helpers (Drive, SmartSearch, Login)
 │   │   ├── stores/           # Zustand state management
 │   │   └── types/            # TypeScript interfaces
@@ -176,6 +224,7 @@ MemoDrive/
 │
 ├── docker-compose.yml        # Main Docker compose file for all services
 ├── docker-compose.prod.yml   # Production Docker compose overrides
+├── deploy/nginx/tls.conf     # Edge nginx TLS, API routing, SPA proxy, mobile root redirect
 ├── .env.example              # Example environment variables
 ├── start.sh                  # macOS/Linux startup script
 └── start.ps1                 # Windows startup script
@@ -225,7 +274,12 @@ Or use the all-in-one script which handles steps 1–3 automatically:
 .\start.ps1
 ```
 
-Then open `http://localhost:3000`.
+Then open:
+
+| Entry | URL |
+|-------|-----|
+| Desktop Web | `http://localhost:3000` |
+| Mobile H5 | `http://localhost:3000/m` |
 
 > **Security note:** If `JWT_SECRET` is still the default value or `ADMIN_PASSWORD` is empty, the backend will log a warning on startup. Check the logs with `docker compose logs backend`.
 
@@ -242,6 +296,8 @@ The prod override:
 - Adds an `edge` nginx container that terminates TLS on ports `80`/`443`
 - Routes `/api/` directly to `backend:8080` (single-hop, SSE streaming supported)
 - Routes everything else to `frontend:80`
+- Redirects phone User-Agents opening the bare root path `/` to `/m` with `302`; tablet User-Agents and all deep links are left unchanged
+- Keeps mobile login closed-loop through `/login?redirect=...`, so unauthenticated phone users return to `/m` after login
 
 **Setup checklist:**
 
@@ -268,6 +324,12 @@ The prod override:
    ./deploy/scripts/verify_tls_login.sh your-domain [your-password]
    ```
    The script checks: HTTP→HTTPS redirect, TLS certificate, HSTS header, and login endpoint.
+
+   Optional mobile-entry smoke check:
+   ```bash
+   curl -I -A "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) Mobile" https://your-domain/
+   ```
+   Expected result: `302` with `Location: /m`.
 
 5. **Port exposure summary:**
 
@@ -311,9 +373,10 @@ cd backend && go test ./...
 # Run frontend workflow tests and TypeScript checks
 cd frontend && pnpm test
 cd frontend && pnpm typecheck
+cd frontend && pnpm build
 ```
 
-## Core Unfinished Feature Tasks
+## Core Feature Milestones
 
 - `[✓]` **Priority 1: Vector Database and LLM Foundation (VectorDB & LLM)**
     - `[✓]` Implement `internal/vectordb/chroma.go` with collection, `Upsert`, `Query`, and `Delete` methods.
@@ -376,3 +439,10 @@ cd frontend && pnpm typecheck
     - `[✓]` **14-B** Storage layer filter extension: add `DateFrom/DateTo` to `FileSearchFilter`; new `ListFileIDsByFilter` for pre-filtering file IDs by date and type.
     - `[✓]` **14-C** Search service integration: insert intent parsing at Search and SearchFiles entry points; convert structured filters into SQL pre-filter + vector search combo.
     - `[✓]` **14-D** Frontend adaptation: display parsed filter Chips in search results; add `intent` field to `SearchResponse`.
+- `[✓]` **Priority 15: Mobile H5 Entry**
+    - `[✓]` Add independent `/m/*` routes under `frontend/src/mobile`, leaving desktop routes unchanged.
+    - `[✓]` Implement mobile Files, AI, Transfer, Me, Trash, and full-screen Preview pages with mobile-specific CSS and layout contracts.
+    - `[✓]` Add Files upload FAB, URL-backed Folder paths, mobile file cards, current-folder search, semantic search opt-in, lightweight confirm/text prompts, and single-file actions.
+    - `[✓]` Build full-screen mobile AI with fixed bottom composer, scrollable content region, RAG/Search mode switch, and streaming stop behavior.
+    - `[✓]` Wire mobile Transfer, Me, and Trash to shared upload/session/trash APIs.
+    - `[✓]` Add production edge nginx phone-only `/` to `/m` redirect and redirect-aware Login/AuthGuard flow.

@@ -1,0 +1,105 @@
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 220;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 1rem 0.85rem calc(1rem + env(safe-area-inset-bottom));
+  pointer-events: none;
+}
+
+.backdrop {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: rgba(15, 23, 42, 0.18);
+  pointer-events: auto;
+}
+
+.prompt {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: 2.35rem minmax(0, 1fr);
+  gap: 0.7rem;
+  width: min(28rem, 100%);
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 0.9rem;
+  padding: 0.8rem;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 1rem 2.5rem rgba(15, 23, 42, 0.2);
+  pointer-events: auto;
+}
+
+.icon {
+  display: inline-flex;
+  width: 2.35rem;
+  height: 2.35rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.7rem;
+  color: #075985;
+  background: #e0f2fe;
+  font-size: 1.25rem;
+}
+
+.iconDanger {
+  color: #dc2626;
+  background: #fff1f2;
+}
+
+.copy {
+  min-width: 0;
+}
+
+.copy h2 {
+  margin: 0;
+  color: #18181b;
+  font-size: 0.98rem;
+  font-weight: 850;
+}
+
+.copy p {
+  margin: 0.25rem 0 0;
+  color: #64748b;
+  font-size: 0.84rem;
+  line-height: 1.45;
+}
+
+.actions {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+  margin-top: 0.1rem;
+}
+
+.actions button {
+  min-width: 0;
+  min-height: 2.45rem;
+  border-radius: 0.7rem;
+  padding: 0 0.8rem;
+  font-size: 0.86rem;
+  font-weight: 850;
+}
+
+.actions button:disabled {
+  opacity: 0.65;
+}
+
+.cancelButton {
+  border: 1px solid rgba(15, 23, 42, 0.1);
+  color: #475569;
+  background: #ffffff;
+}
+
+.confirmButton {
+  border: 0;
+  color: #ffffff;
+  background: #075da8;
+}
+
+.confirmDanger {
+  background: #dc2626;
+}

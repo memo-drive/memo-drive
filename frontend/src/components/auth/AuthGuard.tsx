@@ -1,7 +1,8 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { Navigate } from "react-router-dom";
+import { Navigate, useLocation } from "react-router-dom";
 import { getToken, httpClient } from "../../api/client";
+import { loginHrefForRedirect } from "./authRedirect";
 
 interface Props {
   children: ReactNode;
@@ -9,6 +10,7 @@ interface Props {
 
 export function AuthGuard({ children }: Props) {
   const { t } = useTranslation();
+  const location = useLocation();
   const [status, setStatus] = useState<"checking" | "authed" | "unauthed">("checking");
 
   useEffect(() => {
@@ -33,7 +35,12 @@ export function AuthGuard({ children }: Props) {
   }
 
   if (status === "unauthed") {
-    return <Navigate to="/login" replace />;
+    return (
+      <Navigate
+        to={loginHrefForRedirect(location.pathname, location.search, location.hash)}
+        replace
+      />
+    );
   }
 
   return <>{children}</>;

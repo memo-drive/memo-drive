@@ -18,11 +18,14 @@ MemoDrive 是一个私有的、单用户的智能云盘。通过结合个人网�
 - 文档解析与智能切片：支持 PDF、DOCX、Markdown、纯文本解析，并按章节/段落进行滑动窗口切片。
 - 大模型基础能力：支持 OpenAI 兼容接口与 Ollama Provider，并可根据 `OPENAI_API_KEY` 自动降级。
 - 向量库基础能力：支持 ChromaDB collection 管理、向量入库、检索与删除。
-- 现代化前端界面：基于 React 开发，包含登录页、Drive workflow helpers、上传进度展示、文件预览、元数据面板及流式 AI 助手侧边栏。
+- 现代化前端界面：基于 React 开发，桌面 Web 与移动 H5 拆成两套独立页面和样式，共享 API 客户端、hooks、stores、types、上传逻辑、AI 流式和预览渲染能力。
+- 桌面 Web 路由：包含 Drive、智能搜索、传输、回收站和设置页。
+- 移动 H5 入口：`/m/*` 下提供移动文件页、全屏 AI、传输、我的、回收站、全屏预览、底部导航、URL 化文件夹路径、右下角上传 FAB、移动端轻提示输入/确认，以及默认关闭的可选语义搜索。
 - 智能搜索独立页：3 栏布局、常驻 AI 助手、历史会话抽屉，支持流式问答与语义检索切换。
 - AI 会话持久化：自动落库 `conversations` / `messages`，支持历史会话列表、切换、重命名与删除。
 - RAG 检索质量增强：多轮 query 改写、heading-aware 索引、动态分数过滤、多 query 扩展、关键词/向量混合检索与父子 chunk。
-- Docker 全栈部署：提供针对前端、后端、Chroma 向量数据库及 Ollama 的 Docker Compose 一键启动方案。
+- 生产环境 `edge` nginx：负责 TLS 终止、`/api/` 单跳转发，以及手机访问裸域名 `/` 时临时跳转到 `/m`。
+- Docker 全栈部署：提供针对 edge nginx、前端、后端、Chroma 向量数据库及 Ollama 的 Docker Compose 一键启动方案。
 
 ## 系统架构
 
@@ -31,12 +34,21 @@ MemoDrive 的实现围绕稳定的产品词汇组织。HTTP 入口保持简洁�
 
 ```mermaid
 flowchart TB
-    Client("💻 浏览器")
+    DesktopClient("💻 桌面浏览器")
+    PhoneClient("📱 手机浏览器")
+
+    subgraph Edge ["Edge nginx (生产环境)"]
+        TLS["TLS 终止\nHTTP -> HTTPS"]
+        MobileRedirect["手机访问 / -> 302 /m"]
+        ApiRoute["/api/* -> backend:8080"]
+        SpaRoute["SPA 路由 -> frontend:80"]
+    end
 
     subgraph Frontend ["前端 (React + Vite)"]
-        Drive["Drive Workflow\n(路径、搜索、选择、文件操作)"]
-        Transfer["传输状态投影\n(Upload Session 状态)"]
-        SmartUI["智能搜索界面\n(结果列表 + AI 助手)"]
+        Router["BrowserRouter + AuthGuard\n登录 redirect 回跳"]
+        Shared["前端共享核心\napi、hooks、stores、types、utils"]
+        DesktopUI["桌面 Web\n/、/smart-search、/transfer、/trash、/settings"]
+        MobileUI["移动 H5\n/m、/m/ai、/m/transfer、/m/me、/m/trash、/m/preview/:id"]
     end
 
     subgraph Backend ["后端 (Go Fiber)"]
@@ -73,8 +85,19 @@ flowchart TB
         Ollama{{"Ollama / OpenAI"}}
     end
 
-    Client --> Frontend
-    Frontend -- "HTTP / SSE" --> Gateway
+    DesktopClient --> Edge
+    PhoneClient --> Edge
+    TLS --> MobileRedirect
+    MobileRedirect --> SpaRoute
+    TLS --> ApiRoute
+    TLS --> SpaRoute
+    SpaRoute --> Router
+    Router --> DesktopUI
+    Router --> MobileUI
+    DesktopUI --> Shared
+    MobileUI --> Shared
+    Shared -- "HTTP / SSE" --> ApiRoute
+    ApiRoute --> Gateway
 
     Gateway --> FileSvc
     Gateway --> Upload
@@ -118,6 +141,8 @@ flowchart TB
 - **Smart Search and RAG**：意图解析、File 过滤、多 query 扩展、关键词/向量混合检索、父子 Chunk 还原、分数过滤和 RAG 证据组装拆成聚焦的内部模块，对调用方仍保持简洁的 Search / RAG 接口。
 - **Trash Lifecycle**：软删除、恢复、永久删除、子项处理、Chunk 清理、Vector Index 清理、物理存储清理，以及 Janitor Sweep 的过期 Trash Entry 清理，都集中在一个生命周期实现中。
 - **Drive Workflow**：Drive 页面中的路径、搜索、选择、重命名、删除、移动、创建 Folder、上传、预览和文件展示规则已拆成有测试的 workflow helper，页面负责组合 UI 和副作用。
+- **Mobile H5 Surface**：移动端路由集中在 `frontend/src/mobile`，用独立页面和 CSS 处理手机端体验。它复用桌面端稳定业务逻辑，但导航、布局、轻提示、AI 工作台、上传入口和预览外壳都按移动端单独设计。
+- **Production Edge Routing**：`edge` nginx 负责 TLS 终止、`/api/*` 直连后端、SPA 路由转发到前端，并在手机 User-Agent 访问裸 `/` 时用临时 `302` 跳转到 `/m`。
 
 ### 架构词汇
 
@@ -133,6 +158,8 @@ flowchart TB
 - **RAG Query**：用检索到的 File 证据和大模型回答的用户问题。
 - **Trash Entry**：已软删除、可恢复或永久删除的 File。
 - **Janitor Sweep**：周期维护流程，用于恢复 Pipeline Task、清理孤儿存储/缩略图和过期 Trash Entry。
+- **Mobile H5 Entry**：`/m/*` 下的手机优先 SPA 入口；它不是桌面 UI 的响应式压缩版。
+- **Edge nginx**：生产环境 HTTPS 与路由前门，负责 `/api/*` 代理、SPA 转发和手机访问 `/` 时进入 `/m`。
 
 ### 架构优化优先级
 
@@ -140,6 +167,25 @@ flowchart TB
 2. **Upload Session State Machine**：让上传状态在后端、HTTP 行为和前端状态投影中保持显式一致。
 3. **Smart Search and RAG Depth**：调用接口保持简洁，内部模块分别处理查询理解、检索规划、证据检索和排序。
 4. **File, Trash, and Drive Workflow**：集中 Trash 生命周期规则，并按用户意图拆分 Drive 页面行为，避免过早增加公开接口。
+
+## 前端路由入口
+
+桌面端和移动端共享后端 API 与业务 helper，但路由和 UI surface 是刻意分开的。
+
+| 入口 | 路由 | 说明 |
+|------|------|------|
+| 桌面 Web | `/`、`/smart-search`、`/transfer`、`/trash`、`/settings` | 重生产力入口，保留桌面布局、表格/列表控制、常驻 AI 助手和设置页。 |
+| 移动 H5 | `/m`、`/m/ai`、`/m/transfer`、`/m/me`、`/m/trash`、`/m/preview/:fileId` | 手机优先入口，包含底部导航、全屏 AI/预览、固定上传 FAB、移动端轻提示，以及 URL 化文件夹路径。 |
+| 鉴权 | `/login` | `AuthGuard` 会把未登录用户带到 `/login?redirect=...`，登录成功后回到原始桌面或移动目标。 |
+| API | `/api/*` | 生产环境 edge nginx 将 API 流量直接转发到 `backend:8080`；前端开发服务器把 `/api` 代理到本地后端。 |
+
+移动端入口是显式路由，不在 React 内部按设备强制切换。生产环境只对手机访问裸根路径做跳转：
+
+```text
+手机：  https://drive.example.com/ -> 302 /m
+平板：  https://drive.example.com/ -> 桌面根路径
+任意：  /m/*、/login、/api/* 和其它深链均保持原路径
+```
 
 ## 项目骨架结构
 
@@ -149,8 +195,10 @@ MemoDrive/
 │   ├── src/
 │   │   ├── api/              # API 客户端封装 (auth, files, ai, upload)
 │   │   ├── components/       # UI 组件库 (文件管理, AI 助手, 文件预览)
+│   │   ├── components/auth/  # AuthGuard 与安全登录 redirect helper
 │   │   ├── hooks/            # 自定义 React Hooks (AI 对话, 分片上传)
 │   │   ├── layouts/          # 页面布局结构 (MainLayout)
+│   │   ├── mobile/           # 独立移动 H5 路由、页面、CSS 和测试
 │   │   ├── pages/            # 页面与 workflow helpers (Drive, SmartSearch, Login)
 │   │   ├── stores/           # Zustand 全局状态管理
 │   │   └── types/            # TypeScript 类型定义
@@ -175,6 +223,7 @@ MemoDrive/
 │
 ├── docker-compose.yml        # Docker Compose 核心服务编排文件
 ├── docker-compose.prod.yml   # Docker Compose 生产环境配置覆写
+├── deploy/nginx/tls.conf     # Edge nginx TLS、API 路由、SPA 转发、移动根路径跳转
 ├── .env.example              # 环境变量配置模板文件
 ├── start.sh                  # macOS/Linux 一键启动脚本
 └── start.ps1                 # Windows PowerShell 一键启动脚本
@@ -224,7 +273,12 @@ make docker-up
 .\start.ps1
 ```
 
-启动完成后，请在浏览器中打开 `http://localhost:3000`。
+启动完成后，请在浏览器中打开：
+
+| 入口 | URL |
+|------|-----|
+| 桌面 Web | `http://localhost:3000` |
+| 移动 H5 | `http://localhost:3000/m` |
 
 > **安全提示：** 若 `JWT_SECRET` 仍为默认值或 `ADMIN_PASSWORD` 为空，后端启动时会输出警告日志，可用 `docker compose logs backend` 查看。
 
@@ -241,6 +295,8 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
 - 新增 `edge` nginx 容器，在 `80`/`443` 上终止 TLS
 - `/api/` 请求直接代理到 `backend:8080`（单跳，支持 SSE 流式响应）
 - 其余请求代理到 `frontend:80`
+- 手机 User-Agent 访问裸根路径 `/` 时，以 `302` 临时跳转到 `/m`；平板 User-Agent 和所有深链不受影响
+- 移动端登录通过 `/login?redirect=...` 保持闭环，未登录手机用户登录后会回到 `/m`
 
 **部署检查清单：**
 
@@ -267,6 +323,12 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
    ./deploy/scripts/verify_tls_login.sh your-domain [your-password]
    ```
    脚本检查：HTTP→HTTPS 跳转、TLS 证书、HSTS 响应头、登录接口可用性。
+
+   可选的移动入口冒烟检查：
+   ```bash
+   curl -I -A "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) Mobile" https://your-domain/
+   ```
+   期望结果：`302` 且 `Location: /m`。
 
 5. **端口暴露对比：**
 
@@ -310,9 +372,10 @@ cd backend && go test ./...
 # 运行前端 workflow 测试与 TypeScript 检查
 cd frontend && pnpm test
 cd frontend && pnpm typecheck
+cd frontend && pnpm build
 ```
 
-# 核心未完成功能任务清单
+## 核心功能里程碑
 
 - `[✓]` **优先级 1: 向量库与大模型基础集成 (VectorDB & LLM)**
     - `[✓]` 实现 `internal/vectordb/chroma.go`，包含 collection 管理、`Upsert`（入库）、`Query`（检索）和 `Delete`（删除）方法
@@ -375,3 +438,10 @@ cd frontend && pnpm typecheck
     - `[✓]` **14-B** 存储层过滤扩展：`FileSearchFilter` 增加 `DateFrom/DateTo`，新增 `ListFileIDsByFilter` 按日期和类型预查 file_id 列表
     - `[✓]` **14-C** 搜索服务层集成：智能搜索和文件搜索入口插入意图解析，结构化条件转为 SQL 预过滤 + 向量检索组合
     - `[✓]` **14-D** 前端适配：搜索结果展示解析出的筛选条件 Chips，`SearchResponse` 增加 `intent` 字段
+- `[✓]` **优先级 15: 移动 H5 入口**
+    - `[✓]` 在 `frontend/src/mobile` 下新增独立 `/m/*` 路由，桌面路由保持不变
+    - `[✓]` 实现移动文件、AI、传输、我的、回收站、全屏预览页面，并补充移动端 CSS 与布局契约测试
+    - `[✓]` 实现文件页上传 FAB、URL 化文件夹路径、移动文件卡片、当前目录搜索、可选语义搜索、轻提示确认/输入以及单文件操作
+    - `[✓]` 实现全屏移动 AI：底部输入框固定、内容区滚动、RAG/Search 模式切换与停止流式输出
+    - `[✓]` 移动传输、我的、回收站接入共享上传会话、存储、语言、退出登录与回收站 API
+    - `[✓]` 生产环境 edge nginx 增加手机访问 `/` 自动进入 `/m`，并完善 Login/AuthGuard 的 redirect 回跳闭环

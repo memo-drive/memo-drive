@@ -1,0 +1,131 @@
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 220;
+  display: flex;
+  align-items: flex-end;
+  pointer-events: none;
+}
+
+.backdrop {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: rgba(15, 23, 42, 0.28);
+  pointer-events: auto;
+}
+
+.panel {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  width: 100%;
+  gap: 0.8rem;
+  border-radius: 1rem 1rem 0 0;
+  padding: 0.55rem 0.9rem calc(1rem + env(safe-area-inset-bottom));
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 -1rem 2.5rem rgba(15, 23, 42, 0.2);
+  pointer-events: auto;
+}
+
+.handle {
+  width: 2.75rem;
+  height: 0.25rem;
+  justify-self: center;
+  border-radius: 999px;
+  background: #d4d4d8;
+}
+
+.header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 2.35rem;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.header h2 {
+  margin: 0;
+  color: #18181b;
+  font-size: 1rem;
+  font-weight: 850;
+}
+
+.header button {
+  display: inline-flex;
+  width: 2.35rem;
+  height: 2.35rem;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 0.65rem;
+  color: #64748b;
+  background: #f4f4f5;
+}
+
+.header :global(.material-symbols-outlined) {
+  font-size: 1.2rem;
+}
+
+.field {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.field span {
+  color: #64748b;
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.field input {
+  min-height: 2.75rem;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  border-radius: 0.75rem;
+  padding: 0 0.85rem;
+  color: #18181b;
+  background: #ffffff;
+  font: inherit;
+  font-size: 1rem;
+  outline: none;
+}
+
+.field input:focus {
+  border-color: #38bdf8;
+  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.16);
+}
+
+.error {
+  margin: -0.25rem 0 0;
+  color: #dc2626;
+  font-size: 0.8rem;
+  font-weight: 750;
+}
+
+.actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.actions button {
+  min-height: 2.55rem;
+  border-radius: 0.75rem;
+  font-size: 0.88rem;
+  font-weight: 850;
+}
+
+.actions button:disabled {
+  opacity: 0.65;
+}
+
+.cancelButton {
+  border: 1px solid rgba(15, 23, 42, 0.1);
+  color: #475569;
+  background: #ffffff;
+}
+
+.confirmButton {
+  border: 0;
+  color: #ffffff;
+  background: #075da8;
+}

@@ -1,0 +1,141 @@
+.wrap {
+  display: grid;
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.storageCard {
+  display: grid;
+  gap: 0.65rem;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 0.85rem;
+  padding: 0.85rem;
+  background: #ffffff;
+}
+
+.storageCard div:first-child {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: #18181b;
+  font-size: 0.92rem;
+}
+
+.storageCard div:first-child :global(.material-symbols-outlined) {
+  color: #2563eb;
+  font-size: 1.25rem;
+}
+
+.storageCard p {
+  margin: 0;
+  color: #71717a;
+  font-size: 0.82rem;
+}
+
+.track {
+  height: 0.35rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e4e4e7;
+}
+
+.track span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: #0075de;
+}
+
+.panel {
+  display: grid;
+  gap: 0.75rem;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 0.85rem;
+  padding: 0.85rem;
+  background: #ffffff;
+}
+
+.panelTitle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: #18181b;
+  font-size: 0.92rem;
+}
+
+.panelTitle :global(.material-symbols-outlined) {
+  color: #0f766e;
+  font-size: 1.25rem;
+}
+
+.languageGroup {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.45rem;
+  border-radius: 0.75rem;
+  padding: 0.25rem;
+  background: #eef1f5;
+}
+
+.languageButton {
+  min-width: 0;
+  min-height: 2.45rem;
+  border: 0;
+  border-radius: 0.6rem;
+  color: #64748b;
+  background: transparent;
+  font-size: 0.86rem;
+  font-weight: 800;
+}
+
+.languageButtonActive {
+  color: #075985;
+  background: #ffffff;
+  box-shadow: 0 0.35rem 1rem rgba(15, 23, 42, 0.08);
+}
+
+.linkList {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.linkList a {
+  display: grid;
+  grid-template-columns: 2rem minmax(0, 1fr) 1.5rem;
+  align-items: center;
+  gap: 0.65rem;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 0.75rem;
+  padding: 0.75rem;
+  color: #18181b;
+  background: #ffffff;
+  font-size: 0.92rem;
+  font-weight: 750;
+  text-decoration: none;
+}
+
+.linkList :global(.material-symbols-outlined) {
+  color: #71717a;
+  font-size: 1.25rem;
+}
+
+.logoutButton {
+  display: grid;
+  grid-template-columns: 2rem minmax(0, 1fr);
+  align-items: center;
+  gap: 0.65rem;
+  min-height: 3rem;
+  border: 1px solid rgba(220, 38, 38, 0.16);
+  border-radius: 0.75rem;
+  padding: 0.75rem;
+  color: #dc2626;
+  background: #fff1f2;
+  font-size: 0.92rem;
+  font-weight: 800;
+  text-align: left;
+}
+
+.logoutButton :global(.material-symbols-outlined) {
+  color: currentColor;
+  font-size: 1.25rem;
+}

@@ -1,0 +1,134 @@
+.list {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.clearButton {
+  display: inline-flex;
+  min-height: 2.5rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  justify-self: end;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 0.7rem;
+  padding: 0 0.8rem;
+  color: #475569;
+  background: #ffffff;
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.clearButton :global(.material-symbols-outlined) {
+  font-size: 1.1rem;
+}
+
+.card {
+  display: grid;
+  gap: 0.65rem;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 0.85rem;
+  padding: 0.85rem;
+  background: #ffffff;
+}
+
+.cardHeader {
+  display: grid;
+  grid-template-columns: 2.25rem minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.7rem;
+}
+
+.cardHeader > :global(.material-symbols-outlined) {
+  display: inline-flex;
+  width: 2.25rem;
+  height: 2.25rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.65rem;
+  color: #2563eb;
+  background: #eff6ff;
+  font-size: 1.25rem;
+}
+
+.cardHeader h2,
+.cardHeader p {
+  overflow: hidden;
+  margin: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cardHeader h2 {
+  color: #18181b;
+  font-size: 0.94rem;
+  font-weight: 800;
+}
+
+.cardHeader p,
+.meta {
+  color: #71717a;
+  font-size: 0.78rem;
+}
+
+.cardHeader strong {
+  color: #075da8;
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+.progressTrack {
+  height: 0.35rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e4e4e7;
+}
+
+.progressTrack span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: #0075de;
+}
+
+.meta,
+.error {
+  margin: 0;
+}
+
+.error {
+  color: #ba1a1a;
+  font-size: 0.78rem;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.actions button {
+  min-height: 2.2rem;
+  border: 1px solid rgba(7, 93, 168, 0.16);
+  border-radius: 0.65rem;
+  padding: 0 0.75rem;
+  color: #075da8;
+  background: #eff6ff;
+  font-size: 0.8rem;
+  font-weight: 800;
+}
+
+.state {
+  display: flex;
+  min-height: 10rem;
+  align-items: center;
+  justify-content: center;
+  margin-top: 1rem;
+  border: 1px dashed rgba(0, 0, 0, 0.12);
+  border-radius: 0.85rem;
+  color: #71717a;
+  background: rgba(255, 255, 255, 0.7);
+  font-size: 0.9rem;
+  text-align: center;
+}

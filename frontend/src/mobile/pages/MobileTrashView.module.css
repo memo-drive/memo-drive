@@ -1,0 +1,118 @@
+.wrap {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.emptyButton {
+  justify-self: end;
+  min-height: 2.5rem;
+  border: 0;
+  border-radius: 0.75rem;
+  padding: 0 0.85rem;
+  color: #ffffff;
+  background: #ba1a1a;
+  font: inherit;
+  font-size: 0.84rem;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.emptyButton:disabled {
+  cursor: wait;
+  opacity: 0.5;
+}
+
+.list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.card {
+  display: grid;
+  gap: 0.75rem;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 0.85rem;
+  padding: 0.85rem;
+  background: #ffffff;
+}
+
+.header {
+  display: grid;
+  grid-template-columns: 2.5rem minmax(0, 1fr);
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.header > :global(.material-symbols-outlined) {
+  display: inline-flex;
+  width: 2.5rem;
+  height: 2.5rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.7rem;
+  color: #71717a;
+  background: #f4f4f5;
+}
+
+.header h2,
+.header p {
+  overflow: hidden;
+  margin: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.header h2 {
+  color: #18181b;
+  font-size: 0.94rem;
+  font-weight: 800;
+}
+
+.header p {
+  margin-top: 0.15rem;
+  color: #71717a;
+  font-size: 0.78rem;
+}
+
+.actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.actions button {
+  min-height: 2.35rem;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 0.7rem;
+  color: #18181b;
+  background: #ffffff;
+  font: inherit;
+  font-size: 0.84rem;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.actions button:disabled {
+  cursor: wait;
+  opacity: 0.5;
+}
+
+.actions .danger {
+  color: #ba1a1a;
+  background: #fff1f2;
+}
+
+.state {
+  display: flex;
+  min-height: 10rem;
+  align-items: center;
+  justify-content: center;
+  margin-top: 1rem;
+  border: 1px dashed rgba(0, 0, 0, 0.12);
+  border-radius: 0.85rem;
+  color: #71717a;
+  background: rgba(255, 255, 255, 0.7);
+  font-size: 0.9rem;
+  text-align: center;
+}

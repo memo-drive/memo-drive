@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { MessageContainer } from "./components/base";
 import { AuthGuard } from "./components/auth/AuthGuard";
 import { MainLayout } from "./layouts/MainLayout";
+import { MobileRoutes } from "./mobile/MobileRoutes";
 import { DrivePage } from "./pages/Drive";
 import { LoginPage } from "./pages/Login";
 import { SmartSearchPage } from "./pages/SmartSearch";
@@ -23,6 +24,14 @@ export default function App() {
       <MessageContainer position="top-right" />
       <Routes>
         <Route path="/login" element={<LoginPage />} />
+        <Route
+          path="/m/*"
+          element={
+            <AuthGuard>
+              <MobileRoutes />
+            </AuthGuard>
+          }
+        />
         <Route
           element={
             <AuthGuard>

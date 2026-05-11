@@ -40,6 +40,54 @@
     "storageUsage": "{{used}} / {{total}}",
     "logout": "Logout"
   },
+  "mobile": {
+    "shell": {
+      "main": "Mobile main content",
+      "nav": "Mobile bottom navigation"
+    },
+    "nav": {
+      "files": "Files",
+      "ai": "AI",
+      "transfer": "Transfer",
+      "me": "Me"
+    },
+    "files": {
+      "title": "Mobile Files",
+      "subtitle": "Browse, search, upload, and preview your personal Files.",
+      "currentFolder": "Current Folder",
+      "uploadFab": "Upload Files",
+      "empty": "This Folder is empty",
+      "moreActions": "More actions for {{name}}",
+      "actionsTitle": "File actions for {{name}}",
+      "renamePrompt": "Enter a new File name",
+      "renameField": "New File name",
+      "semanticSearch": "Semantic Search",
+      "semanticSearchHint": "Slower, but can search by file meaning"
+    },
+    "ai": {
+      "title": "Mobile AI",
+      "subtitle": "Ask questions and run Smart Search from your phone.",
+      "conversation": "AI conversation",
+      "composer": "AI composer"
+    },
+    "transfer": {
+      "title": "Mobile Transfer",
+      "subtitle": "Track Upload Sessions and handle pause, resume, and failed tasks."
+    },
+    "me": {
+      "title": "Me",
+      "subtitle": "Manage storage, language, Trash, and login state.",
+      "trash": "Trash"
+    },
+    "trash": {
+      "title": "Mobile Trash",
+      "subtitle": "Restore or permanently purge Trash Entries."
+    },
+    "preview": {
+      "title": "Mobile Preview",
+      "subtitle": "View File content in a full-screen mobile page."
+    }
+  },
   "drive": {
     "title": "Home",
     "subtitle": "Manage and organize your personal cloud storage.",

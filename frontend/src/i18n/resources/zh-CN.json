@@ -40,6 +40,54 @@
     "storageUsage": "{{used}} / {{total}}",
     "logout": "退出登录"
   },
+  "mobile": {
+    "shell": {
+      "main": "移动端主内容",
+      "nav": "移动端底部导航"
+    },
+    "nav": {
+      "files": "文件",
+      "ai": "AI",
+      "transfer": "传输",
+      "me": "我的"
+    },
+    "files": {
+      "title": "移动文件",
+      "subtitle": "浏览、搜索、上传和预览你的个人文件。",
+      "currentFolder": "当前文件夹",
+      "uploadFab": "上传文件",
+      "empty": "这个文件夹还没有文件",
+      "moreActions": "{{name}} 的更多操作",
+      "actionsTitle": "{{name}} 的文件操作",
+      "renamePrompt": "输入新的文件名",
+      "renameField": "新的文件名",
+      "semanticSearch": "语义搜索",
+      "semanticSearchHint": "更慢，但能搜索文件内容含义"
+    },
+    "ai": {
+      "title": "移动 AI",
+      "subtitle": "在手机上进行问答和智能搜索。",
+      "conversation": "AI 对话内容",
+      "composer": "AI 输入区"
+    },
+    "transfer": {
+      "title": "移动传输",
+      "subtitle": "查看上传进度，处理暂停、继续和失败任务。"
+    },
+    "me": {
+      "title": "我的",
+      "subtitle": "查看存储空间、语言、回收站和登录状态。",
+      "trash": "回收站"
+    },
+    "trash": {
+      "title": "移动回收站",
+      "subtitle": "恢复或永久删除回收站里的文件。"
+    },
+    "preview": {
+      "title": "移动预览",
+      "subtitle": "全屏查看文件内容。"
+    }
+  },
   "drive": {
     "title": "主页",
     "subtitle": "管理和组织您的个人云存储。",

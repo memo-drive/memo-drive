@@ -1,0 +1,8 @@
+:root {
+  --mobile-bottom-nav-height: calc(4.5rem + env(safe-area-inset-bottom));
+  --mobile-upload-fab-size: 3.5rem;
+  --mobile-upload-fab-bottom: calc(var(--mobile-bottom-nav-height) + 0.5rem);
+  --mobile-upload-fab-clearance: calc(
+    var(--mobile-bottom-nav-height) + var(--mobile-upload-fab-size) + 1.25rem
+  );
+}
