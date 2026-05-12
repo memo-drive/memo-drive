@@ -169,6 +169,30 @@ func TestSearchIntentPrefiltersSemanticResults(t *testing.T) {
 	}
 }
 
+func TestSearchIntentEmptyFilterReturnsEmptyResults(t *testing.T) {
+	db := newSearchServiceStore(t)
+	file := &model.File{ID: "report", Name: "季报2024.pdf", Path: "/", StoragePath: "report.pdf", Size: 200, MimeType: "application/pdf", Status: model.FileStatusReady}
+	if err := db.CreateFile(context.Background(), file); err != nil {
+		t.Fatalf("create file: %v", err)
+	}
+	vector := &mockVectorStore{}
+	service := NewSearchService(&config.Config{RAG: config.RAGConfig{SearchTopK: 5, IntentParse: true, IntentFileLimit: 500}}, db, &mockSearchProvider{}, vector)
+
+	response, err := service.Search(context.Background(), SearchRequest{Query: "pptx"})
+	if err != nil {
+		t.Fatalf("Search returned error: %v", err)
+	}
+	if response.Results == nil {
+		t.Fatal("expected empty results slice, got nil")
+	}
+	if len(response.Results) != 0 {
+		t.Fatalf("expected no results, got %#v", response.Results)
+	}
+	if vector.queryCalled {
+		t.Fatal("expected intent prefilter to skip vector search when no files match")
+	}
+}
+
 func TestSearchAppliesMinScore(t *testing.T) {
 	vector := &mockVectorStore{queryResult: sampleQueryResult()}
 	service := NewSearchService(&config.Config{RAG: config.RAGConfig{SearchTopK: 3, MinScore: 0.85}}, nil, &mockSearchProvider{}, vector)

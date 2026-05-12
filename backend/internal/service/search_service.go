@@ -76,6 +76,9 @@ func (s *SearchService) Search(ctx context.Context, req SearchRequest) (*SearchR
 		log.Printf("level=error component=search event=search_failed query_chars=%d duration_ms=%d err=%q", len([]rune(plan.Query)), time.Since(started).Milliseconds(), err)
 		return nil, err
 	}
+	if sources == nil {
+		sources = []SourceChunk{}
+	}
 	logScoreDistribution("search", sources)
 	log.Printf("level=info component=search event=search_complete results=%d queries=%d duration_ms=%d",
 		len(sources), len(plan.Queries), time.Since(started).Milliseconds())

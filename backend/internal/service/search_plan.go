@@ -36,11 +36,11 @@ func (s *SearchService) buildChunkRetrievalPlan(ctx context.Context, req SearchR
 				log.Printf("level=warn component=search event=intent_filter_failed err=%q", err)
 			} else if len(ids) == 0 {
 				log.Printf("level=info component=search event=intent_filter_empty original_chars=%d duration_ms=%d", len([]rune(req.Query)), time.Since(started).Milliseconds())
-				return nil, &SearchResponse{Query: effectiveIntentQuery(req.Query, parsed), Intent: intent}, nil
+				return nil, &SearchResponse{Query: effectiveIntentQuery(req.Query, parsed), Results: []SourceChunk{}, Intent: intent}, nil
 			} else {
 				req.FileIDs = constrainFileIDs(req.FileIDs, ids)
 				if len(req.FileIDs) == 0 {
-					return nil, &SearchResponse{Query: effectiveIntentQuery(req.Query, parsed), Intent: intent}, nil
+					return nil, &SearchResponse{Query: effectiveIntentQuery(req.Query, parsed), Results: []SourceChunk{}, Intent: intent}, nil
 				}
 			}
 		}
