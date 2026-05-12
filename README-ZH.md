@@ -24,7 +24,7 @@ MemoDrive 是一个私有的、单用户的智能云盘。通过结合个人网�
 - 智能搜索独立页：3 栏布局、常驻 AI 助手、历史会话抽屉，支持流式问答与语义检索切换。
 - AI 会话持久化：自动落库 `conversations` / `messages`，支持历史会话列表、切换、重命名与删除。
 - RAG 检索质量增强：多轮 query 改写、heading-aware 索引、动态分数过滤、多 query 扩展、关键词/向量混合检索与父子 chunk。
-- 生产环境 `edge` nginx：负责 TLS 终止、`/api/` 单跳转发，以及手机访问裸域名 `/` 时临时跳转到 `/m`。
+- 生产环境 `edge` nginx：负责 TLS 终止、`/api/` 单跳转发，以及手机访问裸域名 `/` 时临时跳转到 `/m`；前端也提供同规则兜底，保证登录回跳目标正确。
 - Docker 全栈部署：提供针对 edge nginx、前端、后端、Chroma 向量数据库及 Ollama 的 Docker Compose 一键启动方案。
 
 ## 系统架构
@@ -45,7 +45,7 @@ flowchart TB
     end
 
     subgraph Frontend ["前端 (React + Vite)"]
-        Router["BrowserRouter + AuthGuard\n登录 redirect 回跳"]
+        Router["BrowserRouter + AuthGuard\n登录 redirect 回跳\n手机根路径兜底"]
         Shared["前端共享核心\napi、hooks、stores、types、utils"]
         DesktopUI["桌面 Web\n/、/smart-search、/transfer、/trash、/settings"]
         MobileUI["移动 H5\n/m、/m/ai、/m/transfer、/m/me、/m/trash、/m/preview/:id"]
@@ -179,7 +179,7 @@ flowchart TB
 | 鉴权 | `/login` | `AuthGuard` 会把未登录用户带到 `/login?redirect=...`，登录成功后回到原始桌面或移动目标。 |
 | API | `/api/*` | 生产环境 edge nginx 将 API 流量直接转发到 `backend:8080`；前端开发服务器把 `/api` 代理到本地后端。 |
 
-移动端入口是显式路由，不在 React 内部按设备强制切换。生产环境只对手机访问裸根路径做跳转：
+移动端入口以显式路由为主：用户始终可以直接打开 `/m/*`，桌面与移动深链也保持分离。生产环境 edge nginx 只对手机访问裸根路径做跳转；React 侧也镜像这一条“仅根路径”的规则，避免代理直接把 `/` 打到前端时登录回跳到桌面根路径：
 
 ```text
 手机：  https://drive.example.com/ -> 302 /m
@@ -296,7 +296,7 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
 - `/api/` 请求直接代理到 `backend:8080`（单跳，支持 SSE 流式响应）
 - 其余请求代理到 `frontend:80`
 - 手机 User-Agent 访问裸根路径 `/` 时，以 `302` 临时跳转到 `/m`；平板 User-Agent 和所有深链不受影响
-- 移动端登录通过 `/login?redirect=...` 保持闭环，未登录手机用户登录后会回到 `/m`
+- 移动端登录通过 `/login?redirect=...` 保持闭环，即使首次 `/` 请求直接到达前端，未登录手机用户登录后也会回到 `/m`
 
 **部署检查清单：**
 

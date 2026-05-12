@@ -24,7 +24,7 @@ English | [中文](./README-ZH.md)
 - Standalone smart search page with a docked AI assistant, semantic result list, and conversation history drawer.
 - AI conversation persistence backed by `conversations` / `messages`, including history list, switching, rename, and delete APIs.
 - RAG quality upgrades: query condense, heading-aware indexing, dynamic score filtering, multi-query expansion, hybrid keyword/vector retrieval, and parent-child chunks.
-- Production `edge` nginx for TLS termination, direct `/api/` routing, and phone-only bare-domain redirect from `/` to `/m`.
+- Production `edge` nginx for TLS termination, direct `/api/` routing, and phone-only bare-domain redirect from `/` to `/m`, with a matching frontend fallback for login return targets.
 - Docker Compose stack for edge nginx, frontend, backend, Chroma, and Ollama.
 
 ## Architecture
@@ -46,7 +46,7 @@ flowchart TB
     end
 
     subgraph Frontend ["Frontend (React + Vite)"]
-        Router["BrowserRouter + AuthGuard\nredirect-aware login"]
+        Router["BrowserRouter + AuthGuard\nredirect-aware login\nphone root fallback"]
         Shared["Shared frontend core\napi, hooks, stores, types, utils"]
         DesktopUI["Desktop Web\n/, /smart-search, /transfer, /trash, /settings"]
         MobileUI["Mobile H5\n/m, /m/ai, /m/transfer, /m/me, /m/trash, /m/preview/:id"]
@@ -180,7 +180,7 @@ Desktop and mobile share backend APIs and business helpers, but their routes and
 | Auth | `/login` | `AuthGuard` redirects unauthenticated users to `/login?redirect=...`; after login the user returns to the original desktop or mobile target. |
 | API | `/api/*` | Production edge nginx routes API traffic directly to `backend:8080`; frontend dev server proxies `/api` to the local backend. |
 
-Mobile behavior is explicit, not device-autodetected inside React. In production, only the bare root path is redirected for phones:
+Mobile behavior is route-first: users can always open `/m/*` directly, and desktop/mobile deep links stay separate. In production the edge nginx redirects only the bare root path for phones; the React app also mirrors that root-only rule so Login redirects remain correct if a proxy serves `/` without the edge redirect:
 
 ```text
 Phone:   https://drive.example.com/ -> 302 /m
@@ -297,7 +297,7 @@ The prod override:
 - Routes `/api/` directly to `backend:8080` (single-hop, SSE streaming supported)
 - Routes everything else to `frontend:80`
 - Redirects phone User-Agents opening the bare root path `/` to `/m` with `302`; tablet User-Agents and all deep links are left unchanged
-- Keeps mobile login closed-loop through `/login?redirect=...`, so unauthenticated phone users return to `/m` after login
+- Keeps mobile login closed-loop through `/login?redirect=...`, so unauthenticated phone users return to `/m` after login even if the first `/` request reached the frontend directly
 
 **Setup checklist:**
 

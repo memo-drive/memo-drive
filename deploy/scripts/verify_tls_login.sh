@@ -22,9 +22,16 @@ echo
 echo "==> 3) HSTS header check"
 curl -sSI "https://${DOMAIN}/" | rg -i "strict-transport-security|server:"
 
+echo
+echo "==> 4) Phone User-Agent root must redirect to /m"
+curl -sSI \
+  -A "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/123.0 Mobile/15E148 Safari/604.1" \
+  "https://${DOMAIN}/" \
+  | rg -i "HTTP/|location:"
+
 if [[ -n "${PASSWORD}" ]]; then
   echo
-  echo "==> 4) Login endpoint over HTTPS"
+  echo "==> 5) Login endpoint over HTTPS"
   curl -sS -o /dev/null -w "HTTP status: %{http_code}\n" \
     -H "Content-Type: application/json" \
     -d "{\"password\":\"${PASSWORD}\"}" \

@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { MessageContainer } from "./components/base";
 import { AuthGuard } from "./components/auth/AuthGuard";
 import { MainLayout } from "./layouts/MainLayout";
+import { currentUserAgent, mobileRootEntryForUserAgent } from "./mobile/mobileEntry";
 import { MobileRoutes } from "./mobile/MobileRoutes";
 import { DrivePage } from "./pages/Drive";
 import { LoginPage } from "./pages/Login";
@@ -39,7 +40,7 @@ export default function App() {
             </AuthGuard>
           }
         >
-          <Route index element={<DrivePage />} />
+          <Route index element={<DesktopRootEntry />} />
           <Route path="smart-search" element={<SmartSearchPage />} />
           <Route path="transfer" element={<TransferPage />} />
           <Route path="trash" element={<TrashPage />} />
@@ -49,4 +50,13 @@ export default function App() {
       </Routes>
     </BrowserRouter>
   );
+}
+
+function DesktopRootEntry() {
+  const mobileEntry = mobileRootEntryForUserAgent("/", currentUserAgent());
+  if (mobileEntry) {
+    return <Navigate to={mobileEntry} replace />;
+  }
+
+  return <DrivePage />;
 }
