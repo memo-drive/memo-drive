@@ -5,6 +5,11 @@ import {
   listUploadSessions,
 } from "../api/uploadApi";
 import type { UploadSession } from "../types";
+import {
+  transferUploadedBytes,
+  uploadedBytesForChunks,
+  uploadPercentForBytes,
+} from "../utils/uploadProgress";
 
 export type TransferStatus =
   | "uploading"
@@ -24,6 +29,7 @@ export interface TransferTask {
   status: TransferStatus;
   percent: number;
   uploadedChunks: number[];
+  uploadedBytes: number;
   totalChunks: number;
   chunkSize: number;
   speed: number;
@@ -47,7 +53,9 @@ interface TransferState {
 const STORAGE_KEY = "memodrive.transfer.tasks";
 const MAX_TASKS = 100;
 
-type PersistedTransferTask = Omit<TransferTask, "file">;
+type PersistedTransferTask = Omit<TransferTask, "file" | "uploadedBytes"> & {
+  uploadedBytes?: number;
+};
 
 function persistTasks(tasks: TransferTask[]) {
   const serializable = tasks
@@ -62,11 +70,15 @@ function loadPersistedTasks(): TransferTask[] {
     if (!raw) return [];
     const tasks = JSON.parse(raw) as PersistedTransferTask[];
     if (!Array.isArray(tasks)) return [];
-    return tasks.map((task) => ({
-      ...task,
-      file: undefined,
-      status: task.status === "uploading" ? "paused" : task.status,
-    }));
+    return tasks.map((task) => {
+      const uploadedBytes = transferUploadedBytes(task);
+      return {
+        ...task,
+        uploadedBytes,
+        file: undefined,
+        status: task.status === "uploading" ? "paused" : task.status,
+      };
+    });
   } catch {
     return [];
   }
@@ -120,7 +132,11 @@ function taskFromSession(
     Math.ceil(session.file_size / session.chunk_size),
   );
   const uploadedChunks = session.uploaded_chunks ?? [];
-  const uploadedPercent = Math.round((uploadedChunks.length / totalChunks) * 90);
+  const uploadedBytes = uploadedBytesForChunks(
+    uploadedChunks,
+    session.chunk_size,
+    session.file_size,
+  );
   const status = transferStatusFromSession(session, existing);
   return {
     id: session.id,
@@ -129,8 +145,14 @@ function taskFromSession(
     destPath: session.dest_path,
     direction: "upload",
     status,
-    percent: status === "done" ? 100 : status === "processing" ? 95 : uploadedPercent,
+    percent:
+      status === "done"
+        ? 100
+        : status === "processing"
+          ? 95
+          : uploadPercentForBytes(uploadedBytes, session.file_size),
     uploadedChunks,
+    uploadedBytes,
     totalChunks,
     chunkSize: session.chunk_size,
     speed: existing?.speed ?? 0,

@@ -7,9 +7,7 @@ describe("mobileUpload", () => {
     const second = new File(["b"], "b.txt", { type: "text/plain" });
     const upload = vi.fn().mockResolvedValue(undefined);
 
-    await expect(
-      startMobileDriveUploads([first, second], "/Docs", upload),
-    ).resolves.toBe(2);
+    expect(startMobileDriveUploads([first, second], "/Docs", upload)).toBe(2);
 
     expect(upload).toHaveBeenCalledWith(first, "/Docs");
     expect(upload).toHaveBeenCalledWith(second, "/Docs");
@@ -18,7 +16,29 @@ describe("mobileUpload", () => {
   it("ignores empty selections", async () => {
     const upload = vi.fn().mockResolvedValue(undefined);
 
-    await expect(startMobileDriveUploads([], "/Docs", upload)).resolves.toBe(0);
+    expect(startMobileDriveUploads([], "/Docs", upload)).toBe(0);
     expect(upload).not.toHaveBeenCalled();
+  });
+
+  it("queues mobile uploads without waiting for the transfer to finish", () => {
+    const file = new File(["slow"], "slow.jpg", { type: "image/jpeg" });
+    const upload = vi.fn().mockReturnValue(new Promise(() => undefined));
+
+    const count = startMobileDriveUploads([file], "/Camera", upload);
+
+    expect(count).toBe(1);
+    expect(upload).toHaveBeenCalledWith(file, "/Camera");
+  });
+
+  it("reports asynchronous upload failures to the caller", async () => {
+    const file = new File(["bad"], "bad.jpg", { type: "image/jpeg" });
+    const error = new Error("network down");
+    const upload = vi.fn().mockRejectedValue(error);
+    const onError = vi.fn();
+
+    startMobileDriveUploads([file], "/Camera", upload, onError);
+    await Promise.resolve();
+
+    expect(onError).toHaveBeenCalledWith(file, error);
   });
 });

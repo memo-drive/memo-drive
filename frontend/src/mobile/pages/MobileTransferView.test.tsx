@@ -9,7 +9,14 @@ describe("MobileTransferView", () => {
     const html = renderToString(
       <MobileTransferView
         tasks={[
-          makeTask({ fileName: "Memo.pdf", status: "uploading", percent: 45 }),
+          makeTask({
+            fileName: "Memo.pdf",
+            status: "uploading",
+            percent: 45,
+            fileSize: 4096,
+            uploadedBytes: 2048,
+            speed: 1536,
+          }),
           makeTask({ id: "done-1", fileName: "Done.txt", status: "done", percent: 100 }),
         ]}
       />,
@@ -17,6 +24,8 @@ describe("MobileTransferView", () => {
 
     expect(html).toContain("Memo.pdf");
     expect(html).toContain("45%");
+    expect(html).toContain("2.0 KB / 4.0 KB");
+    expect(html).toContain("1.5 KB/s");
     expect(html).toContain("Done.txt");
     expect(html).toContain("已完成");
   });
@@ -43,6 +52,29 @@ describe("MobileTransferView", () => {
     expect(html).toContain("删除");
     expect(html).toContain("清除全部");
   });
+
+  it("shows only total file size after an upload is completed", () => {
+    const html = renderToString(
+      <MobileTransferView
+        tasks={[
+          makeTask({
+            id: "done-only",
+            fileName: "Done.txt",
+            status: "done",
+            percent: 100,
+            fileSize: 4096,
+            uploadedBytes: 4096,
+          }),
+        ]}
+      />,
+    );
+
+    expect(html).toContain("Done.txt");
+    expect(html).toContain("4.0 KB");
+    expect(html).not.toContain("100%");
+    expect(html).not.toContain("4.0 KB / 4.0 KB");
+    expect(html).not.toContain("progressTrack");
+  });
 });
 
 function makeTask(overrides: Partial<TransferTask> = {}): TransferTask {
@@ -57,6 +89,7 @@ function makeTask(overrides: Partial<TransferTask> = {}): TransferTask {
     uploadedChunks: [0],
     totalChunks: 2,
     chunkSize: 1024,
+    uploadedBytes: 1024,
     speed: 0,
     createdAt: new Date("2026-05-10T00:00:00Z").getTime(),
     updatedAt: new Date("2026-05-10T00:00:00Z").getTime(),

@@ -9,11 +9,17 @@ import {
 import { useTransferStore } from "../stores/transferStore";
 import type { TransferTask } from "../stores/transferStore";
 import type { DriveFile, UploadSession } from "../types";
+import {
+  uploadedBytesForChunks,
+  uploadPercentForBytes,
+} from "../utils/uploadProgress";
 
 export interface UploadProgress {
   fileName: string;
   percent: number;
   status: "idle" | "uploading" | "processing" | "paused" | "done" | "failed" | "cancelled";
+  uploadedBytes?: number;
+  speed?: number;
   error?: string;
 }
 
@@ -30,16 +36,17 @@ function totalChunks(session: UploadSession) {
   return Math.max(1, Math.ceil(session.file_size / session.chunk_size));
 }
 
-function uploadedPercent(uploadedCount: number, total: number) {
-  return Math.min(90, Math.round((uploadedCount / Math.max(1, total)) * 90));
-}
-
 function isAbortError(error: unknown) {
   return error instanceof DOMException && error.name === "AbortError";
 }
 
 function taskFromUpload(file: File, session: UploadSession): TransferTask {
   const total = totalChunks(session);
+  const uploadedBytes = uploadedBytesForChunks(
+    session.uploaded_chunks,
+    session.chunk_size,
+    file.size,
+  );
   return {
     id: session.id,
     fileName: file.name,
@@ -47,8 +54,9 @@ function taskFromUpload(file: File, session: UploadSession): TransferTask {
     destPath: session.dest_path,
     direction: "upload",
     status: "uploading",
-    percent: uploadedPercent(session.uploaded_chunks.length, total),
+    percent: uploadPercentForBytes(uploadedBytes, file.size),
     uploadedChunks: session.uploaded_chunks,
+    uploadedBytes,
     totalChunks: total,
     chunkSize: session.chunk_size,
     speed: 0,
@@ -70,21 +78,70 @@ async function uploadRemainingChunks(
   const total = totalChunks(session);
   const uploaded = new Set(session.uploaded_chunks);
   const startedAt = Date.now();
+  const initialUploadedBytes = uploadedBytesForChunks(
+    [...uploaded],
+    session.chunk_size,
+    file.size,
+  );
+  let currentUploadedBytes = initialUploadedBytes;
+  let lastLiveUpdateAt = 0;
   pausedSessions.delete(session.id);
   cancelledSessions.delete(session.id);
 
+  const updateLiveProgress = (
+    uploadedBytes: number,
+    status: "uploading" | "paused" | "processing" | "failed" | "cancelled",
+    uploadedChunks?: number[],
+    force = true,
+  ) => {
+    const now = Date.now();
+    if (!force && now - lastLiveUpdateAt < 250) return;
+    lastLiveUpdateAt = now;
+    currentUploadedBytes = Math.max(0, Math.min(uploadedBytes, file.size));
+    const elapsedSec = Math.max((now - startedAt) / 1000, 0.001);
+    const speed =
+      status === "uploading"
+        ? Math.max(0, currentUploadedBytes - initialUploadedBytes) / elapsedSec
+        : 0;
+    const percent =
+      status === "processing"
+        ? 95
+        : uploadPercentForBytes(currentUploadedBytes, file.size);
+    const patch: Partial<TransferTask> = {
+      status,
+      percent,
+      uploadedBytes: currentUploadedBytes,
+      speed,
+    };
+    if (uploadedChunks) {
+      patch.uploadedChunks = uploadedChunks;
+    }
+    useTransferStore.getState().updateTask(session.id, patch);
+    callbacks.setProgress({
+      fileName: file.name,
+      percent,
+      status,
+      uploadedBytes: currentUploadedBytes,
+      speed,
+    });
+  };
+
+  const initialUploadedChunks = [...uploaded].sort((a, b) => a - b);
   store.updateTask(session.id, {
     file,
     status: "uploading",
-    uploadedChunks: [...uploaded].sort((a, b) => a - b),
+    uploadedChunks: initialUploadedChunks,
+    uploadedBytes: initialUploadedBytes,
     totalChunks: total,
-    percent: uploadedPercent(uploaded.size, total),
+    percent: uploadPercentForBytes(initialUploadedBytes, file.size),
     error: undefined,
   });
   callbacks.setProgress({
     fileName: file.name,
-    percent: uploadedPercent(uploaded.size, total),
+    percent: uploadPercentForBytes(initialUploadedBytes, file.size),
     status: "uploading",
+    uploadedBytes: initialUploadedBytes,
+    speed: 0,
   });
 
   try {
@@ -93,8 +150,10 @@ async function uploadRemainingChunks(
         useTransferStore.getState().updateTask(session.id, { status: "paused" });
         callbacks.setProgress({
           fileName: file.name,
-          percent: uploadedPercent(uploaded.size, total),
+          percent: uploadPercentForBytes(currentUploadedBytes, file.size),
           status: "paused",
+          uploadedBytes: currentUploadedBytes,
+          speed: 0,
         });
         return undefined;
       }
@@ -102,6 +161,12 @@ async function uploadRemainingChunks(
 
       const start = index * session.chunk_size;
       const end = Math.min(start + session.chunk_size, file.size);
+      const chunkBytes = end - start;
+      const committedBytes = uploadedBytesForChunks(
+        [...uploaded],
+        session.chunk_size,
+        file.size,
+      );
       const controller = new AbortController();
       controllers.set(session.id, controller);
       const result = await uploadChunk(
@@ -109,6 +174,14 @@ async function uploadRemainingChunks(
         index,
         file.slice(start, end),
         controller.signal,
+        ({ loaded }) => {
+          updateLiveProgress(
+            committedBytes + Math.min(loaded, chunkBytes),
+            "uploading",
+            undefined,
+            false,
+          );
+        },
       );
       if (controllers.get(session.id) === controller) {
         controllers.delete(session.id);
@@ -119,28 +192,21 @@ async function uploadRemainingChunks(
         uploaded.add(chunkIndex);
       }
       const uploadedChunks = [...uploaded].sort((a, b) => a - b);
-      const elapsedSec = Math.max((Date.now() - startedAt) / 1000, 0.001);
-      const uploadedBytes = Math.min(uploadedChunks.length * session.chunk_size, file.size);
-      const percent = uploadedPercent(uploadedChunks.length, total);
-      useTransferStore.getState().updateTask(session.id, {
-        status: pausedSessions.has(session.id) ? "paused" : "uploading",
-        percent,
+      updateLiveProgress(
+        uploadedBytesForChunks(uploadedChunks, session.chunk_size, file.size),
+        pausedSessions.has(session.id) ? "paused" : "uploading",
         uploadedChunks,
-        speed: uploadedBytes / elapsedSec,
-      });
-      callbacks.setProgress({
-        fileName: file.name,
-        percent,
-        status: pausedSessions.has(session.id) ? "paused" : "uploading",
-      });
+      );
     }
 
     if (pausedSessions.has(session.id)) {
       useTransferStore.getState().updateTask(session.id, { status: "paused" });
       callbacks.setProgress({
         fileName: file.name,
-        percent: uploadedPercent(uploaded.size, total),
+        percent: uploadPercentForBytes(currentUploadedBytes, file.size),
         status: "paused",
+        uploadedBytes: currentUploadedBytes,
+        speed: 0,
       });
       return undefined;
     }
@@ -148,17 +214,32 @@ async function uploadRemainingChunks(
     useTransferStore.getState().updateTask(session.id, {
       status: "processing",
       percent: 95,
+      uploadedBytes: file.size,
+      speed: 0,
     });
-    callbacks.setProgress({ fileName: file.name, percent: 95, status: "processing" });
+    callbacks.setProgress({
+      fileName: file.name,
+      percent: 95,
+      status: "processing",
+      uploadedBytes: file.size,
+      speed: 0,
+    });
     const completed = await completeUpload(session.id);
     useTransferStore.getState().updateTask(session.id, {
       status: "done",
       percent: 100,
+      uploadedBytes: file.size,
       speed: 0,
       file: undefined,
       error: undefined,
     });
-    callbacks.setProgress({ fileName: file.name, percent: 100, status: "done" });
+    callbacks.setProgress({
+      fileName: file.name,
+      percent: 100,
+      status: "done",
+      uploadedBytes: file.size,
+      speed: 0,
+    });
     callbacks.onUploaded(completed.file);
     return completed.file;
   } catch (error) {
@@ -166,13 +247,16 @@ async function uploadRemainingChunks(
     if (isAbortError(error) || cancelledSessions.has(session.id)) {
       useTransferStore.getState().updateTask(session.id, {
         status: "cancelled",
+        uploadedBytes: currentUploadedBytes,
         speed: 0,
         file: undefined,
       });
       callbacks.setProgress({
         fileName: file.name,
-        percent: uploadedPercent(uploaded.size, total),
+        percent: uploadPercentForBytes(currentUploadedBytes, file.size),
         status: "cancelled",
+        uploadedBytes: currentUploadedBytes,
+        speed: 0,
       });
       throw new Error("upload cancelled");
     }
@@ -180,12 +264,15 @@ async function uploadRemainingChunks(
     useTransferStore.getState().updateTask(session.id, {
       status: "failed",
       error: message,
+      uploadedBytes: currentUploadedBytes,
       speed: 0,
     });
     callbacks.setProgress({
       fileName: file.name,
-      percent: uploadedPercent(uploaded.size, total),
+      percent: uploadPercentForBytes(currentUploadedBytes, file.size),
       status: "failed",
+      uploadedBytes: currentUploadedBytes,
+      speed: 0,
       error: message,
     });
     throw error;

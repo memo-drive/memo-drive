@@ -1,4 +1,5 @@
 import { httpClient } from "./HttpClient";
+import type { UploadProgressUpdate } from "./HttpClient";
 import type { UploadCompleteResponse, UploadSession } from "../types";
 
 export async function initUpload(file: File, destPath: string) {
@@ -14,11 +15,12 @@ export async function uploadChunk(
   index: number,
   chunk: Blob,
   signal?: AbortSignal,
+  onProgress?: (progress: UploadProgressUpdate) => void,
 ) {
   return httpClient.patchBlob<{
     upload_id: string;
     uploaded_chunks: number[];
-  }>(`/upload/${uploadId}?chunk=${index}`, chunk, signal);
+  }>(`/upload/${uploadId}?chunk=${index}`, chunk, signal, onProgress);
 }
 
 export async function completeUpload(uploadId: string) {

@@ -17,7 +17,10 @@ export function UploadFab({ onFiles }: UploadFabProps) {
         className={styles.input}
         type="file"
         multiple
-        onChange={(event) => onFiles?.(event.currentTarget.files)}
+        onChange={(event) => {
+          onFiles?.(event.currentTarget.files);
+          event.currentTarget.value = "";
+        }}
       />
       <label className={styles.button} htmlFor={inputId} aria-label={t("mobile.files.uploadFab")}>
         <span className="material-symbols-outlined" aria-hidden>

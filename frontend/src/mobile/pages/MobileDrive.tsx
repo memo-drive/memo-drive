@@ -97,8 +97,11 @@ export function MobileDrivePage() {
     setSearchError("");
   }
 
-  async function handleUploadFiles(selected: FileList | null) {
-    const count = await startMobileDriveUploads(selected, currentPath, upload);
+  function handleUploadFiles(selected: FileList | null) {
+    const count = startMobileDriveUploads(selected, currentPath, upload, (file, err) => {
+      if (err instanceof Error && err.message === "upload cancelled") return;
+      message.error(t("drive.uploadFailed", { name: file.name }));
+    });
     if (count > 0) {
       message.info(t("drive.filesAddedToTransfer", { count }));
     }
@@ -192,7 +195,7 @@ export function MobileDrivePage() {
         }}
         onConfirmRename={() => void confirmRename()}
       />
-      <UploadFab onFiles={(selected) => void handleUploadFiles(selected)} />
+      <UploadFab onFiles={handleUploadFiles} />
     </section>
   );
 }

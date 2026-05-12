@@ -172,6 +172,7 @@
     "removeFailed": "Failed to remove transfer record",
     "resumeFailed": "Failed to resume transfer",
     "sessionExpiry": "Session expires {{time}}",
+    "preparingUpload": "Preparing upload",
     "etaSeconds": "~{{seconds}}s",
     "etaMinutes": "~{{minutes}}min",
     "etaHours": "~{{hours}}h",

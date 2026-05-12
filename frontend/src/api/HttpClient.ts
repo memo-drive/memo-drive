@@ -1,5 +1,10 @@
 const TOKEN_KEY = "memodrive.token";
 
+export interface UploadProgressUpdate {
+  loaded: number;
+  total: number;
+}
+
 export interface SSEHandlers {
   onDelta?: (delta: string) => void;
   onSources?: (sources: unknown[]) => void;
@@ -124,11 +129,93 @@ class HttpClient {
     path: string,
     blob: Blob,
     signal?: AbortSignal,
+    onUploadProgress?: (progress: UploadProgressUpdate) => void,
   ): Promise<T> {
+    if (onUploadProgress) {
+      return this.patchBlobWithProgress<T>(path, blob, signal, onUploadProgress);
+    }
     return this.request<T>(path, {
       method: "PATCH",
       body: blob,
       signal,
+    });
+  }
+
+  private async patchBlobWithProgress<T>(
+    path: string,
+    blob: Blob,
+    signal: AbortSignal | undefined,
+    onUploadProgress: (progress: UploadProgressUpdate) => void,
+  ): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      if (signal?.aborted) {
+        reject(new DOMException("Aborted", "AbortError"));
+        return;
+      }
+
+      const xhr = new XMLHttpRequest();
+      let settled = false;
+      const abort = () => xhr.abort();
+      const cleanup = () => {
+        signal?.removeEventListener("abort", abort);
+      };
+      const resolveOnce = (value: T) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resolve(value);
+      };
+      const rejectOnce = (error: unknown) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        reject(error);
+      };
+
+      xhr.open("PATCH", this.url(path));
+      const token = getToken();
+      if (token) {
+        xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+      }
+
+      xhr.upload.addEventListener("progress", (event) => {
+        const total = event.lengthComputable ? event.total : blob.size;
+        onUploadProgress({
+          loaded: Math.min(event.loaded, total || blob.size),
+          total: total || blob.size,
+        });
+      });
+      xhr.onload = () => {
+        if (xhr.status === 401) {
+          handleUnauth();
+          rejectOnce(new HttpError(xhr.status, "Unauthorized"));
+          return;
+        }
+        if (xhr.status < 200 || xhr.status >= 300) {
+          rejectOnce(new HttpError(xhr.status, xhr.responseText || xhr.statusText));
+          return;
+        }
+        if (xhr.status === 204) {
+          resolveOnce(undefined as T);
+          return;
+        }
+
+        try {
+          const contentType = xhr.getResponseHeader("Content-Type") ?? "";
+          if (contentType.includes("application/json")) {
+            resolveOnce(JSON.parse(xhr.responseText) as T);
+            return;
+          }
+          resolveOnce(xhr.responseText as T);
+        } catch (error) {
+          rejectOnce(error);
+        }
+      };
+      xhr.onerror = () => rejectOnce(new Error("Network request failed"));
+      xhr.onabort = () => rejectOnce(new DOMException("Aborted", "AbortError"));
+
+      signal?.addEventListener("abort", abort);
+      xhr.send(blob);
     });
   }
 

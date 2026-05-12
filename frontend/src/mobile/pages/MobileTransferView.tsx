@@ -1,5 +1,7 @@
 import { useTranslation } from "react-i18next";
 import type { TransferStatus, TransferTask } from "../../stores/transferStore";
+import { formatBytes } from "../../utils/formatBytes";
+import { formatTransferSpeed, transferUploadedBytes } from "../../utils/uploadProgress";
 import styles from "./MobileTransferView.module.css";
 
 interface MobileTransferViewProps {
@@ -42,52 +44,74 @@ export function MobileTransferView({
           {t("transfer.clearAll")}
         </button>
       ) : null}
-      {tasks.map((task) => (
-        <article key={task.id} className={styles.card}>
-          <div className={styles.cardHeader}>
-            <span className="material-symbols-outlined" aria-hidden>
-              upload
-            </span>
-            <div>
-              <h2>{task.fileName}</h2>
-              <p>{task.destPath}</p>
+      {tasks.map((task) => {
+        const isDone = task.status === "done";
+        const fileSizeText = formatBytes(task.fileSize);
+        const uploadedBytes = transferUploadedBytes(task);
+        const speed = formatTransferSpeed(task.speed);
+        const progressText = `${formatBytes(uploadedBytes)} / ${fileSizeText}`;
+        const waitingForProgress =
+          task.status === "uploading" && task.percent === 0 && !speed;
+        return (
+          <article key={task.id} className={styles.card}>
+            <div className={styles.cardHeader}>
+              <span className="material-symbols-outlined" aria-hidden>
+                upload
+              </span>
+              <div>
+                <h2>{task.fileName}</h2>
+                <p>{task.destPath}</p>
+              </div>
+              <strong>{statusLabel(task.status, t)}</strong>
             </div>
-            <strong>{statusLabel(task.status, t)}</strong>
-          </div>
-          <div className={styles.progressTrack}>
-            <span style={{ width: `${Math.max(0, Math.min(100, task.percent))}%` }} />
-          </div>
-          <p className={styles.meta}>{task.percent}%</p>
-          {task.error ? <p className={styles.error}>{task.error}</p> : null}
-          <div className={styles.actions}>
-            {task.status === "uploading" ? (
-              <>
-                <button type="button" onClick={() => onPause?.(task.id)}>
-                  {t("transfer.actionPause")}
-                </button>
-                <button type="button" onClick={() => onCancel?.(task.id)}>
-                  {t("transfer.actionCancel")}
-                </button>
-              </>
+            {!isDone ? (
+              <div className={styles.progressTrack}>
+                <span style={{ width: `${Math.max(0, Math.min(100, task.percent))}%` }} />
+              </div>
             ) : null}
-            {task.status === "paused" ? (
-              <>
-                <button type="button" onClick={() => onResume?.(task)}>
-                  {t("transfer.actionResume")}
+            <p className={styles.meta}>
+              {isDone ? (
+                <span>{fileSizeText}</span>
+              ) : (
+                <>
+                  <span>{task.percent}%</span>
+                  <span>{progressText}</span>
+                  {task.status === "uploading" && speed ? <span>{speed}</span> : null}
+                  {waitingForProgress ? <span>{t("transfer.preparingUpload")}</span> : null}
+                </>
+              )}
+            </p>
+            {task.error ? <p className={styles.error}>{task.error}</p> : null}
+            <div className={styles.actions}>
+              {task.status === "uploading" ? (
+                <>
+                  <button type="button" onClick={() => onPause?.(task.id)}>
+                    {t("transfer.actionPause")}
+                  </button>
+                  <button type="button" onClick={() => onCancel?.(task.id)}>
+                    {t("transfer.actionCancel")}
+                  </button>
+                </>
+              ) : null}
+              {task.status === "paused" ? (
+                <>
+                  <button type="button" onClick={() => onResume?.(task)}>
+                    {t("transfer.actionResume")}
+                  </button>
+                  <button type="button" onClick={() => onCancel?.(task.id)}>
+                    {t("transfer.actionCancel")}
+                  </button>
+                </>
+              ) : null}
+              {!isActiveStatus(task.status) ? (
+                <button type="button" onClick={() => onRemove?.(task.id)}>
+                  {t("transfer.actionRemove")}
                 </button>
-                <button type="button" onClick={() => onCancel?.(task.id)}>
-                  {t("transfer.actionCancel")}
-                </button>
-              </>
-            ) : null}
-            {!isActiveStatus(task.status) ? (
-              <button type="button" onClick={() => onRemove?.(task.id)}>
-                {t("transfer.actionRemove")}
-              </button>
-            ) : null}
-          </div>
-        </article>
-      ))}
+              ) : null}
+            </div>
+          </article>
+        );
+      })}
     </div>
   );
 }

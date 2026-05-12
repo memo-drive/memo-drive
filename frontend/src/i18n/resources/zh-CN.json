@@ -173,6 +173,7 @@
     "removeFailed": "删除传输记录失败",
     "resumeFailed": "续传失败",
     "sessionExpiry": "会话到期 {{time}}",
+    "preparingUpload": "准备上传",
     "etaSeconds": "约 {{seconds}} 秒",
     "etaMinutes": "约 {{minutes}} 分钟",
     "etaHours": "约 {{hours}} 小时",
