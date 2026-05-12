@@ -7,7 +7,7 @@ RUN go mod download
 COPY . .
 RUN CGO_ENABLED=1 GOOS=linux go build -o /out/memodrive ./cmd/server
 
-FROM alpine:3.22
+FROM alpine:3.21
 
 WORKDIR /app
 RUN apk add --no-cache ca-certificates ffmpeg wget \
