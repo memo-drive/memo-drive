@@ -279,7 +279,8 @@
 .pdfCanvasWrap {
   display: flex;
   justify-content: center;
-  min-width: min-content;
+  min-width: 0;
+  max-width: 100%;
   padding: 1rem;
 }
 
@@ -407,7 +408,8 @@
 .codeFrame {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
-  min-width: min-content;
+  min-width: 0;
+  max-width: 100%;
   border: 1px solid var(--preview-line);
   border-radius: 12px;
   overflow: hidden;

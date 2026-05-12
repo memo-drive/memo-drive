@@ -21,32 +21,32 @@
   position: relative;
   z-index: 1;
   display: grid;
-  grid-template-columns: 2.35rem minmax(0, 1fr);
-  gap: 0.7rem;
+  grid-template-columns: 2.25rem minmax(0, 1fr);
+  gap: 0.6rem;
   width: min(28rem, 100%);
-  border: 1px solid rgba(15, 23, 42, 0.08);
-  border-radius: 0.9rem;
-  padding: 0.8rem;
-  background: rgba(255, 255, 255, 0.96);
-  box-shadow: 0 1rem 2.5rem rgba(15, 23, 42, 0.2);
+  border: var(--border-subtle);
+  border-radius: 0.85rem;
+  padding: 0.75rem;
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 1rem 2.5rem rgba(15, 23, 42, 0.22);
   pointer-events: auto;
 }
 
 .icon {
   display: inline-flex;
-  width: 2.35rem;
-  height: 2.35rem;
+  width: 2.25rem;
+  height: 2.25rem;
   align-items: center;
   justify-content: center;
-  border-radius: 0.7rem;
-  color: #075985;
-  background: #e0f2fe;
+  border-radius: var(--radius-sm);
+  color: var(--color-accent-text);
+  background: var(--color-accent-light);
   font-size: 1.25rem;
 }
 
 .iconDanger {
-  color: #dc2626;
-  background: #fff1f2;
+  color: var(--color-danger);
+  background: var(--color-danger-light);
 }
 
 .copy {
@@ -55,15 +55,15 @@
 
 .copy h2 {
   margin: 0;
-  color: #18181b;
-  font-size: 0.98rem;
-  font-weight: 850;
+  color: var(--color-text-primary);
+  font-size: var(--font-size-md);
+  font-weight: 800;
 }
 
 .copy p {
-  margin: 0.25rem 0 0;
-  color: #64748b;
-  font-size: 0.84rem;
+  margin: 0.2rem 0 0;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
   line-height: 1.45;
 }
 
@@ -77,11 +77,18 @@
 
 .actions button {
   min-width: 0;
-  min-height: 2.45rem;
-  border-radius: 0.7rem;
-  padding: 0 0.8rem;
-  font-size: 0.86rem;
-  font-weight: 850;
+  min-height: 2.5rem;
+  border-radius: var(--radius-md);
+  padding: 0 0.75rem;
+  font-size: var(--font-size-body);
+  font-weight: 750;
+  cursor: pointer;
+  transition: background var(--transition-fast), transform var(--transition-fast);
+  touch-action: manipulation;
+}
+
+.actions button:active {
+  transform: scale(0.96);
 }
 
 .actions button:disabled {
@@ -89,17 +96,29 @@
 }
 
 .cancelButton {
-  border: 1px solid rgba(15, 23, 42, 0.1);
-  color: #475569;
-  background: #ffffff;
+  border: var(--border-subtle);
+  color: var(--color-text-secondary);
+  background: var(--color-surface);
+}
+
+.cancelButton:active {
+  background: var(--color-surface-hover);
 }
 
 .confirmButton {
   border: 0;
   color: #ffffff;
-  background: #075da8;
+  background: var(--color-accent);
+}
+
+.confirmButton:active {
+  background: var(--color-accent-hover);
 }
 
 .confirmDanger {
-  background: #dc2626;
+  background: var(--color-danger);
+}
+
+.confirmDanger:active {
+  background: #b91c1c;
 }

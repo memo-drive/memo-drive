@@ -20,6 +20,56 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* ── Mobile UX optimisations ── */
+
+/* Eliminate 300ms tap delay on touch devices */
+button,
+a,
+input,
+textarea,
+select,
+[role="button"],
+[tabindex]:not([tabindex="-1"]) {
+  touch-action: manipulation;
+}
+
+/* Cleaner tap highlight */
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Smooth scrolling for scroll containers */
+body {
+  scroll-behavior: smooth;
+}
+
+/* Better focus ring — visible for keyboard nav, subtle for mouse */
+:focus-visible {
+  outline: 2px solid #38bdf8;
+  outline-offset: 2px;
+  border-radius: 0.25rem;
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Prevent text inflation on landscape mobile */
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+/* ── Icon defaults ── */
+
 .material-symbols-outlined {
   font-variation-settings:
     "FILL" 0,
@@ -27,6 +77,8 @@ body {
     "GRAD" 0,
     "opsz" 24;
   vertical-align: middle;
+  user-select: none;
+  pointer-events: none;
 }
 
 .whisper-border {

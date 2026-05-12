@@ -21,13 +21,20 @@
   height: var(--mobile-upload-fab-size);
   align-items: center;
   justify-content: center;
-  border-radius: 999px;
+  border: 0;
+  border-radius: var(--radius-full);
   color: #ffffff;
-  background: #0075de;
-  box-shadow:
-    0 16px 34px rgba(0, 117, 222, 0.28),
-    0 2px 8px rgba(15, 23, 42, 0.12);
+  background: var(--color-accent);
+  box-shadow: var(--shadow-fab);
   cursor: pointer;
+  transition: transform var(--transition-fast), box-shadow var(--transition-fast), background var(--transition-fast);
+  touch-action: manipulation;
+}
+
+.button:active {
+  transform: scale(0.92);
+  background: var(--color-accent-hover);
+  box-shadow: 0 8px 20px rgba(0, 117, 222, 0.22), 0 1px 4px rgba(15, 23, 42, 0.08);
 }
 
 .button :global(.material-symbols-outlined) {
