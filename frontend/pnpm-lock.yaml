@@ -79,7 +79,7 @@ importers:
         specifier: 4.2.4
         version: 4.2.4
       vitest:
-        specifier: ^4.1.5
+        specifier: 4.1.5
         version: 4.1.5(@types/node@24.10.1)(vite@7.3.2(@types/node@24.10.1)(jiti@2.6.1)(lightningcss@1.32.0))
 
 packages:
