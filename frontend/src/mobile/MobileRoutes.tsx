@@ -12,9 +12,9 @@ export function MobileRoutes() {
   return (
     <Routes>
       <Route path="preview/:fileId" element={<MobilePreviewPage />} />
+      <Route path="ai" element={<MobileAIPage />} />
       <Route element={<MobileShell />}>
         <Route index element={<MobileDrivePage />} />
-        <Route path="ai" element={<MobileAIPage />} />
         <Route path="transfer" element={<MobileTransferPage />} />
         <Route path="me" element={<MobileMePage />} />
         <Route path="trash" element={<MobileTrashPage />} />

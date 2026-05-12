@@ -5,9 +5,16 @@ import "highlight.js/styles/github.css";
 import { useTranslation } from "react-i18next";
 import type { ChatMessage as ChatMessageType } from "../../stores/chatStore";
 import { SourceReference } from "./SourceReference";
+import type { SourceChunk } from "../../types";
 import styles from "./ChatMessage.module.css";
 
-export function ChatMessage({ message }: { message: ChatMessageType }) {
+export function ChatMessage({
+  message,
+  onOpenSource,
+}: {
+  message: ChatMessageType;
+  onOpenSource?: (source: SourceChunk) => void | Promise<void>;
+}) {
   const { t } = useTranslation();
   const isAssistant = message.role === "assistant";
 
@@ -53,7 +60,7 @@ export function ChatMessage({ message }: { message: ChatMessageType }) {
         )}
       </div>
       {isAssistant && message.sources?.length ? (
-        <SourceReference sources={message.sources} compact />
+        <SourceReference sources={message.sources} compact onOpenSource={onOpenSource} />
       ) : null}
     </div>
   );

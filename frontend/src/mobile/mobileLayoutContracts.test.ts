@@ -60,23 +60,30 @@ describe("mobile layout contracts", () => {
 
     expect(uploadCss).toMatch(/\.wrap\s*{[^}]*position:\s*fixed/s);
     expect(pageCss).toMatch(
-      /\.page\[data-mobile-page="files"\]\s*{[^}]*padding-bottom:\s*calc\(8\.75rem \+ env\(safe-area-inset-bottom\)\)/s,
+      /\.page\[data-mobile-page="files"\]\s*{[^}]*padding-bottom:\s*var\(--mobile-upload-fab-clearance\)/s,
     );
   });
 
   it("shares bottom navigation and upload clearance tokens across mobile surfaces", () => {
     const tokensCss = readMobileCss("styles/tokens.css");
     const shellCss = readMobileCss("layouts/MobileShell.module.css");
-    const aiCss = readMobileCss("pages/MobileAIView.module.css");
     const uploadCss = readMobileCss("components/UploadFab/UploadFab.module.css");
     const pageCss = readMobileCss("pages/MobilePlaceholder.module.css");
 
     expect(tokensCss).toContain("--mobile-bottom-nav-height");
     expect(tokensCss).toContain("--mobile-upload-fab-clearance");
     expect(shellCss).toContain("var(--mobile-bottom-nav-height)");
-    expect(aiCss).toContain("var(--mobile-bottom-nav-height)");
     expect(uploadCss).toContain("var(--mobile-upload-fab-bottom)");
     expect(pageCss).toContain("var(--mobile-upload-fab-clearance)");
+  });
+
+  it("lets Mobile AI occupy the full viewport without bottom-navigation inset", () => {
+    const css = readMobileCss("pages/MobileAIView.module.css");
+
+    expect(css).toMatch(/\.page\s*{[^}]*inset:\s*0;/s);
+    expect(css).toMatch(/\.page\s*{[^}]*height:\s*100dvh;/s);
+    expect(css).toMatch(/\.inputBar\s*{[^}]*bottom:\s*0;/s);
+    expect(css).not.toContain("var(--mobile-bottom-nav-height)");
   });
 
   it("lets the mobile preview content fill the center viewport without inset spacing", () => {

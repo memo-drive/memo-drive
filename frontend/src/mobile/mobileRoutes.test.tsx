@@ -48,6 +48,15 @@ describe("mobile routes", () => {
     expect(html).toContain("href=\"/m/trash\"");
   });
 
+  it("renders Mobile AI as a full-screen route with a back button and no bottom nav", () => {
+    const html = renderMobileRoute("/m/ai");
+
+    expect(html).toContain("href=\"/m\"");
+    expect(html).toContain("aria-label=\"返回\"");
+    expect(html).not.toContain("href=\"/m/transfer\"");
+    expect(html).not.toContain("aria-label=\"移动端底部导航\"");
+  });
+
   it("omits mobile page eyebrows to preserve vertical space", () => {
     const html = [
       "/m",

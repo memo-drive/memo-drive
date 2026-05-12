@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from "react";
+import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { ChatMessage as ChatMessageBubble } from "../../components/AIAssistant/ChatMessage";
 import type { AIMode, ChatMessage } from "../../stores/chatStore";
@@ -8,7 +9,7 @@ import styles from "./MobileAIView.module.css";
 interface MobileAIViewProps {
   mode: AIMode;
   messages: ChatMessage[];
-  searchResults: SourceChunk[];
+  searchResults?: SourceChunk[] | null;
   searchQuery: string;
   busy: boolean;
   sending: boolean;
@@ -17,6 +18,8 @@ interface MobileAIViewProps {
   onModeChange: (mode: AIMode) => void;
   onSubmit: (query: string) => void | Promise<unknown>;
   onStop: () => void;
+  onOpenSource?: (source: SourceChunk) => void | Promise<void>;
+  backHref?: string;
 }
 
 export function MobileAIView({
@@ -31,6 +34,8 @@ export function MobileAIView({
   onModeChange,
   onSubmit,
   onStop,
+  onOpenSource,
+  backHref = "/m",
 }: MobileAIViewProps) {
   const { t } = useTranslation();
   const [query, setQuery] = useState("");
@@ -40,14 +45,19 @@ export function MobileAIView({
     event.preventDefault();
     const text = query.trim();
     if (!text || busy) return;
-    await onSubmit(text);
     setQuery("");
+    await onSubmit(text);
   }
 
   return (
     <section className={styles.page}>
       <header className={styles.header}>
-        <div>
+        <Link className={styles.backButton} to={backHref} aria-label={t("common.back")}>
+          <span className="material-symbols-outlined" aria-hidden>
+            arrow_back
+          </span>
+        </Link>
+        <div className={styles.titleGroup}>
           <h1>{t("mobile.ai.title")}</h1>
         </div>
         <div className={styles.modeToggle} role="tablist" aria-label={t("ai.modeLabel")}>
@@ -83,7 +93,11 @@ export function MobileAIView({
           messages.length > 0 ? (
             <section className={styles.messageList}>
               {messages.map((message) => (
-                <ChatMessageBubble key={message.id} message={message} />
+                <ChatMessageBubble
+                  key={message.id}
+                  message={message}
+                  onOpenSource={onOpenSource}
+                />
               ))}
             </section>
           ) : (
@@ -99,6 +113,7 @@ export function MobileAIView({
             results={searchResults}
             loading={loading}
             error={error}
+            onOpenSource={onOpenSource}
           />
         )}
       </main>
@@ -138,13 +153,16 @@ function SearchResultPanel({
   results,
   loading,
   error,
+  onOpenSource,
 }: {
   query: string;
-  results: SourceChunk[];
+  results?: SourceChunk[] | null;
   loading: boolean;
   error: string;
+  onOpenSource?: (source: SourceChunk) => void | Promise<void>;
 }) {
   const { t } = useTranslation();
+  const safeResults = Array.isArray(results) ? results : [];
 
   if (!query) {
     return (
@@ -164,7 +182,7 @@ function SearchResultPanel({
     return <div className={styles.error}>{error}</div>;
   }
 
-  if (results.length === 0) {
+  if (safeResults.length === 0) {
     return <EmptyState icon="search_off" title={t("ai.noResults")} hint={t("smartSearch.noResultsHint")} />;
   }
 
@@ -172,10 +190,16 @@ function SearchResultPanel({
     <section className={styles.searchList}>
       <div className={styles.searchHeader}>
         <span>{t("ai.searchQuery", { query })}</span>
-        <strong>{t("smartSearch.resultCount", { count: results.length })}</strong>
+        <strong>{t("smartSearch.resultCount", { count: safeResults.length })}</strong>
       </div>
-      {results.map((source, index) => (
-        <article key={`${source.id}-${index}`} className={styles.resultCard}>
+      {safeResults.map((source, index) => (
+        <button
+          key={`${source.id}-${index}`}
+          className={styles.resultCard}
+          type="button"
+          aria-label={t("smartSearch.openSource")}
+          onClick={() => onOpenSource?.(source)}
+        >
           <div className={styles.resultTop}>
             <span className="material-symbols-outlined" aria-hidden>
               description
@@ -187,7 +211,7 @@ function SearchResultPanel({
             <strong>{Math.round(source.score * 100)}%</strong>
           </div>
           <p>{source.snippet || source.text}</p>
-        </article>
+        </button>
       ))}
     </section>
   );

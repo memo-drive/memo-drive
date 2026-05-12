@@ -27,7 +27,7 @@ interface ChatState {
   loadConversation: (id: string) => Promise<void>;
   addMessage: (message: ChatMessage) => void;
   updateMessage: (id: string, patch: Partial<ChatMessage> | string) => void;
-  setSearchResults: (results: SourceChunk[]) => void;
+  setSearchResults: (results?: SourceChunk[] | null) => void;
   setSearchQuery: (query: string) => void;
   setSearchIntent: (intent?: SearchIntent) => void;
   clearSearch: () => void;
@@ -87,7 +87,7 @@ export const useChatStore = create<ChatState>((set) => ({
       ),
       searchResults:
         mode === "search"
-          ? response.messages[response.messages.length - 1]?.sources ?? []
+          ? normalizeSourceChunks(response.messages[response.messages.length - 1]?.sources)
           : [],
       searchQuery:
         mode === "search"
@@ -110,9 +110,13 @@ export const useChatStore = create<ChatState>((set) => ({
           : message,
       ),
     })),
-  setSearchResults: (searchResults) => set({ searchResults }),
+  setSearchResults: (searchResults) => set({ searchResults: normalizeSourceChunks(searchResults) }),
   setSearchQuery: (searchQuery) => set({ searchQuery }),
   setSearchIntent: (searchIntent) => set({ searchIntent }),
   clearSearch: () => set({ searchResults: [], searchQuery: "", searchIntent: undefined }),
   clear: () => set({ messages: [], searchResults: [], searchQuery: "", searchIntent: undefined }),
 }));
+
+function normalizeSourceChunks(results?: SourceChunk[] | null) {
+  return Array.isArray(results) ? results : [];
+}

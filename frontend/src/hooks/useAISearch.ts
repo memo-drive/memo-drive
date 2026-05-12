@@ -31,7 +31,7 @@ export function useAISearch() {
         setConversationId(response.conversation_id);
       }
       setSearchQuery(response.query);
-      setSearchResults(response.results);
+      setSearchResults(Array.isArray(response.results) ? response.results : []);
       setSearchIntent(response.intent);
     } catch (err) {
       const message = err instanceof Error ? err.message : "ai.semanticSearchFailed";

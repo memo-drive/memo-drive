@@ -11,6 +11,7 @@ interface SourceReferenceProps {
   title?: string;
   compact?: boolean;
   loading?: boolean;
+  onOpenSource?: (source: SourceChunk) => void | Promise<void>;
 }
 
 export function SourceReference({
@@ -18,6 +19,7 @@ export function SourceReference({
   title,
   compact = false,
   loading = false,
+  onOpenSource,
 }: SourceReferenceProps) {
   const { t } = useTranslation();
   const displayTitle = title ?? t("ai.sourceTitle");
@@ -32,6 +34,10 @@ export function SourceReference({
 
   async function openSource(source: SourceChunk) {
     if (disabledIDs.has(source.id)) return;
+    if (onOpenSource) {
+      await onOpenSource(source);
+      return;
+    }
     try {
       const file = await getFile(source.file_id);
       setCurrentPath(file.path || "/");

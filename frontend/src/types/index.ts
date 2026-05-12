@@ -122,7 +122,7 @@ export interface SearchIntent {
 export interface SearchResponse {
   conversation_id?: string;
   query: string;
-  results: SourceChunk[];
+  results: SourceChunk[] | null;
   intent?: SearchIntent;
 }
 

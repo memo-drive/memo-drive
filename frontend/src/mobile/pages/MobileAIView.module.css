@@ -1,31 +1,66 @@
 .page {
   --mobile-ai-composer-height: 6.25rem;
   position: fixed;
-  inset: 0 0 var(--mobile-bottom-nav-height);
+  inset: 0;
   display: flex;
-  height: calc(100dvh - var(--mobile-bottom-nav-height));
+  height: 100dvh;
   flex-direction: column;
   overflow: hidden;
   background: #f7f8fb;
 }
 
 .header {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 0.55rem;
   flex-shrink: 0;
-  padding: calc(0.65rem + env(safe-area-inset-top)) 0.85rem 0.55rem;
+  padding: calc(1rem + env(safe-area-inset-top)) 0.85rem 0.55rem;
   border-bottom: var(--border-subtle);
   background: rgba(255, 255, 255, 0.92);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
 }
 
+.backButton {
+  display: inline-flex;
+  width: 2.5rem;
+  height: 2.5rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-md);
+  color: var(--color-text-primary);
+  background: var(--color-surface);
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
+  text-decoration: none;
+  touch-action: manipulation;
+}
+
+.backButton:active {
+  background: var(--color-surface-hover);
+  transform: scale(0.95);
+}
+
+.backButton :global(.material-symbols-outlined) {
+  font-size: 1.35rem;
+}
+
+.titleGroup {
+  min-width: 0;
+}
+
 .header h1 {
+  overflow: hidden;
   margin: 0;
   color: #172033;
   font-size: 1.15rem;
   font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .modeToggle {
+  grid-column: 1 / -1;
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.25rem;
@@ -139,19 +174,28 @@
 
 .resultCard {
   display: grid;
+  width: 100%;
   gap: 0.5rem;
   border: var(--border-subtle);
   border-radius: var(--radius-md);
   padding: 0.65rem 0.75rem;
   background: var(--color-surface);
   box-shadow: var(--shadow-card);
+  font: inherit;
+  text-align: left;
   transition: background var(--transition-fast), box-shadow var(--transition-fast), transform var(--transition-fast);
   touch-action: manipulation;
+  cursor: pointer;
 }
 
 .resultCard:active {
   background: var(--color-surface-hover);
   transform: scale(0.985);
+}
+
+.resultCard:focus-visible {
+  outline: 2px solid rgba(9, 127, 232, 0.35);
+  outline-offset: 2px;
 }
 
 .resultTop {
@@ -217,7 +261,7 @@
 .inputBar {
   position: fixed;
   right: 0;
-  bottom: var(--mobile-bottom-nav-height);
+  bottom: 0;
   left: 0;
   z-index: 90;
   flex-shrink: 0;
