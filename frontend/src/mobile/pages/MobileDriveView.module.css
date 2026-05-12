@@ -93,6 +93,31 @@
   background: #ccfbf1;
 }
 
+.quickActions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 0.55rem;
+}
+
+.quickActions button {
+  display: inline-flex;
+  min-height: 2.4rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  border: 1px solid rgba(7, 89, 133, 0.16);
+  border-radius: 0.75rem;
+  padding: 0 0.8rem;
+  color: #075985;
+  background: #e0f2fe;
+  font-size: 0.82rem;
+  font-weight: 850;
+}
+
+.quickActions :global(.material-symbols-outlined) {
+  font-size: 1.15rem;
+}
+
 .list {
   display: grid;
   gap: 0.65rem;

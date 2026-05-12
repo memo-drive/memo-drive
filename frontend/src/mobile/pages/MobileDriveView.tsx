@@ -26,10 +26,17 @@ interface MobileDriveViewProps {
   renameDraft?: string;
   renameError?: string;
   renameBusy?: boolean;
+  createFolderOpen?: boolean;
+  createFolderDraft?: string;
+  createFolderBusy?: boolean;
   onSearchDraftChange?: (query: string) => void;
   onSearchSubmit?: () => void;
   onClearSearch?: () => void;
   onSemanticChange?: (includeSemantic: boolean) => void;
+  onOpenCreateFolder?: () => void;
+  onCreateFolderDraftChange?: (value: string) => void;
+  onCancelCreateFolder?: () => void;
+  onConfirmCreateFolder?: () => void;
   onOpenActions?: (file: DriveFile) => void;
   onCloseActions?: () => void;
   onRename?: (file: DriveFile) => void;
@@ -60,10 +67,17 @@ export function MobileDriveView({
   renameDraft = "",
   renameError = "",
   renameBusy = false,
+  createFolderOpen = false,
+  createFolderDraft = "",
+  createFolderBusy = false,
   onSearchDraftChange,
   onSearchSubmit,
   onClearSearch,
   onSemanticChange,
+  onOpenCreateFolder,
+  onCreateFolderDraftChange,
+  onCancelCreateFolder,
+  onConfirmCreateFolder,
   onOpenActions,
   onCloseActions,
   onRename,
@@ -117,6 +131,14 @@ export function MobileDriveView({
           <small>{t("mobile.files.semanticSearchHint")}</small>
         </span>
       </button>
+      <div className={styles.quickActions}>
+        <button type="button" onClick={() => onOpenCreateFolder?.()}>
+          <span className="material-symbols-outlined" aria-hidden>
+            create_new_folder
+          </span>
+          {t("drive.newFolder")}
+        </button>
+      </div>
 
       {searchActive ? (
         <SearchResults
@@ -217,6 +239,18 @@ export function MobileDriveView({
         onValueChange={(value) => onRenameDraftChange?.(value)}
         onCancel={() => onCancelRename?.()}
         onConfirm={() => onConfirmRename?.()}
+      />
+      <MobileTextPrompt
+        open={createFolderOpen}
+        title={t("drive.newFolder")}
+        label={t("drive.folderName")}
+        value={createFolderDraft}
+        confirmText={t("common.create")}
+        busy={createFolderBusy}
+        disabled={!createFolderDraft.trim()}
+        onValueChange={(value) => onCreateFolderDraftChange?.(value)}
+        onCancel={() => onCancelCreateFolder?.()}
+        onConfirm={() => onConfirmCreateFolder?.()}
       />
     </>
   );

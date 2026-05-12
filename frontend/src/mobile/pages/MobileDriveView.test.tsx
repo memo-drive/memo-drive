@@ -122,6 +122,29 @@ describe("MobileDriveView", () => {
     expect(html).toContain("更慢");
   });
 
+  it("renders a mobile create Folder action and prompt", () => {
+    const html = renderToString(
+      <MemoryRouter>
+        <MobileDriveView
+          currentPath="/Docs"
+          files={[makeFile({ id: "file-1", name: "Memo.pdf" })]}
+          createFolderOpen
+          createFolderDraft="Notes"
+          onOpenCreateFolder={() => undefined}
+          onCreateFolderDraftChange={() => undefined}
+          onCancelCreateFolder={() => undefined}
+          onConfirmCreateFolder={() => undefined}
+        />
+      </MemoryRouter>,
+    );
+
+    expect(html).toContain("新建文件夹");
+    expect(html).toContain("data-mobile-text-prompt=\"light\"");
+    expect(html).toContain("文件夹名称");
+    expect(html).toContain("value=\"Notes\"");
+    expect(html).toContain("创建");
+  });
+
   it("renders a lightweight rename prompt with the selected File name", () => {
     const file = makeFile({ id: "file-1", name: "Memo.pdf" });
     const html = renderToString(

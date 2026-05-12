@@ -13,6 +13,7 @@ describe("mobile routes", () => {
     expect(html).toContain("href=\"/m/ai\"");
     expect(html).toContain("href=\"/m/transfer\"");
     expect(html).toContain("href=\"/m/me\"");
+    expect(html).toContain("新建文件夹");
     expect(html).toContain("aria-label=\"上传文件\"");
   });
 

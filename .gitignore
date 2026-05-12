@@ -15,3 +15,7 @@ docs/
 
 # TypeScript incremental build cache
 *.tsbuildinfo
+
+.codex/
+.cursor/
+.claude/

@@ -1,10 +1,23 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useLocation } from "react-router-dom";
-import { deleteFile, downloadUrl, listFiles, renameFile, searchFiles } from "../../api/fileApi";
+import {
+  createFolder,
+  deleteFile,
+  downloadUrl,
+  listFiles,
+  renameFile,
+  searchFiles,
+} from "../../api/fileApi";
 import type { DriveFile, FileSearchHit } from "../../types";
 import { message } from "../../components/base";
 import { useChunkedUpload } from "../../hooks/useChunkedUpload";
+import {
+  canSubmitDriveFolder,
+  completeDriveFolderCreate,
+  driveFolderPayloadName,
+  startDriveFolderCreate,
+} from "../../pages/Drive/driveCreateFolder";
 import { buildDriveSearchRequest } from "../../pages/Drive/driveSearch";
 import {
   canSubmitDriveRename,
@@ -36,6 +49,9 @@ export function MobileDrivePage() {
   const [renameTarget, setRenameTarget] = useState<DriveFile | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
   const [renaming, setRenaming] = useState(false);
+  const [createFolderOpen, setCreateFolderOpen] = useState(false);
+  const [createFolderDraft, setCreateFolderDraft] = useState("");
+  const [creatingFolder, setCreatingFolder] = useState(false);
   const { upload } = useChunkedUpload(() => {
     void refresh();
   });
@@ -95,6 +111,34 @@ export function MobileDrivePage() {
     setSearchQuery("");
     setSearchHits([]);
     setSearchError("");
+  }
+
+  function openCreateFolder() {
+    const draft = startDriveFolderCreate();
+    setCreateFolderOpen(draft.open);
+    setCreateFolderDraft(draft.draftName);
+  }
+
+  function closeCreateFolder() {
+    const draft = completeDriveFolderCreate();
+    setCreateFolderOpen(draft.open);
+    setCreateFolderDraft(draft.draftName);
+  }
+
+  async function confirmCreateFolder() {
+    if (!canSubmitDriveFolder(createFolderDraft)) return;
+
+    setCreatingFolder(true);
+    try {
+      await createFolder(currentPath, driveFolderPayloadName(createFolderDraft));
+      closeCreateFolder();
+      refresh();
+      message.success(t("drive.createSuccess"));
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : t("drive.createFailed"));
+    } finally {
+      setCreatingFolder(false);
+    }
   }
 
   function handleUploadFiles(selected: FileList | null) {
@@ -178,12 +222,19 @@ export function MobileDrivePage() {
         renameDraft={renameDraft}
         renameError={driveRenameErrorKey(renameDraft) ? t(driveRenameErrorKey(renameDraft)!) : ""}
         renameBusy={renaming}
+        createFolderOpen={createFolderOpen}
+        createFolderDraft={createFolderDraft}
+        createFolderBusy={creatingFolder}
         onOpenActions={setActionFile}
         onCloseActions={() => setActionFile(null)}
         onSearchDraftChange={setSearchDraft}
         onSearchSubmit={() => void handleSearchSubmit()}
         onClearSearch={clearSearch}
         onSemanticChange={setIncludeSemantic}
+        onOpenCreateFolder={openCreateFolder}
+        onCreateFolderDraftChange={setCreateFolderDraft}
+        onCancelCreateFolder={closeCreateFolder}
+        onConfirmCreateFolder={() => void confirmCreateFolder()}
         onRename={requestRename}
         onDelete={requestDelete}
         onCancelDelete={() => setDeleteConfirmFile(null)}
