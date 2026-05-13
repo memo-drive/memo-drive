@@ -82,6 +82,51 @@ func TestUploadCompleteFailureAfterMergingMarksSessionFailed(t *testing.T) {
 	}
 }
 
+func TestUploadCompleteCreatesPipelineTask(t *testing.T) {
+	uploads, _, cfg := newUploadServiceTestHarness(t)
+	body := []byte("# Notes\n\nThis uploaded File should enter the File Indexing Pipeline.")
+	session := &model.UploadSession{
+		ID:             "upload-md",
+		FileName:       "notes.md",
+		FileSize:       int64(len(body)),
+		ChunkSize:      int64(len(body)),
+		UploadedChunks: []int{0},
+		DestPath:       "/Notes",
+		Status:         model.UploadStatusUploading,
+		ExpiresAt:      time.Now().UTC().Add(time.Hour),
+	}
+	if err := os.MkdirAll(uploads.sessionDir(session.ID), 0o755); err != nil {
+		t.Fatalf("create session dir: %v", err)
+	}
+	if err := os.WriteFile(uploads.chunkPath(session.ID, 0), body, 0o644); err != nil {
+		t.Fatalf("write upload chunk: %v", err)
+	}
+	if err := uploads.store.CreateUploadSession(context.Background(), session); err != nil {
+		t.Fatalf("create upload session: %v", err)
+	}
+
+	completion, err := uploads.Complete(context.Background(), session.ID)
+	if err != nil {
+		t.Fatalf("complete upload: %v", err)
+	}
+
+	if completion.File == nil {
+		t.Fatal("expected completed upload to include a File")
+	}
+	if completion.Task == nil {
+		t.Fatal("expected completed upload to include a Pipeline Task")
+	}
+	if completion.Task.FileID != completion.File.ID {
+		t.Fatalf("expected task to index file %s, got %s", completion.File.ID, completion.Task.FileID)
+	}
+	if completion.File.Path != "/Notes" {
+		t.Fatalf("expected File to be stored in /Notes, got %q", completion.File.Path)
+	}
+	if _, err := os.Stat(filepath.Join(cfg.Storage.Root, filepath.FromSlash(completion.File.StoragePath))); err != nil {
+		t.Fatalf("expected uploaded File on disk: %v", err)
+	}
+}
+
 func TestUploadCompleteStoresMOVAsVideoQuickTimeWithoutChangingOriginalFile(t *testing.T) {
 	uploads, db, cfg := newUploadServiceTestHarness(t)
 	original := []byte("original mov bytes")
@@ -105,10 +150,11 @@ func TestUploadCompleteStoresMOVAsVideoQuickTimeWithoutChangingOriginalFile(t *t
 		t.Fatalf("create upload session: %v", err)
 	}
 
-	file, err := uploads.Complete(context.Background(), session.ID)
+	completion, err := uploads.Complete(context.Background(), session.ID)
 	if err != nil {
 		t.Fatalf("complete mov upload: %v", err)
 	}
+	file := completion.File
 
 	if file.MimeType != "video/quicktime" {
 		t.Fatalf("expected MOV to be stored as video/quicktime, got %q", file.MimeType)
@@ -148,5 +194,11 @@ func newUploadServiceTestHarness(t *testing.T) (*UploadService, *store.Store, *c
 	}
 	t.Cleanup(func() { _ = db.Close() })
 	files := NewFileService(cfg, db, nil)
-	return NewUploadService(cfg, db, files), db, cfg
+	pipeline := NewPipelineService(cfg, db, nil, nil, nil, nil)
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		_ = pipeline.Shutdown(ctx)
+	})
+	return NewUploadService(cfg, db, files, pipeline), db, cfg
 }

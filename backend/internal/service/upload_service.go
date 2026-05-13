@@ -26,10 +26,16 @@ type UploadService struct {
 	cfg       *config.Config
 	store     *store.Store
 	fileStore *FileService
+	pipeline  *PipelineService
 }
 
-func NewUploadService(cfg *config.Config, store *store.Store, fileStore *FileService) *UploadService {
-	return &UploadService{cfg: cfg, store: store, fileStore: fileStore}
+type UploadCompletion struct {
+	File *model.File
+	Task *model.Task
+}
+
+func NewUploadService(cfg *config.Config, store *store.Store, fileStore *FileService, pipeline *PipelineService) *UploadService {
+	return &UploadService{cfg: cfg, store: store, fileStore: fileStore, pipeline: pipeline}
 }
 
 type InitUploadInput struct {
@@ -214,7 +220,22 @@ func (s *UploadService) SaveChunk(ctx context.Context, id string, chunkIndex int
 	return session, nil
 }
 
-func (s *UploadService) Complete(ctx context.Context, id string) (*model.File, error) {
+func (s *UploadService) Complete(ctx context.Context, id string) (*UploadCompletion, error) {
+	if s.pipeline == nil {
+		return nil, fmt.Errorf("%w: pipeline is not configured", ErrServiceUnavailable)
+	}
+	file, err := s.completeFile(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	task, err := s.pipeline.Enqueue(ctx, file)
+	if err != nil {
+		return nil, err
+	}
+	return &UploadCompletion{File: file, Task: task}, nil
+}
+
+func (s *UploadService) completeFile(ctx context.Context, id string) (*model.File, error) {
 	started := time.Now()
 	session, err := s.GetSession(ctx, id)
 	if err != nil {

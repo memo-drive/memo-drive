@@ -60,8 +60,8 @@ func main() {
 	transcriber := parser.NewTranscriber(cfg.Transcribe)
 
 	fileService := service.NewFileService(cfg, db, chromaClient)
-	uploadService := service.NewUploadService(cfg, db, fileService)
 	pipelineService := service.NewPipelineService(cfg, db, llmProvider, chromaClient, ocrRunner, transcriber)
+	uploadService := service.NewUploadService(cfg, db, fileService, pipelineService)
 	searchService := service.NewSearchService(cfg, db, llmProvider, chromaClient)
 	ragService := service.NewRAGService(cfg, llmProvider, searchService)
 	conversationService := service.NewConversationService(db)
@@ -90,7 +90,7 @@ func main() {
 	handler.NewStorageHandler(fileService).Register(protected)
 	handler.NewFileHandler(fileService, searchService).Register(protected)
 	handler.NewTrashHandler(fileService).Register(protected)
-	handler.NewUploadHandler(uploadService, pipelineService).Register(protected)
+	handler.NewUploadHandler(uploadService).Register(protected)
 	handler.NewTaskHandler(pipelineService).Register(protected)
 	handler.NewAIHandler(llmProvider, ragService, searchService, conversationService).Register(protected)
 	handler.NewConversationHandler(conversationService).Register(protected)

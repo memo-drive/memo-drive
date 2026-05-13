@@ -10,12 +10,11 @@ import (
 )
 
 type UploadHandler struct {
-	uploads  *service.UploadService
-	pipeline *service.PipelineService
+	uploads *service.UploadService
 }
 
-func NewUploadHandler(uploads *service.UploadService, pipeline *service.PipelineService) *UploadHandler {
-	return &UploadHandler{uploads: uploads, pipeline: pipeline}
+func NewUploadHandler(uploads *service.UploadService) *UploadHandler {
+	return &UploadHandler{uploads: uploads}
 }
 
 func (h *UploadHandler) Register(router fiber.Router) {
@@ -61,17 +60,13 @@ func (h *UploadHandler) patch(c *fiber.Ctx) error {
 }
 
 func (h *UploadHandler) complete(c *fiber.Ctx) error {
-	file, err := h.uploads.Complete(c.Context(), c.Params("id"))
+	completion, err := h.uploads.Complete(c.Context(), c.Params("id"))
 	if err != nil {
 		return uploadError(err)
 	}
-	task, err := h.pipeline.Enqueue(c.Context(), file)
-	if err != nil {
-		return err
-	}
 	return c.JSON(fiber.Map{
-		"file":    file,
-		"task_id": task.ID,
+		"file":    completion.File,
+		"task_id": completion.Task.ID,
 	})
 }
 
