@@ -5,7 +5,7 @@ import {
   driveRenameErrorKey,
   driveRenamePayloadName,
   startDriveRename,
-} from "./driveRename";
+} from "../../workflows/driveWorkflow";
 
 describe("driveRename", () => {
   it("starts with the selected file name", () => {

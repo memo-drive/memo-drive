@@ -3,7 +3,7 @@ import type { DriveFile } from "../../types";
 import {
   confirmDriveDelete,
   startDriveDelete,
-} from "./driveDelete";
+} from "../../workflows/driveWorkflow";
 
 describe("driveDelete", () => {
   it("starts delete confirmation with the chosen file", () => {

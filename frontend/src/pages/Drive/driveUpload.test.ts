@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   selectedDriveUploadFiles,
   shouldStartDriveUpload,
-} from "./driveUpload";
+} from "../../workflows/driveWorkflow";
 
 describe("driveUpload", () => {
   it("does not start upload for an empty selection", () => {

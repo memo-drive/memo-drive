@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildDriveSearchRequest } from "./driveSearch";
+import { buildDriveSearchRequest } from "../../workflows/driveWorkflow";
 
 describe("driveSearch", () => {
   it("does not build a request for blank queries", () => {

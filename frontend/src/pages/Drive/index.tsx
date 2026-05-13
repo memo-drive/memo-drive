@@ -18,46 +18,31 @@ import { SearchResultList } from "../../components/FileManager/SearchResultList"
 import { useChunkedUpload } from "../../hooks/useChunkedUpload";
 import { useFileStore } from "../../stores/fileStore";
 import type { DriveFile, FileSearchHit } from "../../types";
-
 import {
 	buildDriveCrumbs,
+	buildDrivePreviewTitle,
+	buildDriveSearchRequest,
+	canSubmitDriveFolder,
+	canSubmitDriveRename,
+	completeDriveFolderCreate,
+	completeDriveMove,
+	confirmDriveDelete,
+	driveFolderPayloadName,
 	driveFolderPath,
 	driveParentPath,
-	type DriveCrumb,
-} from "./drivePath";
-import {
-	canSubmitDriveFolder,
-	completeDriveFolderCreate,
-	driveFolderPayloadName,
-	startDriveFolderCreate,
-} from "./driveCreateFolder";
-import {
-	completeDriveMove,
-	startDriveMove,
-} from "./driveMove";
-import {
-	confirmDriveDelete,
-	startDriveDelete,
-} from "./driveDelete";
-import {
-	pickDriveFile,
-	pickSearchResult,
-} from "./driveSelection";
-import {
-	canSubmitDriveRename,
 	driveRenameErrorKey,
 	driveRenamePayloadName,
-	startDriveRename,
-} from "./driveRename";
-import {
-	buildDrivePreviewTitle,
-	type DrivePreviewBadgeTone,
-} from "./drivePreview";
-import { buildDriveSearchRequest } from "./driveSearch";
-import {
+	pickDriveFile,
+	pickSearchResult,
 	selectedDriveUploadFiles,
 	shouldStartDriveUpload,
-} from "./driveUpload";
+	startDriveDelete,
+	startDriveFolderCreate,
+	startDriveMove,
+	startDriveRename,
+	type DriveCrumb,
+	type DrivePreviewBadgeTone,
+} from "../../workflows/driveWorkflow";
 import styles from "./index.module.css";
 
 const MAX_CRUMB_LEVELS = 3;

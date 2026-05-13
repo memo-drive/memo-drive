@@ -1,7 +1,7 @@
 import {
   selectedDriveUploadFiles,
   type DriveUploadSelection,
-} from "../../pages/Drive/driveUpload";
+} from "../../workflows/driveWorkflow";
 
 export type MobileUpload = (file: File, path: string) => Promise<unknown>;
 export type MobileUploadErrorHandler = (file: File, error: unknown) => void;

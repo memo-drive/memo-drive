@@ -13,17 +13,15 @@ import type { DriveFile, FileSearchHit } from "../../types";
 import { message } from "../../components/base";
 import { useChunkedUpload } from "../../hooks/useChunkedUpload";
 import {
+  buildDriveSearchRequest,
   canSubmitDriveFolder,
+  canSubmitDriveRename,
   completeDriveFolderCreate,
   driveFolderPayloadName,
-  startDriveFolderCreate,
-} from "../../pages/Drive/driveCreateFolder";
-import { buildDriveSearchRequest } from "../../pages/Drive/driveSearch";
-import {
-  canSubmitDriveRename,
   driveRenameErrorKey,
   driveRenamePayloadName,
-} from "../../pages/Drive/driveRename";
+  startDriveFolderCreate,
+} from "../../workflows/driveWorkflow";
 import { UploadFab } from "../components/UploadFab/UploadFab";
 import { mobilePathFromSearch } from "../utils/mobilePath";
 import { MobileDriveView } from "./MobileDriveView";

@@ -3,7 +3,7 @@ import type { DriveFile } from "../../types";
 import {
   completeDriveMove,
   startDriveMove,
-} from "./driveMove";
+} from "../../workflows/driveWorkflow";
 
 describe("driveMove", () => {
   it("starts move dialog with the chosen file", () => {

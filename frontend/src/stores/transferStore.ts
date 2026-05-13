@@ -4,41 +4,14 @@ import {
   deleteUploadSession,
   listUploadSessions,
 } from "../api/uploadApi";
-import type { UploadSession } from "../types";
+import { transferUploadedBytes } from "../utils/uploadProgress";
 import {
-  transferUploadedBytes,
-  uploadedBytesForChunks,
-  uploadPercentForBytes,
-} from "../utils/uploadProgress";
+  isActiveTransferStatus,
+  transferTaskFromSession,
+} from "./transferProjection";
+import type { TransferTask } from "./transferProjection";
 
-export type TransferStatus =
-  | "uploading"
-  | "paused"
-  | "processing"
-  | "done"
-  | "failed"
-  | "cancelled"
-  | "expired";
-
-export interface TransferTask {
-  id: string;
-  fileName: string;
-  fileSize: number;
-  destPath: string;
-  direction: "upload";
-  status: TransferStatus;
-  percent: number;
-  uploadedChunks: number[];
-  uploadedBytes: number;
-  totalChunks: number;
-  chunkSize: number;
-  speed: number;
-  error?: string;
-  createdAt: number;
-  updatedAt: number;
-  expiresAt?: string;
-  file?: File;
-}
+export type { TransferStatus, TransferTask } from "./transferProjection";
 
 interface TransferState {
   tasks: TransferTask[];
@@ -99,73 +72,6 @@ function sortTasks(tasks: TransferTask[]) {
   return [...tasks].sort((a, b) => b.createdAt - a.createdAt);
 }
 
-function isActiveStatus(status: TransferStatus) {
-  return status === "uploading" || status === "paused" || status === "processing";
-}
-
-function transferStatusFromSession(
-  session: UploadSession,
-  existing?: TransferTask,
-): TransferStatus {
-  switch (session.status) {
-    case "done":
-      return "done";
-    case "cancelled":
-      return "cancelled";
-    case "expired":
-      return "expired";
-    case "failed":
-      return "failed";
-    case "merging":
-      return "processing";
-    case "uploading":
-      return existing?.file && existing.status === "uploading" ? "uploading" : "paused";
-  }
-}
-
-function taskFromSession(
-  session: UploadSession,
-  existing?: TransferTask,
-): TransferTask {
-  const totalChunks = Math.max(
-    1,
-    Math.ceil(session.file_size / session.chunk_size),
-  );
-  const uploadedChunks = session.uploaded_chunks ?? [];
-  const uploadedBytes = uploadedBytesForChunks(
-    uploadedChunks,
-    session.chunk_size,
-    session.file_size,
-  );
-  const status = transferStatusFromSession(session, existing);
-  return {
-    id: session.id,
-    fileName: session.file_name,
-    fileSize: session.file_size,
-    destPath: session.dest_path,
-    direction: "upload",
-    status,
-    percent:
-      status === "done"
-        ? 100
-        : status === "processing"
-          ? 95
-          : uploadPercentForBytes(uploadedBytes, session.file_size),
-    uploadedChunks,
-    uploadedBytes,
-    totalChunks,
-    chunkSize: session.chunk_size,
-    speed: existing?.speed ?? 0,
-    error: existing?.error,
-    createdAt: session.created_at
-      ? new Date(session.created_at).getTime()
-      : existing?.createdAt ?? Date.now(),
-    updatedAt: existing?.updatedAt ?? Date.now(),
-    expiresAt: session.expires_at,
-    file: existing?.file,
-  };
-}
-
 export const useTransferStore = create<TransferState>((set, get) => ({
   tasks: loadPersistedTasks(),
   loadingHistory: false,
@@ -183,14 +89,16 @@ export const useTransferStore = create<TransferState>((set, get) => ({
     ),
   removeTask: async (id) => {
     const task = get().tasks.find((item) => item.id === id);
-    if (task && !isActiveStatus(task.status)) {
+    if (task && !isActiveTransferStatus(task.status)) {
       await deleteUploadSession(id);
     }
     commit(set, (tasks) => tasks.filter((item) => item.id !== id));
   },
   clearDone: async () => {
     await clearUploadSessions();
-    commit(set, (tasks) => tasks.filter((task) => isActiveStatus(task.status)));
+    commit(set, (tasks) =>
+      tasks.filter((task) => isActiveTransferStatus(task.status)),
+    );
   },
   loadSessions: async () => {
     set({ loadingHistory: true });
@@ -198,7 +106,7 @@ export const useTransferStore = create<TransferState>((set, get) => ({
       const response = await listUploadSessions();
       const existing = new Map(get().tasks.map((task) => [task.id, task]));
       const remoteTasks = response.sessions.map((session) =>
-        taskFromSession(session, existing.get(session.id)),
+        transferTaskFromSession(session, existing.get(session.id)),
       );
       const remoteIDs = new Set(remoteTasks.map((task) => task.id));
       const localOnly = get().tasks.filter(

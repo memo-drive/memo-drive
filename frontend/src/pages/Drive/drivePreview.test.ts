@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { DriveFile } from "../../types";
-import { buildDrivePreviewTitle } from "./drivePreview";
+import { buildDrivePreviewTitle } from "../../workflows/driveWorkflow";
 
 describe("drivePreview", () => {
   it("builds preview title data without a badge for ready files", () => {

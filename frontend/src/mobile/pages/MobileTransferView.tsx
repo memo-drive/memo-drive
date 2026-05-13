@@ -1,5 +1,9 @@
 import { useTranslation } from "react-i18next";
-import type { TransferStatus, TransferTask } from "../../stores/transferStore";
+import {
+  isActiveTransferStatus,
+  transferStatusLabelKey,
+} from "../../stores/transferProjection";
+import type { TransferTask } from "../../stores/transferStore";
 import { formatBytes } from "../../utils/formatBytes";
 import { formatTransferSpeed, transferUploadedBytes } from "../../utils/uploadProgress";
 import styles from "./MobileTransferView.module.css";
@@ -24,7 +28,7 @@ export function MobileTransferView({
   onClearDone,
 }: MobileTransferViewProps) {
   const { t } = useTranslation();
-  const hasDone = tasks.some((task) => !isActiveStatus(task.status));
+  const hasDone = tasks.some((task) => !isActiveTransferStatus(task.status));
 
   if (loading && tasks.length === 0) {
     return <div className={styles.state}>{t("transfer.syncing")}</div>;
@@ -62,7 +66,7 @@ export function MobileTransferView({
                 <h2>{task.fileName}</h2>
                 <p>{task.destPath}</p>
               </div>
-              <strong>{statusLabel(task.status, t)}</strong>
+              <strong>{t(transferStatusLabelKey(task.status))}</strong>
             </div>
             {!isDone ? (
               <div className={styles.progressTrack}>
@@ -103,7 +107,7 @@ export function MobileTransferView({
                   </button>
                 </>
               ) : null}
-              {!isActiveStatus(task.status) ? (
+              {!isActiveTransferStatus(task.status) ? (
                 <button type="button" onClick={() => onRemove?.(task.id)}>
                   {t("transfer.actionRemove")}
                 </button>
@@ -114,21 +118,4 @@ export function MobileTransferView({
       })}
     </div>
   );
-}
-
-function isActiveStatus(status: TransferStatus) {
-  return status === "uploading" || status === "paused" || status === "processing";
-}
-
-function statusLabel(status: TransferStatus, t: (key: string) => string) {
-  const keyMap: Record<TransferStatus, string> = {
-    uploading: "transfer.status.uploading",
-    paused: "transfer.status.paused",
-    processing: "transfer.status.processing",
-    done: "transfer.status.done",
-    failed: "transfer.status.failed",
-    cancelled: "transfer.status.cancelled",
-    expired: "transfer.status.expired",
-  };
-  return t(keyMap[status]);
 }

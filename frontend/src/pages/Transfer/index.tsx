@@ -2,6 +2,10 @@ import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button, message } from "../../components/base";
 import { useChunkedUpload } from "../../hooks/useChunkedUpload";
+import {
+  isActiveTransferStatus,
+  transferStatusLabelKey,
+} from "../../stores/transferProjection";
 import { useTransferStore } from "../../stores/transferStore";
 import type { TransferStatus, TransferTask } from "../../stores/transferStore";
 import styles from "./index.module.css";
@@ -44,24 +48,6 @@ function statusClass(status: TransferStatus): string {
   if (status === "paused") return styles.statusPaused;
   if (status === "cancelled" || status === "expired") return styles.statusMuted;
   return styles.statusFailed;
-}
-
-const STATUS_KEY_MAP: Record<TransferStatus, string> = {
-  uploading: "transfer.status.uploading",
-  paused: "transfer.status.paused",
-  processing: "transfer.status.processing",
-  done: "transfer.status.done",
-  cancelled: "transfer.status.cancelled",
-  expired: "transfer.status.expired",
-  failed: "transfer.status.failed",
-};
-
-function statusText(status: TransferStatus, t: (key: string) => string): string {
-  return t(STATUS_KEY_MAP[status]);
-}
-
-function isActiveStatus(status: TransferStatus) {
-  return status === "uploading" || status === "paused" || status === "processing";
 }
 
 function uploadedBytes(task: TransferTask) {
@@ -124,7 +110,7 @@ function TransferCard({
           </div>
         )}
         <span className={`${styles.statusBadge} ${statusClass(item.status)}`}>
-          {statusText(item.status, t)}
+          {t(transferStatusLabelKey(item.status))}
         </span>
         <div className={styles.actions}>
           {item.status === "uploading" && (
@@ -147,7 +133,7 @@ function TransferCard({
               </button>
             </>
           )}
-          {!isActiveStatus(item.status) && (
+          {!isActiveTransferStatus(item.status) && (
             <button className={styles.actionBtn} onClick={() => onRemove(item.id)}>
               {t("transfer.actionRemove")}
             </button>
@@ -171,8 +157,8 @@ export function TransferPage() {
     void loadSessions();
   }, [loadSessions]);
 
-  const activeList = tasks.filter((task) => isActiveStatus(task.status));
-  const historyList = tasks.filter((task) => !isActiveStatus(task.status));
+  const activeList = tasks.filter((task) => isActiveTransferStatus(task.status));
+  const historyList = tasks.filter((task) => !isActiveTransferStatus(task.status));
   const list = tab === "active" ? activeList : historyList;
 
   function handleResume(task: TransferTask) {

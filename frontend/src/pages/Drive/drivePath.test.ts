@@ -4,7 +4,7 @@ import {
   buildDriveCrumbs,
   driveFolderPath,
   driveParentPath,
-} from "./drivePath";
+} from "../../workflows/driveWorkflow";
 
 describe("drivePath", () => {
   it("builds compact breadcrumbs for deep folders", () => {

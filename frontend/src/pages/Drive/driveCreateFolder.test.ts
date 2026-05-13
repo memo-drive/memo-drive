@@ -4,7 +4,7 @@ import {
   completeDriveFolderCreate,
   driveFolderPayloadName,
   startDriveFolderCreate,
-} from "./driveCreateFolder";
+} from "../../workflows/driveWorkflow";
 
 describe("driveCreateFolder", () => {
   it("opens with an empty draft name", () => {
