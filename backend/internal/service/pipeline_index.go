@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/memodrive/backend/internal/indexing"
 	"github.com/memodrive/backend/internal/model"
 	"github.com/memodrive/backend/internal/parser"
 	"github.com/memodrive/backend/internal/store"
@@ -70,16 +71,16 @@ func (s *PipelineService) indexParsedDocument(ctx context.Context, taskID string
 	metadatas := make([]map[string]any, len(chunks))
 	source := documentSource(doc)
 	for i, chunk := range chunks {
-		ids[i] = vectordb.ChunkID(file.ID, chunk.Index)
+		ids[i] = indexing.ChunkID(file.ID, chunk.Index)
 		parentID := parentIDForChild(file.ID, hierarchy.Children[i])
-		metadatas[i] = map[string]any{
-			"file_id":                      file.ID,
-			"file_name":                    file.Name,
-			"heading":                      chunk.Heading,
-			"chunk_index":                  chunk.Index,
-			"source":                       source,
-			vectordb.MetadataParentChunkID: parentID,
-		}
+		metadatas[i] = (indexing.ChunkMetadata{
+			FileID:        file.ID,
+			FileName:      file.Name,
+			Heading:       chunk.Heading,
+			ChunkIndex:    chunk.Index,
+			Source:        source,
+			ParentChunkID: parentID,
+		}).Map()
 	}
 
 	upsertStarted := time.Now()
@@ -215,7 +216,7 @@ func chunkRowsForIndex(file *model.File, hierarchy *parser.HierarchicalChunks, c
 	rows := make([]store.ChunkRow, 0, len(hierarchy.Parents)+len(hierarchy.Children))
 	for _, parent := range hierarchy.Parents {
 		rows = append(rows, store.ChunkRow{
-			ID:         vectordb.ParentChunkID(file.ID, parent.Index),
+			ID:         indexing.ParentChunkID(file.ID, parent.Index),
 			FileID:     file.ID,
 			FileName:   file.Name,
 			Heading:    parent.Heading,
@@ -230,7 +231,7 @@ func chunkRowsForIndex(file *model.File, hierarchy *parser.HierarchicalChunks, c
 			text = childTexts[i]
 		}
 		rows = append(rows, store.ChunkRow{
-			ID:            vectordb.ChunkID(file.ID, child.Index),
+			ID:            indexing.ChunkID(file.ID, child.Index),
 			FileID:        file.ID,
 			FileName:      file.Name,
 			Heading:       child.Heading,
@@ -247,7 +248,7 @@ func parentIDForChild(fileID string, child parser.ChildChunk) string {
 	if child.ParentIndex < 0 {
 		return ""
 	}
-	return vectordb.ParentChunkID(fileID, child.ParentIndex)
+	return indexing.ParentChunkID(fileID, child.ParentIndex)
 }
 
 func textWithHeading(heading, text string) string {

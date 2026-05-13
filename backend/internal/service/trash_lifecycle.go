@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/memodrive/backend/internal/indexing"
 	"github.com/memodrive/backend/internal/model"
 	"github.com/memodrive/backend/internal/store"
 	"github.com/memodrive/backend/internal/vectordb"
@@ -195,7 +196,7 @@ func (s *FileService) removeVectorChunks(ctx context.Context, file *model.File) 
 	if file.IsDir || file.ChunkCount <= 0 || s.vectorDB == nil {
 		return
 	}
-	ids := vectordb.ChunkIDs(file.ID, file.ChunkCount)
+	ids := indexing.ChunkIDs(file.ID, file.ChunkCount)
 	if err := s.vectorDB.Delete(ctx, vectordb.DefaultCollection, ids); err != nil {
 		log.Printf("level=warn component=file event=vector_cleanup_failed file_id=%s chunk_count=%d err=%q", file.ID, file.ChunkCount, err)
 		return

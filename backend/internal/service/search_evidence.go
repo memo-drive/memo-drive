@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -11,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/memodrive/backend/internal/indexing"
 	"github.com/memodrive/backend/internal/store"
 	"github.com/memodrive/backend/internal/vectordb"
 )
@@ -164,14 +164,14 @@ func (s *SearchService) mapResults(result *vectordb.QueryResult, fileIDs []strin
 }
 
 func sourceFromQueryResult(result *vectordb.QueryResult, index int) SourceChunk {
-	metadata := metadataAt(result.Metadatas, index)
+	metadata := indexing.ChunkMetadataFromMap(metadataAt(result.Metadatas, index))
 	source := SourceChunk{
 		ID:         stringAt(result.IDs, index),
-		FileID:     metadataString(metadata, "file_id"),
-		FileName:   metadataString(metadata, "file_name"),
-		Heading:    metadataString(metadata, "heading"),
-		ChunkIndex: metadataInt(metadata, "chunk_index", -1),
-		ParentID:   metadataString(metadata, vectordb.MetadataParentChunkID),
+		FileID:     metadata.FileID,
+		FileName:   metadata.FileName,
+		Heading:    metadata.Heading,
+		ChunkIndex: metadata.ChunkIndex,
+		ParentID:   metadata.ParentChunkID,
 		Text:       stringAt(result.Documents, index),
 		Distance:   float32At(result.Distances, index),
 	}
@@ -194,75 +194,6 @@ func metadataAt(items []map[string]any, index int) map[string]any {
 		return map[string]any{}
 	}
 	return items[index]
-}
-
-func metadataString(metadata map[string]any, key string) string {
-	value, ok := metadata[key]
-	if !ok || value == nil {
-		return ""
-	}
-	switch typed := value.(type) {
-	case string:
-		return typed
-	case fmt.Stringer:
-		return typed.String()
-	case json.Number:
-		return typed.String()
-	default:
-		return strings.TrimSpace(fmt.Sprint(typed))
-	}
-}
-
-func metadataInt(metadata map[string]any, key string, fallback int) int {
-	value, ok := metadata[key]
-	if !ok || value == nil {
-		return fallback
-	}
-	switch typed := value.(type) {
-	case int:
-		return typed
-	case int8:
-		return int(typed)
-	case int16:
-		return int(typed)
-	case int32:
-		return int(typed)
-	case int64:
-		return int(typed)
-	case uint:
-		if uint64(typed) > uint64(maxIntValue()) {
-			return fallback
-		}
-		return int(typed)
-	case uint8:
-		return int(typed)
-	case uint16:
-		return int(typed)
-	case uint32:
-		return int(typed)
-	case uint64:
-		if typed > uint64(maxIntValue()) {
-			return fallback
-		}
-		return int(typed)
-	case float32:
-		return int(typed)
-	case float64:
-		return int(typed)
-	case json.Number:
-		if parsed, err := typed.Int64(); err == nil {
-			return int(parsed)
-		}
-		if parsed, err := typed.Float64(); err == nil {
-			return int(parsed)
-		}
-	case string:
-		var parsed json.Number = json.Number(strings.TrimSpace(typed))
-		if value, err := parsed.Int64(); err == nil {
-			return int(value)
-		}
-	}
-	return fallback
 }
 
 func makeSnippet(text string, limit int) string {

@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/memodrive/backend/internal/config"
+	"github.com/memodrive/backend/internal/indexing"
 	"github.com/memodrive/backend/internal/llm"
 	"github.com/memodrive/backend/internal/model"
 	"github.com/memodrive/backend/internal/store"
@@ -118,6 +119,46 @@ func TestSearchReturnsSourceChunks(t *testing.T) {
 	}
 	if vector.queryNResults != 2 {
 		t.Fatalf("expected query topK 2, got %d", vector.queryNResults)
+	}
+}
+
+func TestSearchReadsChunkMetadataContract(t *testing.T) {
+	parentID := indexing.ParentChunkID("file-contract", 1)
+	vector := &mockVectorStore{queryResult: &vectordb.QueryResult{
+		IDs:       []string{indexing.ChunkID("file-contract", 7)},
+		Documents: []string{"Contract body"},
+		Distances: []float32{0.25},
+		Metadatas: []map[string]any{
+			(indexing.ChunkMetadata{
+				FileID:        "file-contract",
+				FileName:      "Contract.md",
+				Heading:       "Terms",
+				ChunkIndex:    7,
+				Source:        "markdown",
+				ParentChunkID: parentID,
+			}).Map(),
+		},
+	}}
+	service := NewSearchService(&config.Config{RAG: config.RAGConfig{SearchTopK: 1}}, nil, &mockSearchProvider{}, vector)
+
+	response, err := service.Search(context.Background(), SearchRequest{Query: "contract terms"})
+	if err != nil {
+		t.Fatalf("Search returned error: %v", err)
+	}
+	if len(response.Results) != 1 {
+		t.Fatalf("expected one result, got %#v", response.Results)
+	}
+	got := response.Results[0]
+	if got.ID != indexing.ChunkID("file-contract", 7) ||
+		got.FileID != "file-contract" ||
+		got.FileName != "Contract.md" ||
+		got.Heading != "Terms" ||
+		got.ChunkIndex != 7 ||
+		got.ParentID != parentID {
+		t.Fatalf("metadata contract was not preserved in source chunk: %#v", got)
+	}
+	if got.Score < 0.749 || got.Score > 0.751 {
+		t.Fatalf("expected score from vector distance, got %.4f", got.Score)
 	}
 }
 
@@ -277,10 +318,10 @@ func TestHybridSearchFallsBackToChunkStoreAndParentText(t *testing.T) {
 	if err := db.CreateFile(context.Background(), file); err != nil {
 		t.Fatalf("create file: %v", err)
 	}
-	parentID := vectordb.ParentChunkID(file.ID, 0)
+	parentID := indexing.ParentChunkID(file.ID, 0)
 	if err := db.UpsertChunks(context.Background(), []store.ChunkRow{
 		{ID: parentID, FileID: file.ID, FileName: file.Name, Heading: "API", ChunkIndex: 0, Text: "## API\n完整上下文 uniqueFunc 包含参数说明", IsParent: true},
-		{ID: vectordb.ChunkID(file.ID, 0), FileID: file.ID, FileName: file.Name, Heading: "API", ChunkIndex: 0, Text: "uniqueFunc", ParentChunkID: parentID},
+		{ID: indexing.ChunkID(file.ID, 0), FileID: file.ID, FileName: file.Name, Heading: "API", ChunkIndex: 0, Text: "uniqueFunc", ParentChunkID: parentID},
 	}); err != nil {
 		t.Fatalf("upsert chunks: %v", err)
 	}
@@ -293,7 +334,7 @@ func TestHybridSearchFallsBackToChunkStoreAndParentText(t *testing.T) {
 	if len(response.Results) != 1 {
 		t.Fatalf("expected one BM25 fallback result, got %#v", response.Results)
 	}
-	if response.Results[0].ID != vectordb.ChunkID(file.ID, 0) {
+	if response.Results[0].ID != indexing.ChunkID(file.ID, 0) {
 		t.Fatalf("unexpected result id: %#v", response.Results[0])
 	}
 	if !strings.Contains(response.Results[0].Text, "完整上下文") {
