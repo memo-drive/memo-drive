@@ -14,14 +14,17 @@ export interface SSEHandlers {
 }
 
 function getToken(): string {
+  if (typeof localStorage === "undefined") return "";
   return localStorage.getItem(TOKEN_KEY) ?? "";
 }
 
 function setToken(token: string): void {
+  if (typeof localStorage === "undefined") return;
   localStorage.setItem(TOKEN_KEY, token);
 }
 
 function clearToken(): void {
+  if (typeof localStorage === "undefined") return;
   localStorage.removeItem(TOKEN_KEY);
 }
 

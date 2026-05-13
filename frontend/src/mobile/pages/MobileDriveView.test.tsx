@@ -104,6 +104,30 @@ describe("MobileDriveView", () => {
     expect(html).toContain("清除搜索");
   });
 
+  it("shows the search submit button after the user manually clears the search box", () => {
+    const html = renderToString(
+      <MemoryRouter>
+        <MobileDriveView
+          currentPath="/Docs"
+          files={[makeFile({ id: "file-1", name: "Memo.pdf" })]}
+          searchDraft=""
+          searchActive
+          searchHits={[
+            makeSearchHit({
+              file: makeFile({ id: "invoice-1", name: "invoice.pdf" }),
+            }),
+          ]}
+          onSearchDraftChange={() => undefined}
+          onSearchSubmit={() => undefined}
+          onClearSearch={() => undefined}
+        />
+      </MemoryRouter>,
+    );
+
+    expect(html).toContain("<button type=\"submit\">搜索</button>");
+    expect(html).not.toContain("清除搜索");
+  });
+
   it("renders semantic search as an opt-in toggle that is off by default", () => {
     const html = renderToString(
       <MemoryRouter>

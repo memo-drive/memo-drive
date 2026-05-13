@@ -82,6 +82,49 @@ func TestUploadCompleteFailureAfterMergingMarksSessionFailed(t *testing.T) {
 	}
 }
 
+func TestUploadCompleteStoresMOVAsVideoQuickTimeWithoutChangingOriginalFile(t *testing.T) {
+	uploads, db, cfg := newUploadServiceTestHarness(t)
+	original := []byte("original mov bytes")
+	session := &model.UploadSession{
+		ID:             "upload-mov",
+		FileName:       "Meeting.MOV",
+		FileSize:       int64(len(original)),
+		ChunkSize:      int64(len(original)),
+		UploadedChunks: []int{0},
+		DestPath:       "/Videos",
+		Status:         model.UploadStatusUploading,
+		ExpiresAt:      time.Now().UTC().Add(time.Hour),
+	}
+	if err := os.MkdirAll(uploads.sessionDir(session.ID), 0o755); err != nil {
+		t.Fatalf("create session dir: %v", err)
+	}
+	if err := os.WriteFile(uploads.chunkPath(session.ID, 0), original, 0o644); err != nil {
+		t.Fatalf("write upload chunk: %v", err)
+	}
+	if err := db.CreateUploadSession(context.Background(), session); err != nil {
+		t.Fatalf("create upload session: %v", err)
+	}
+
+	file, err := uploads.Complete(context.Background(), session.ID)
+	if err != nil {
+		t.Fatalf("complete mov upload: %v", err)
+	}
+
+	if file.MimeType != "video/quicktime" {
+		t.Fatalf("expected MOV to be stored as video/quicktime, got %q", file.MimeType)
+	}
+	if filepath.Ext(file.StoragePath) != ".MOV" {
+		t.Fatalf("expected storage path to keep original extension, got %q", file.StoragePath)
+	}
+	stored, err := os.ReadFile(filepath.Join(cfg.Storage.Root, filepath.FromSlash(file.StoragePath)))
+	if err != nil {
+		t.Fatalf("read stored original file: %v", err)
+	}
+	if string(stored) != string(original) {
+		t.Fatalf("expected stored file to keep original bytes, got %q", string(stored))
+	}
+}
+
 func newUploadServiceTestHarness(t *testing.T) (*UploadService, *store.Store, *config.Config) {
 	t.Helper()
 	root := t.TempDir()

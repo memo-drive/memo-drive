@@ -24,6 +24,76 @@ describe("MobileFileCard", () => {
     expect(folderHtml).toContain("href=\"/m?path=%2FPhotos\"");
     expect(fileHtml).toContain("href=\"/m/preview/file-1?path=%2FDocs\"");
   });
+
+  it("renders image files with their generated thumbnail", () => {
+    const html = renderCard(
+      <MobileFileCard
+        file={makeFile({
+          id: "image-1",
+          name: "receipt.jpg",
+          mime_type: "image/jpeg",
+          metadata: makeMetadata("image-1.jpg"),
+        })}
+        currentPath="/Docs"
+      />,
+    );
+
+    expect(html).toContain('src="/api/files/image-1/thumbnail"');
+    expect(html).toContain('alt="receipt.jpg"');
+    expect(html).toContain("href=\"/m/preview/image-1?path=%2FDocs\"");
+  });
+
+  it("renders QuickTime video files with their generated thumbnail", () => {
+    const html = renderCard(
+      <MobileFileCard
+        file={makeFile({
+          id: "video-1",
+          name: "clip.mov",
+          mime_type: "video/quicktime",
+          metadata: makeMetadata("video-1.jpg"),
+        })}
+        currentPath="/Docs"
+      />,
+    );
+
+    expect(html).toContain('src="/api/files/video-1/thumbnail"');
+    expect(html).toContain('alt="clip.mov"');
+    expect(html).toContain("href=\"/m/preview/video-1?path=%2FDocs\"");
+  });
+
+  it("does not request video thumbnails before processing has finished", () => {
+    const html = renderCard(
+      <MobileFileCard
+        file={makeFile({
+          id: "video-1",
+          name: "clip.mp4",
+          mime_type: "video/mp4",
+          status: "processing",
+        })}
+        currentPath="/Docs"
+      />,
+    );
+
+    expect(html).not.toContain('src="/api/files/video-1/thumbnail"');
+    expect(html).toContain("video_library");
+  });
+
+  it("does not request missing thumbnails after processing finished", () => {
+    const html = renderCard(
+      <MobileFileCard
+        file={makeFile({
+          id: "video-1",
+          name: "clip.mp4",
+          mime_type: "video/mp4",
+          status: "ready",
+        })}
+        currentPath="/Docs"
+      />,
+    );
+
+    expect(html).not.toContain('src="/api/files/video-1/thumbnail"');
+    expect(html).toContain("video_library");
+  });
 });
 
 function renderCard(node: ReactNode) {
@@ -44,5 +114,14 @@ function makeFile(overrides: Partial<DriveFile> = {}): DriveFile {
     created_at: "2026-05-10T00:00:00Z",
     updated_at: "2026-05-10T00:00:00Z",
     ...overrides,
+  };
+}
+
+function makeMetadata(thumbnailPath: string): DriveFile["metadata"] {
+  return {
+    file_id: "file-1",
+    meta_json: "{}",
+    thumbnail_path: thumbnailPath,
+    extracted_at: "2026-05-10T00:00:00Z",
   };
 }

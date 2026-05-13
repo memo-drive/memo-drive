@@ -41,8 +41,25 @@ func (s *FileService) List(ctx context.Context, dirPath, sort string) ([]model.F
 		log.Printf("level=error component=file event=list_failed path=%q sort=%q err=%q", cleanPath, sort, err)
 		return nil, err
 	}
+	s.attachMetadata(ctx, files)
 	log.Printf("level=debug component=file event=list_complete path=%q sort=%q count=%d duration_ms=%d", cleanPath, sort, len(files), time.Since(started).Milliseconds())
 	return files, nil
+}
+
+func (s *FileService) attachMetadata(ctx context.Context, files []model.File) {
+	for i := range files {
+		if files[i].IsDir {
+			continue
+		}
+		meta, err := s.store.GetMetadata(ctx, files[i].ID)
+		if err != nil {
+			if !errors.Is(err, store.ErrNotFound) {
+				log.Printf("level=warn component=file event=list_metadata_skipped file_id=%s err=%q", files[i].ID, err)
+			}
+			continue
+		}
+		files[i].Metadata = meta
+	}
 }
 
 func (s *FileService) CreateFolder(ctx context.Context, dirPath, name string) (*model.File, error) {

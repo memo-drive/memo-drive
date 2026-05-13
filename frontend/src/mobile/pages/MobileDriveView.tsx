@@ -89,6 +89,7 @@ export function MobileDriveView({
   onConfirmRename,
 }: MobileDriveViewProps) {
   const { t } = useTranslation();
+  const hasSearchDraft = searchDraft.trim().length > 0;
 
   return (
     <>
@@ -108,7 +109,7 @@ export function MobileDriveView({
           placeholder={t("drive.searchPlaceholder")}
           onChange={(event) => onSearchDraftChange?.(event.target.value)}
         />
-        {searchActive ? (
+        {searchActive && hasSearchDraft ? (
           <button type="button" onClick={onClearSearch}>
             {t("searchResultList.clearSearch")}
           </button>

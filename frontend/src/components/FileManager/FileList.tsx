@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { thumbnailUrl } from "../../api/fileApi";
 import type { DriveFile } from "../../types";
 import { Popover } from "../base";
 import {
@@ -156,9 +157,7 @@ function FileRow({
 					<div
 						className={`${styles.iconBox} ${iconClasses[presentation.kind]}`}
 					>
-						<span className="material-symbols-outlined">
-							{presentation.iconName}
-						</span>
+						<FileIcon file={file} presentation={presentation} />
 					</div>
 					<div>
 						<p className={styles.fileName}>
@@ -260,5 +259,37 @@ function FileRow({
 								</Popover>
 							</td>
 						</tr>
+	);
+}
+
+function FileIcon({
+	file,
+	presentation,
+}: {
+	file: DriveFile;
+	presentation: ReturnType<typeof filePresentation>;
+}) {
+	const [thumbnailFailed, setThumbnailFailed] = useState(false);
+	const hasThumbnail =
+		file.status === "ready" &&
+		Boolean(file.metadata?.thumbnail_path) &&
+		(presentation.kind === "image" || presentation.kind === "video");
+	if (hasThumbnail && !thumbnailFailed) {
+		return (
+			<img
+				className={styles.thumbnail}
+				src={thumbnailUrl(file.id)}
+				alt={file.name}
+				loading="lazy"
+				decoding="async"
+				onError={() => setThumbnailFailed(true)}
+			/>
+		);
+	}
+
+	return (
+		<span className="material-symbols-outlined">
+			{presentation.iconName}
+		</span>
 	);
 }

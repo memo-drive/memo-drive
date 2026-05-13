@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -337,6 +338,9 @@ func containsInt(values []int, needle int) bool {
 }
 
 func detectMime(absPath, name string) string {
+	if byExt := stableMimeByExtension(name); byExt != "" {
+		return byExt
+	}
 	if byExt := mime.TypeByExtension(path.Ext(name)); byExt != "" {
 		return byExt
 	}
@@ -351,6 +355,15 @@ func detectMime(absPath, name string) string {
 		return "application/octet-stream"
 	}
 	return http.DetectContentType(buf[:n])
+}
+
+func stableMimeByExtension(name string) string {
+	switch strings.ToLower(path.Ext(name)) {
+	case ".mov":
+		return "video/quicktime"
+	default:
+		return ""
+	}
 }
 
 func ChunkIndexFromOffset(offsetHeader string, chunkSize int64) (int, error) {

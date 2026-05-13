@@ -111,6 +111,17 @@ export function MobileDrivePage() {
     setSearchQuery("");
     setSearchHits([]);
     setSearchError("");
+    setSearching(false);
+  }
+
+  function handleSearchDraftChange(value: string) {
+    setSearchDraft(value);
+    if (!value.trim()) {
+      setSearchQuery("");
+      setSearchHits([]);
+      setSearchError("");
+      setSearching(false);
+    }
   }
 
   function openCreateFolder() {
@@ -227,7 +238,7 @@ export function MobileDrivePage() {
         createFolderBusy={creatingFolder}
         onOpenActions={setActionFile}
         onCloseActions={() => setActionFile(null)}
-        onSearchDraftChange={setSearchDraft}
+        onSearchDraftChange={handleSearchDraftChange}
         onSearchSubmit={() => void handleSearchSubmit()}
         onClearSearch={clearSearch}
         onSemanticChange={setIncludeSemantic}

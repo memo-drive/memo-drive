@@ -3,6 +3,7 @@ package parser
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"image"
 	_ "image/gif"
 	_ "image/jpeg"
@@ -32,14 +33,23 @@ func ExtractMedia(ctx context.Context, absPath, mimeType, fileID, thumbnailDir s
 		}
 		return meta, thumb, err
 	}
-	if strings.HasPrefix(mimeType, "video/") || strings.HasPrefix(mimeType, "audio/") || isAVExt(absPath) {
+	if isVideoMedia(absPath, mimeType) || isAudioMedia(absPath, mimeType) {
 		err := extractAV(ctx, absPath, meta)
 		if err != nil {
 			log.Printf("level=error component=parser parser=media event=av_extract_failed file=%q file_id=%s duration_ms=%d err=%q", filepath.Base(absPath), fileID, time.Since(started).Milliseconds(), err)
 		} else {
 			log.Printf("level=info component=parser parser=media event=av_extract_complete file=%q file_id=%s format=%q codec=%q duration=%.3f width=%d height=%d duration_ms=%d", filepath.Base(absPath), fileID, meta.Format, meta.Codec, meta.Duration, meta.Width, meta.Height, time.Since(started).Milliseconds())
 		}
-		return meta, "", err
+		if err != nil || !isVideoMedia(absPath, mimeType) {
+			return meta, "", err
+		}
+		thumb, thumbErr := extractVideoThumbnail(ctx, absPath, fileID, thumbnailDir)
+		if thumbErr != nil {
+			log.Printf("level=warn component=parser parser=media event=video_thumbnail_skipped file=%q file_id=%s err=%q", filepath.Base(absPath), fileID, thumbErr)
+			return meta, "", nil
+		}
+		log.Printf("level=info component=parser parser=media event=video_thumbnail_complete file=%q file_id=%s thumbnail=%t duration_ms=%d", filepath.Base(absPath), fileID, thumb != "", time.Since(started).Milliseconds())
+		return meta, thumb, nil
 	}
 	return meta, "", nil
 }
@@ -156,6 +166,55 @@ func extractAV(ctx context.Context, absPath string, meta *model.MediaMeta) error
 	return nil
 }
 
+func extractVideoThumbnail(ctx context.Context, absPath, fileID, thumbnailDir string) (string, error) {
+	if err := os.MkdirAll(thumbnailDir, 0o755); err != nil {
+		return "", err
+	}
+	thumbName := fileID + ".jpg"
+	thumbPath := filepath.Join(thumbnailDir, thumbName)
+	thumbCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(
+		thumbCtx,
+		"ffmpeg",
+		"-y",
+		"-i",
+		absPath,
+		"-frames:v",
+		"1",
+		"-vf",
+		"scale=360:-2",
+		"-q:v",
+		"4",
+		thumbPath,
+	).CombinedOutput()
+	if err != nil {
+		return "", errWithOutput("extract first video frame with ffmpeg", err, out)
+	}
+	return thumbName, nil
+}
+
+func errWithOutput(prefix string, err error, out []byte) error {
+	if len(out) == 0 {
+		return err
+	}
+	return fmt.Errorf("%s: %w output=%s", prefix, err, truncateForLog(string(out), 500))
+}
+
+func isVideoMedia(name, mimeType string) bool {
+	if strings.HasPrefix(mimeType, "audio/") {
+		return false
+	}
+	return strings.HasPrefix(mimeType, "video/") || isVideoExt(name)
+}
+
+func isAudioMedia(name, mimeType string) bool {
+	if strings.HasPrefix(mimeType, "video/") {
+		return false
+	}
+	return strings.HasPrefix(mimeType, "audio/") || isAudioExt(name)
+}
+
 func isImageExt(name string) bool {
 	switch strings.ToLower(filepath.Ext(name)) {
 	case ".jpg", ".jpeg", ".png", ".gif", ".webp", ".heic":
@@ -166,8 +225,21 @@ func isImageExt(name string) bool {
 }
 
 func isAVExt(name string) bool {
+	return isVideoExt(name) || isAudioExt(name)
+}
+
+func isVideoExt(name string) bool {
 	switch strings.ToLower(filepath.Ext(name)) {
-	case ".mp4", ".mov", ".mkv", ".webm", ".mp3", ".wav", ".flac", ".m4a":
+	case ".mp4", ".mov", ".mkv", ".webm":
+		return true
+	default:
+		return false
+	}
+}
+
+func isAudioExt(name string) bool {
+	switch strings.ToLower(filepath.Ext(name)) {
+	case ".mp3", ".wav", ".flac", ".m4a":
 		return true
 	default:
 		return false

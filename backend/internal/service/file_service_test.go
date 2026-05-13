@@ -40,6 +40,35 @@ func TestRenameMoveRenamesSingleFile(t *testing.T) {
 	}
 }
 
+func TestListIncludesFileMetadata(t *testing.T) {
+	service, db, root := newFileServiceTestHarness(t)
+	createServiceTestFile(t, db, root, &model.File{
+		ID:          "video-1",
+		Name:        "clip.mp4",
+		Path:        "/",
+		StoragePath: "clip.mp4",
+		Size:        3,
+		MimeType:    "video/mp4",
+		Status:      model.FileStatusReady,
+	}, "mp4")
+	thumbnail := "video-1.jpg"
+	if err := db.UpsertMetadata(context.Background(), &model.FileMetadata{
+		FileID:        "video-1",
+		MetaJSON:      `{"width":360,"height":240}`,
+		ThumbnailPath: &thumbnail,
+	}); err != nil {
+		t.Fatalf("upsert metadata: %v", err)
+	}
+
+	files, err := service.List(context.Background(), "/", "name")
+	if err != nil {
+		t.Fatalf("List returned error: %v", err)
+	}
+	if len(files) != 1 || files[0].Metadata == nil || files[0].Metadata.ThumbnailPath == nil || *files[0].Metadata.ThumbnailPath != thumbnail {
+		t.Fatalf("expected listed file metadata with thumbnail, got %#v", files)
+	}
+}
+
 func TestRenameMoveRenamesDirectoryRecursively(t *testing.T) {
 	service, db, root := newFileServiceTestHarness(t)
 	seedServiceDirectoryTree(t, db, root)

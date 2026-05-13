@@ -128,14 +128,14 @@ func extractVideoFrameText(ctx context.Context, cfg config.VideoConfig, ocr *OCR
 	defer os.RemoveAll(dir)
 
 	pattern := filepath.Join(dir, "frame_%04d.jpg")
-	filter := fmt.Sprintf("fps=1/%d", frameInterval)
-	args := []string{"-y", "-i", absPath, "-vf", filter, "-frames:v", strconv.Itoa(frameLimit), pattern}
+	filter := fmt.Sprintf("select='eq(n\\,0)+gte(t-prev_selected_t\\,%d)',format=yuvj420p", frameInterval)
+	args := []string{"-y", "-i", absPath, "-vf", filter, "-fps_mode", "vfr", "-frames:v", strconv.Itoa(frameLimit), pattern}
 	out, err := exec.CommandContext(ctx, "ffmpeg", args...).CombinedOutput()
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
 	}
 	if err != nil {
-		return nil, fmt.Errorf("extract video frames with ffmpeg: %w output=%s", err, truncateForLog(string(out), 500))
+		return nil, fmt.Errorf("extract video frames with ffmpeg: %w output=%s", err, truncateForLog(string(out), 2000))
 	}
 	files, err := filepath.Glob(filepath.Join(dir, "frame_*.jpg"))
 	if err != nil {

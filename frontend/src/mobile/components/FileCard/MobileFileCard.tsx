@@ -1,5 +1,7 @@
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
+import { thumbnailUrl } from "../../../api/fileApi";
 import type { DriveFile } from "../../../types";
 import { filePresentation, fileSizeLabel } from "../../../components/FileManager/filePresentation";
 import { mobileFilesHref, mobilePreviewHref, normalizeMobilePath } from "../../utils/mobilePath";
@@ -22,9 +24,15 @@ export function MobileFileCard({ file, currentPath, onMore }: MobileFileCardProp
     <article className={styles.card}>
       <Link className={styles.main} to={href}>
         <span className={styles.iconBox}>
-          <span className="material-symbols-outlined" aria-hidden>
-            {presentation.iconName}
-          </span>
+          <MobileFileIcon
+            file={file}
+            iconName={presentation.iconName}
+            hasThumbnail={
+              file.status === "ready" &&
+              Boolean(file.metadata?.thumbnail_path) &&
+              (presentation.kind === "image" || presentation.kind === "video")
+            }
+          />
         </span>
         <span className={styles.text}>
           <strong>{file.name}</strong>
@@ -42,6 +50,36 @@ export function MobileFileCard({ file, currentPath, onMore }: MobileFileCardProp
         </span>
       </button>
     </article>
+  );
+}
+
+function MobileFileIcon({
+  file,
+  iconName,
+  hasThumbnail,
+}: {
+  file: DriveFile;
+  iconName: string;
+  hasThumbnail: boolean;
+}) {
+  const [thumbnailFailed, setThumbnailFailed] = useState(false);
+  if (hasThumbnail && !thumbnailFailed) {
+    return (
+      <img
+        className={styles.thumbnail}
+        src={thumbnailUrl(file.id)}
+        alt={file.name}
+        loading="lazy"
+        decoding="async"
+        onError={() => setThumbnailFailed(true)}
+      />
+    );
+  }
+
+  return (
+    <span className="material-symbols-outlined" aria-hidden>
+      {iconName}
+    </span>
   );
 }
 
