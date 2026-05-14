@@ -445,3 +445,7 @@ cd frontend && pnpm build
     - `[✓]` 实现全屏移动 AI：底部输入框固定、内容区滚动、RAG/Search 模式切换与停止流式输出
     - `[✓]` 移动传输、我的、回收站接入共享上传会话、存储、语言、退出登录与回收站 API
     - `[✓]` 生产环境 edge nginx 增加手机访问 `/` 自动进入 `/m`，并完善 Login/AuthGuard 的 redirect 回跳闭环
+
+## 许可证
+
+本项目基于 [MIT License](./LICENSE) 开源。

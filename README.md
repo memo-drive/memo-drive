@@ -446,3 +446,7 @@ cd frontend && pnpm build
     - `[✓]` Build full-screen mobile AI with fixed bottom composer, scrollable content region, RAG/Search mode switch, and streaming stop behavior.
     - `[✓]` Wire mobile Transfer, Me, and Trash to shared upload/session/trash APIs.
     - `[✓]` Add production edge nginx phone-only `/` to `/m` redirect and redirect-aware Login/AuthGuard flow.
+
+## License
+
+This project is licensed under the [MIT License](./LICENSE).
