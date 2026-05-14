@@ -342,6 +342,45 @@ func TestHybridSearchFallsBackToChunkStoreAndParentText(t *testing.T) {
 	}
 }
 
+func TestHybridSearchUsesBM25WhenVectorDependenciesUnavailable(t *testing.T) {
+	db := newSearchServiceStore(t)
+	file := &model.File{ID: "notes", Name: "notes.md", Path: "/", StoragePath: "notes.md", Size: 100, MimeType: "text/markdown", Status: model.FileStatusReady}
+	if err := db.CreateFile(context.Background(), file); err != nil {
+		t.Fatalf("create file: %v", err)
+	}
+	parentID := indexing.ParentChunkID(file.ID, 0)
+	if err := db.UpsertChunks(context.Background(), []store.ChunkRow{
+		{ID: parentID, FileID: file.ID, FileName: file.Name, Heading: "Notes", ChunkIndex: 0, Text: "## Notes\n完整上下文 localOnly 包含离线搜索内容", IsParent: true},
+		{ID: indexing.ChunkID(file.ID, 0), FileID: file.ID, FileName: file.Name, Heading: "Notes", ChunkIndex: 0, Text: "localOnly", ParentChunkID: parentID},
+	}); err != nil {
+		t.Fatalf("upsert chunks: %v", err)
+	}
+	service := NewSearchService(&config.Config{RAG: config.RAGConfig{SearchTopK: 3, HybridSearch: true}}, db, nil, nil)
+
+	response, err := service.Search(context.Background(), SearchRequest{Query: "localOnly"})
+	if err != nil {
+		t.Fatalf("Search returned error: %v", err)
+	}
+	if len(response.Results) != 1 {
+		t.Fatalf("expected one BM25 result, got %#v", response.Results)
+	}
+	if response.Results[0].ID != indexing.ChunkID(file.ID, 0) {
+		t.Fatalf("unexpected result id: %#v", response.Results[0])
+	}
+	if !strings.Contains(response.Results[0].Text, "完整上下文") {
+		t.Fatalf("expected parent text to be resolved, got %q", response.Results[0].Text)
+	}
+}
+
+func TestSearchReturnsUnavailableWhenNoRetrievalBackendIsConfigured(t *testing.T) {
+	service := NewSearchService(&config.Config{}, nil, nil, nil)
+
+	_, err := service.Search(context.Background(), SearchRequest{Query: "content"})
+	if !errors.Is(err, ErrServiceUnavailable) {
+		t.Fatalf("expected ErrServiceUnavailable, got %v", err)
+	}
+}
+
 func TestSearchRejectsEmptyQuery(t *testing.T) {
 	service := NewSearchService(&config.Config{}, nil, &mockSearchProvider{}, &mockVectorStore{})
 

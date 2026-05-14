@@ -31,10 +31,22 @@ const (
 	maxFileLimit           = 200
 )
 
-const multiQueryPrompt = `你是一个搜索查询扩展助手。给定一个搜索问题，生成 %d 个不同角度的等价查询。
-每行一个查询，不编号，不解释。
+const multiQueryPrompt = `你是个人云盘 MemoDrive 的搜索查询扩展器。用户的文件包括文档、笔记、表格、演示文稿、图片和音频转录等。
 
-原始问题: %s`
+任务：为下面的搜索查询生成 %d 个补充查询，最大化向量检索的召回多样性。
+
+扩展策略（每个变体侧重不同策略）：
+- 同义替换：用近义词或不同表达方式改写
+- 粒度调整：更具体或更概括的说法
+- 文档视角：用文档标题、章节标题中常见的表述方式
+- 跨语言：如果原查询是中文，可生成对应的英文关键短语，反之亦然
+
+约束：
+- 每行一个查询，不编号、不解释、不重复原始查询
+- 每个查询控制在 5-25 字（或等量英文单词）
+- 只输出查询文本
+
+原始查询：%s`
 
 type SearchService struct {
 	cfg      *config.Config
@@ -54,13 +66,6 @@ func NewSearchService(cfg *config.Config, db *store.Store, llmProvider llm.Provi
 
 func (s *SearchService) Search(ctx context.Context, req SearchRequest) (*SearchResponse, error) {
 	started := time.Now()
-	if s == nil || s.llm == nil {
-		return nil, fmt.Errorf("%w: llm provider is not configured", ErrServiceUnavailable)
-	}
-	if s.vectorDB == nil {
-		return nil, fmt.Errorf("%w: vector store is not configured", ErrServiceUnavailable)
-	}
-
 	plan, earlyResponse, err := s.buildChunkRetrievalPlan(ctx, req, started)
 	if err != nil {
 		return nil, err
@@ -68,8 +73,11 @@ func (s *SearchService) Search(ctx context.Context, req SearchRequest) (*SearchR
 	if earlyResponse != nil {
 		return earlyResponse, nil
 	}
-	log.Printf("level=info component=search event=search_begin query_chars=%d top_k=%d file_filter=%d provider=%s queries=%d hybrid=%t",
-		len([]rune(plan.Query)), plan.TopK, len(plan.FileIDs), s.llm.Name(), len(plan.Queries), s.hybridSearch())
+	if !plan.Retrieval.Available() {
+		return nil, fmt.Errorf("%w: no chunk retrieval backend is configured", ErrServiceUnavailable)
+	}
+	log.Printf("level=info component=search event=search_begin query_chars=%d top_k=%d file_filter=%d provider=%s queries=%d vector=%t bm25=%t hybrid=%t",
+		len([]rune(plan.Query)), plan.TopK, len(plan.FileIDs), s.searchProviderName(), len(plan.Queries), plan.Retrieval.Vector, plan.Retrieval.BM25, s.hybridSearch())
 
 	sources, err := s.retrieveChunkEvidence(ctx, plan)
 	if err != nil {
@@ -88,4 +96,11 @@ func (s *SearchService) Search(ctx context.Context, req SearchRequest) (*SearchR
 		Results: sources,
 		Intent:  plan.Intent,
 	}, nil
+}
+
+func (s *SearchService) searchProviderName() string {
+	if s == nil || s.llm == nil {
+		return "none"
+	}
+	return s.llm.Name()
 }

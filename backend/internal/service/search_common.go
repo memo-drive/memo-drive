@@ -6,21 +6,6 @@ import (
 	"github.com/memodrive/backend/internal/vectordb"
 )
 
-func (s *SearchService) applyScorePercentile(sources []SourceChunk) []SourceChunk {
-	percentile := s.scorePercentile()
-	if percentile <= 0 || len(sources) <= 2 {
-		return sources
-	}
-	threshold := percentileScore(sources, percentile)
-	filtered := sources[:0]
-	for _, source := range sources {
-		if source.Score >= threshold {
-			filtered = append(filtered, source)
-		}
-	}
-	return filtered
-}
-
 func fileIDSet(fileIDs []string) map[string]struct{} {
 	set := make(map[string]struct{}, len(fileIDs))
 	for _, id := range fileIDs {
@@ -72,6 +57,18 @@ func maxInt(a, b int) int {
 
 func maxIntValue() int {
 	return int(^uint(0) >> 1)
+}
+
+func makeSnippet(text string, limit int) string {
+	text = strings.TrimSpace(text)
+	if limit <= 0 {
+		return ""
+	}
+	runes := []rune(text)
+	if len(runes) <= limit {
+		return text
+	}
+	return strings.TrimSpace(string(runes[:limit])) + "..."
 }
 
 func normalizeScores(sources []SourceChunk) []SourceChunk {

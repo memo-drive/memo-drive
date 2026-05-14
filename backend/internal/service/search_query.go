@@ -77,6 +77,13 @@ func (s *SearchService) scorePercentile() float32 {
 	return s.cfg.RAG.ScorePercentile
 }
 
+func (s *SearchService) vectorChunkMapper() vectorChunkMapper {
+	return vectorChunkMapper{
+		MinScore:        s.minScore(),
+		ScorePercentile: s.scorePercentile(),
+	}
+}
+
 func (s *SearchService) multiQueryEnabled() bool {
 	return s != nil && s.cfg != nil && s.cfg.RAG.MultiQuery
 }
@@ -97,6 +104,10 @@ func (s *SearchService) rrfConstant() int {
 		return defaultRRFK
 	}
 	return s.cfg.RAG.RRFConstant
+}
+
+func (s *SearchService) chunkEvidenceFusion() chunkEvidenceFusion {
+	return chunkEvidenceFusion{RRFConstant: s.rrfConstant()}
 }
 
 func (s *SearchService) intentParseEnabled() bool {

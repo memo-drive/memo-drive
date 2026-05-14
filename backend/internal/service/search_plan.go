@@ -10,11 +10,21 @@ import (
 )
 
 type chunkRetrievalPlan struct {
-	Query   string
-	Intent  *SearchIntent
-	FileIDs []string
-	TopK    int
-	Queries []string
+	Query     string
+	Intent    *SearchIntent
+	FileIDs   []string
+	TopK      int
+	Queries   []string
+	Retrieval chunkRetrievalModes
+}
+
+type chunkRetrievalModes struct {
+	Vector bool
+	BM25   bool
+}
+
+func (m chunkRetrievalModes) Available() bool {
+	return m.Vector || m.BM25
 }
 
 func (s *SearchService) buildChunkRetrievalPlan(ctx context.Context, req SearchRequest, started time.Time) (*chunkRetrievalPlan, *SearchResponse, error) {
@@ -49,11 +59,12 @@ func (s *SearchService) buildChunkRetrievalPlan(ctx context.Context, req SearchR
 
 	topK := s.searchTopK(req.TopK)
 	return &chunkRetrievalPlan{
-		Query:   query,
-		Intent:  intent,
-		FileIDs: req.FileIDs,
-		TopK:    topK,
-		Queries: s.expandQueries(ctx, query, s.multiQueryCount()),
+		Query:     query,
+		Intent:    intent,
+		FileIDs:   req.FileIDs,
+		TopK:      topK,
+		Queries:   s.expandQueries(ctx, query, s.multiQueryCount()),
+		Retrieval: s.chunkRetrievalModes(),
 	}, nil, nil
 }
 
@@ -61,5 +72,22 @@ func (s *SearchService) retrieveChunkEvidence(ctx context.Context, plan *chunkRe
 	if plan == nil {
 		return nil, nil
 	}
-	return s.searchMulti(ctx, plan.Queries, plan.FileIDs, plan.TopK)
+	return s.searchMulti(ctx, plan.Queries, plan.FileIDs, plan.TopK, plan.Retrieval)
+}
+
+func (s *SearchService) chunkRetrievalModes() chunkRetrievalModes {
+	return chunkRetrievalModes{
+		Vector: s != nil && s.llm != nil && s.vectorDB != nil,
+		BM25:   s != nil && s.hybridSearch() && s.store != nil,
+	}
+}
+
+func candidateLimit(topK int, hasFilter bool) int {
+	if topK <= 0 {
+		topK = defaultSearchTopK
+	}
+	if hasFilter {
+		return maxInt(minCandidateTopK, topK*4)
+	}
+	return topK
 }

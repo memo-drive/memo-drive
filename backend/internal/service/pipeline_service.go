@@ -51,7 +51,7 @@ func (s *PipelineService) Enqueue(ctx context.Context, file *model.File) (*model
 		FileID:   file.ID,
 		Type:     "pipeline",
 		Status:   model.TaskStatusPending,
-		Progress: 0,
+		Progress: pipelineProgressQueued,
 	}
 	if err := s.store.CreateTask(ctx, task); err != nil {
 		log.Printf("level=error component=pipeline event=enqueue_failed file_id=%s file_name=%q err=%q", file.ID, file.Name, err)
@@ -73,7 +73,7 @@ func (s *PipelineService) GetTask(ctx context.Context, id string) (*model.Task, 
 func (s *PipelineService) run(ctx context.Context, taskID string, file *model.File) {
 	started := time.Now()
 	log.Printf("level=info component=pipeline event=start task_id=%s file_id=%s file_name=%q mime_type=%q size=%d", taskID, file.ID, file.Name, file.MimeType, file.Size)
-	_ = s.store.UpdateTask(ctx, taskID, model.TaskStatusProcessing, 15, nil)
+	_ = s.store.UpdateTask(ctx, taskID, model.TaskStatusProcessing, pipelineProgressStarted, nil)
 	_ = s.store.UpdateFileStatus(ctx, file.ID, model.FileStatusProcessing)
 
 	absPath := filepath.Join(s.cfg.Storage.Root, filepath.FromSlash(file.StoragePath))
@@ -97,7 +97,7 @@ func (s *PipelineService) run(ctx context.Context, taskID string, file *model.Fi
 			ThumbnailPath: thumb,
 		})
 		log.Printf("level=info component=pipeline event=media_extract_complete task_id=%s file_id=%s file_name=%q thumbnail=%t duration_ms=%d", taskID, file.ID, file.Name, thumbnail != "", time.Since(started).Milliseconds())
-		_ = s.store.UpdateTask(ctx, taskID, model.TaskStatusProcessing, 30, nil)
+		_ = s.store.UpdateTask(ctx, taskID, model.TaskStatusProcessing, pipelineProgressParsed, nil)
 
 		if !s.mediaTextExtractionEnabled() {
 			log.Printf("level=info component=pipeline event=media_text_skipped task_id=%s file_id=%s file_name=%q reason=disabled", taskID, file.ID, file.Name)
@@ -141,7 +141,7 @@ func (s *PipelineService) run(ctx context.Context, taskID string, file *model.Fi
 		log.Printf("level=error component=pipeline event=document_parse_failed task_id=%s file_id=%s file_name=%q duration_ms=%d err=%q", taskID, file.ID, file.Name, time.Since(started).Milliseconds(), err)
 		return
 	}
-	_ = s.store.UpdateTask(ctx, taskID, model.TaskStatusProcessing, 30, nil)
+	_ = s.store.UpdateTask(ctx, taskID, model.TaskStatusProcessing, pipelineProgressParsed, nil)
 	log.Printf("level=info component=pipeline event=document_parse_complete task_id=%s file_id=%s file_name=%q chars=%d sections=%d title=%q duration_ms=%d",
 		taskID, file.ID, file.Name, len([]rune(doc.Text)), len(doc.Sections), doc.Title, time.Since(started).Milliseconds())
 	if doc.Meta == nil {

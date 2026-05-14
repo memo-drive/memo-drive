@@ -5,8 +5,43 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/memodrive/backend/internal/indexing"
 	"github.com/memodrive/backend/internal/model"
 )
+
+func TestChunkStoreUpsertIndexChunks(t *testing.T) {
+	db := newSearchTestStore(t)
+	file := &model.File{ID: "doc-index", Name: "Index.md", Path: "/", StoragePath: "index.md", Size: 100, MimeType: "text/markdown", Status: model.FileStatusReady}
+	if err := db.CreateFile(context.Background(), file); err != nil {
+		t.Fatalf("create file: %v", err)
+	}
+	records := []indexing.ChunkRecord{
+		{ID: "doc-index#parent-0", FileID: file.ID, FileName: file.Name, Heading: "Guide", ChunkIndex: 0, Text: "parent context with needle-token", IsParent: true},
+		{ID: "doc-index#0", FileID: file.ID, FileName: file.Name, Heading: "Guide", ChunkIndex: 0, Text: "child needle-token", ParentChunkID: "doc-index#parent-0"},
+	}
+	if err := db.UpsertIndexChunks(context.Background(), records); err != nil {
+		t.Fatalf("upsert index chunks: %v", err)
+	}
+
+	text, err := db.GetChunkText(context.Background(), "doc-index#parent-0")
+	if err != nil {
+		t.Fatalf("get parent text: %v", err)
+	}
+	if text != "parent context with needle-token" {
+		t.Fatalf("unexpected parent text: %q", text)
+	}
+
+	results, err := db.SearchChunksBM25(context.Background(), "needle-token", nil, 10)
+	if err != nil {
+		t.Fatalf("search chunks: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected child result only, got %#v", results)
+	}
+	if results[0].ID != "doc-index#0" || results[0].ParentID != "doc-index#parent-0" {
+		t.Fatalf("unexpected search result: %#v", results[0])
+	}
+}
 
 func TestChunkStoreUpsertSearchParentAndDelete(t *testing.T) {
 	db := newSearchTestStore(t)

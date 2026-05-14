@@ -48,48 +48,6 @@ func (p *mockEmbedProvider) Embed(ctx context.Context, texts []string) ([][]floa
 	return embeddings, nil
 }
 
-func TestPipelineBatchEmbedBatchesInputs(t *testing.T) {
-	provider := &mockEmbedProvider{}
-	service := NewPipelineService(&config.Config{
-		Pipeline: config.PipelineConfig{EmbedBatchSize: 2},
-	}, nil, provider, nil, nil, nil)
-
-	embeddings, err := service.batchEmbed(context.Background(), []string{"a", "b", "c", "d", "e"})
-	if err != nil {
-		t.Fatalf("batchEmbed returned error: %v", err)
-	}
-	if len(embeddings) != 5 {
-		t.Fatalf("expected 5 embeddings, got %d", len(embeddings))
-	}
-	if len(provider.batches) != 3 {
-		t.Fatalf("expected 3 batches, got %d", len(provider.batches))
-	}
-	if got := len(provider.batches[0]); got != 2 {
-		t.Fatalf("expected first batch size 2, got %d", got)
-	}
-	if got := len(provider.batches[2]); got != 1 {
-		t.Fatalf("expected last batch size 1, got %d", got)
-	}
-}
-
-func TestPipelineBatchEmbedRetriesOnce(t *testing.T) {
-	provider := &mockEmbedProvider{failures: 1}
-	service := NewPipelineService(&config.Config{
-		Pipeline: config.PipelineConfig{EmbedBatchSize: 2},
-	}, nil, provider, nil, nil, nil)
-
-	embeddings, err := service.batchEmbed(context.Background(), []string{"a", "b"})
-	if err != nil {
-		t.Fatalf("batchEmbed returned error after retry: %v", err)
-	}
-	if len(embeddings) != 2 {
-		t.Fatalf("expected 2 embeddings, got %d", len(embeddings))
-	}
-	if len(provider.batches) != 2 {
-		t.Fatalf("expected failed call plus retry, got %d calls", len(provider.batches))
-	}
-}
-
 func TestPipelineEnqueueRespectsWorkerLimit(t *testing.T) {
 	cfg, db := newPipelineTestStore(t)
 	cfg.Pipeline.Workers = 1
@@ -242,6 +200,34 @@ func TestPipelineTaskPanicMarksTaskFailed(t *testing.T) {
 	}
 }
 
+func TestPipelineWritesBM25ChunksWithoutLLMProvider(t *testing.T) {
+	cfg, db := newPipelineTestStore(t)
+	service := NewPipelineService(cfg, db, nil, noopVectorStore{}, nil, nil)
+	file := createPipelineTestFile(t, cfg, db, "file-1", "one.md")
+
+	task, err := service.Enqueue(context.Background(), file)
+	if err != nil {
+		t.Fatalf("enqueue file: %v", err)
+	}
+
+	assertTaskStatusEventually(t, service, task.ID, model.TaskStatusDone)
+	assertFileSearchableViaBM25(t, db, file, "searchable")
+}
+
+func TestPipelineWritesBM25ChunksWithoutVectorStore(t *testing.T) {
+	cfg, db := newPipelineTestStore(t)
+	service := NewPipelineService(cfg, db, &mockEmbedProvider{}, nil, nil, nil)
+	file := createPipelineTestFile(t, cfg, db, "file-1", "one.md")
+
+	task, err := service.Enqueue(context.Background(), file)
+	if err != nil {
+		t.Fatalf("enqueue file: %v", err)
+	}
+
+	assertTaskStatusEventually(t, service, task.ID, model.TaskStatusDone)
+	assertFileSearchableViaBM25(t, db, file, "searchable")
+}
+
 type panicEmbedProvider struct{}
 
 func (panicEmbedProvider) Name() string {
@@ -386,6 +372,20 @@ func createPipelineTestFile(t *testing.T, cfg *config.Config, db *store.Store, i
 		t.Fatalf("create file: %v", err)
 	}
 	return file
+}
+
+func assertFileSearchableViaBM25(t *testing.T, db *store.Store, file *model.File, query string) {
+	t.Helper()
+	results, err := db.SearchChunksBM25(context.Background(), query, []string{file.ID}, 10)
+	if err != nil {
+		t.Fatalf("search chunks: %v", err)
+	}
+	if len(results) == 0 {
+		t.Fatalf("expected local BM25 chunks to contain %q for %s", query, file.ID)
+	}
+	if results[0].FileID != file.ID {
+		t.Fatalf("expected result for %s, got %#v", file.ID, results[0])
+	}
 }
 
 func assertTaskStatusEventually(t *testing.T, service *PipelineService, taskID, want string) {

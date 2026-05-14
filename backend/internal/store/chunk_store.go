@@ -8,6 +8,7 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/memodrive/backend/internal/indexing"
 	"github.com/memodrive/backend/internal/model"
 )
 
@@ -22,6 +23,23 @@ type ChunkRow struct {
 	Text          string
 	ParentChunkID string
 	IsParent      bool
+}
+
+func (s *Store) UpsertIndexChunks(ctx context.Context, records []indexing.ChunkRecord) error {
+	rows := make([]ChunkRow, 0, len(records))
+	for _, record := range records {
+		rows = append(rows, ChunkRow{
+			ID:            record.ID,
+			FileID:        record.FileID,
+			FileName:      record.FileName,
+			Heading:       record.Heading,
+			ChunkIndex:    record.ChunkIndex,
+			Text:          record.Text,
+			ParentChunkID: record.ParentChunkID,
+			IsParent:      record.IsParent,
+		})
+	}
+	return s.UpsertChunks(ctx, rows)
 }
 
 func (s *Store) UpsertChunks(ctx context.Context, rows []ChunkRow) error {

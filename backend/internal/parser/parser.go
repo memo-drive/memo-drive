@@ -28,6 +28,21 @@ type Section struct {
 	Body    string // Plain-text section body.
 }
 
+func (doc *ParsedDocument) HasContent() bool {
+	if doc == nil {
+		return false
+	}
+	if strings.TrimSpace(doc.Text) != "" {
+		return true
+	}
+	for _, section := range doc.Sections {
+		if strings.TrimSpace(section.Heading) != "" || strings.TrimSpace(section.Body) != "" {
+			return true
+		}
+	}
+	return false
+}
+
 func Parse(filePath string, mimeType string) (*ParsedDocument, error) {
 	normalizedMIME := normalizeMIME(mimeType)
 	ext := strings.ToLower(filepath.Ext(filePath))
