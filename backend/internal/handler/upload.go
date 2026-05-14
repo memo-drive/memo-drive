@@ -9,10 +9,12 @@ import (
 	"github.com/memodrive/backend/internal/store"
 )
 
+// UploadHandler manages chunked file upload sessions.
 type UploadHandler struct {
 	uploads *service.UploadService
 }
 
+// NewUploadHandler creates a new UploadHandler.
 func NewUploadHandler(uploads *service.UploadService) *UploadHandler {
 	return &UploadHandler{uploads: uploads}
 }

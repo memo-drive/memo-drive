@@ -2,6 +2,9 @@ package model
 
 import "time"
 
+// Task represents an asynchronous pipeline job that processes a file through
+// the indexing pipeline: parse -> chunk -> embed -> index.
+// Tasks are executed by a worker pool and report progress as a percentage.
 type Task struct {
 	ID         string    `json:"id"`
 	FileID     string    `json:"file_id"`

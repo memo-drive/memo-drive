@@ -18,6 +18,7 @@ const (
 	defaultIntentTimezone = "Asia/Shanghai"
 )
 
+// SearchIntentOptions configures the timezone and LLM fallback behavior for intent parsing.
 type SearchIntentOptions struct {
 	Now         time.Time
 	Timezone    string
@@ -77,6 +78,8 @@ var (
 	intentJSONBlockPattern = regexp.MustCompile("(?s)\\{.*\\}")
 )
 
+// ParseSearchIntent extracts structured filters (MIME types, extensions, date ranges)
+// from a natural language query using rule-based parsing with optional LLM fallback.
 func ParseSearchIntent(ctx context.Context, query string, provider llm.Provider) SearchIntent {
 	return ParseSearchIntentWithOptions(ctx, query, provider, SearchIntentOptions{
 		Now:         time.Now(),
@@ -85,6 +88,7 @@ func ParseSearchIntent(ctx context.Context, query string, provider llm.Provider)
 	})
 }
 
+// ParseSearchIntentWithOptions is like ParseSearchIntent but with explicit timezone and fallback settings.
 func ParseSearchIntentWithOptions(ctx context.Context, query string, provider llm.Provider, opts SearchIntentOptions) SearchIntent {
 	original := strings.TrimSpace(query)
 	intent := SearchIntent{Original: original, TextQuery: original}

@@ -5,10 +5,12 @@ import (
 	"github.com/memodrive/backend/internal/service"
 )
 
+// StorageHandler serves storage usage information.
 type StorageHandler struct {
 	files *service.FileService
 }
 
+// NewStorageHandler creates a new StorageHandler.
 func NewStorageHandler(files *service.FileService) *StorageHandler {
 	return &StorageHandler{files: files}
 }

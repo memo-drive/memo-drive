@@ -31,23 +31,26 @@ const (
 	maxFileLimit           = 200
 )
 
-const multiQueryPrompt = `你是个人云盘 MemoDrive 的搜索查询扩展器。用户的文件包括文档、笔记、表格、演示文稿、图片和音频转录等。
+const multiQueryPrompt = `You are the search query expander for the personal cloud drive MemoDrive. The user's files include documents, notes, spreadsheets, presentations, images, and audio transcriptions.
 
-任务：为下面的搜索查询生成 %d 个补充查询，最大化向量检索的召回多样性。
+Task: Generate %d supplementary queries for the search query below in order to maximize vector search recall diversity.
 
-扩展策略（每个变体侧重不同策略）：
-- 同义替换：用近义词或不同表达方式改写
-- 粒度调整：更具体或更概括的说法
-- 文档视角：用文档标题、章节标题中常见的表述方式
-- 跨语言：如果原查询是中文，可生成对应的英文关键短语，反之亦然
+Expansion strategies (each variant should focus on a different strategy):
+- Synonym substitution: rewrite using synonyms or alternative phrasing
+- Granularity adjustment: make it more specific or more general
+- Document perspective: express as document or section titles would phrase it
+- Cross-lingual: if the original query is in Chinese, generate equivalent English key phrases, and vice versa
 
-约束：
-- 每行一个查询，不编号、不解释、不重复原始查询
-- 每个查询控制在 5-25 字（或等量英文单词）
-- 只输出查询文本
+Constraints:
+- Output one query per line, without numbering, explanation, or repeating the original query
+- Each query should be 5-25 characters (or equivalent English words)
+- Output query text only
 
-原始查询：%s`
+Original query: %s`
 
+// SearchService provides multi-strategy document search: vector similarity (ChromaDB),
+// BM25 full-text (SQLite FTS5), and hybrid fusion via Reciprocal Rank Fusion (RRF).
+// It supports query expansion, intent parsing, and score-based ranking.
 type SearchService struct {
 	cfg      *config.Config
 	store    *store.Store
@@ -55,6 +58,7 @@ type SearchService struct {
 	vectorDB vectordb.VectorStore
 }
 
+// NewSearchService creates a new SearchService.
 func NewSearchService(cfg *config.Config, db *store.Store, llmProvider llm.Provider, vectorDB vectordb.VectorStore) *SearchService {
 	return &SearchService{
 		cfg:      cfg,
@@ -64,6 +68,7 @@ func NewSearchService(cfg *config.Config, db *store.Store, llmProvider llm.Provi
 	}
 }
 
+// Search executes a chunk-level search using the configured retrieval strategies.
 func (s *SearchService) Search(ctx context.Context, req SearchRequest) (*SearchResponse, error) {
 	started := time.Now()
 	plan, earlyResponse, err := s.buildChunkRetrievalPlan(ctx, req, started)

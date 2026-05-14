@@ -8,6 +8,7 @@ import (
 	"github.com/memodrive/backend/internal/model"
 )
 
+// Requeue re-submits a task to the worker pool. Used by the reconciler for stuck tasks.
 func (s *PipelineService) Requeue(ctx context.Context, taskID string, file *model.File) error {
 	if err := s.queueTask(taskID, file); err != nil {
 		s.failTask(ctx, taskID, file.ID, err)
@@ -16,6 +17,7 @@ func (s *PipelineService) Requeue(ctx context.Context, taskID string, file *mode
 	return nil
 }
 
+// Shutdown gracefully stops the worker pool, waiting for in-flight tasks to complete.
 func (s *PipelineService) Shutdown(ctx context.Context) error {
 	if s == nil || s.runner == nil {
 		return nil

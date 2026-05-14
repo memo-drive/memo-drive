@@ -13,6 +13,13 @@ import (
 
 const defaultEmbedBatchSize = 20
 
+// indexParsedDocument runs the full indexing pipeline for a parsed document:
+//  1. Build hierarchical index plan (parent + child chunks) from the parsed doc
+//  2. If no chunks produced (empty doc), delete any stale chunks and mark ready
+//  3. If no LLM provider: persist chunk rows to SQLite only (BM25 search), skip embeddings
+//  4. If no vector DB: persist chunk rows only, skip vector upsert
+//  5. Otherwise: batch-embed all child chunks, upsert to ChromaDB, persist chunk rows
+// The task progresses through: split → embedded → upserted → completed.
 func (s *PipelineService) indexParsedDocument(ctx context.Context, taskID string, file *model.File, doc *parser.ParsedDocument, started time.Time) error {
 	plan := indexing.BuildDocumentIndexPlan(
 		indexing.DocumentRef{ID: file.ID, Name: file.Name},

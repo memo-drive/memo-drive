@@ -1,3 +1,6 @@
+// Package vectordb provides a client for the Chroma vector database.
+// It supports collection lifecycle management, batch upsert with embeddings,
+// similarity queries, and deletion through Chroma's v2 REST API.
 package vectordb
 
 import (
@@ -22,6 +25,8 @@ const (
 	defaultDatabase      = "default_database"
 )
 
+// VectorStore is the interface that all vector database backends must implement.
+// It abstracts collection management, batch upsert, similarity query, and deletion.
 type VectorStore interface {
 	EnsureCollection(ctx context.Context, name string) error
 	Upsert(ctx context.Context, collection string, ids []string, embeddings [][]float32, documents []string, metadatas []map[string]any) error
@@ -29,6 +34,8 @@ type VectorStore interface {
 	Delete(ctx context.Context, collection string, ids []string) error
 }
 
+// QueryResult holds the results of a vector similarity query.
+// Each field is a slice whose elements correspond positionally.
 type QueryResult struct {
 	IDs       []string
 	Documents []string
@@ -36,6 +43,8 @@ type QueryResult struct {
 	Metadatas []map[string]any
 }
 
+// ChromaClient is a VectorStore implementation backed by a Chroma server.
+// It caches collection name-to-ID mappings to avoid repeated lookups.
 type ChromaClient struct {
 	BaseURL  string
 	Tenant   string
@@ -46,6 +55,7 @@ type ChromaClient struct {
 	cacheMu           sync.RWMutex
 }
 
+// NewChroma creates a new ChromaClient connected to the given base URL.
 func NewChroma(baseURL string) *ChromaClient {
 	if strings.TrimSpace(baseURL) == "" {
 		baseURL = defaultChromaBaseURL
@@ -60,6 +70,8 @@ func NewChroma(baseURL string) *ChromaClient {
 	}
 }
 
+// EnsureCollection creates the named collection if it doesn't exist.
+// It caches the collection ID on success.
 func (c *ChromaClient) EnsureCollection(ctx context.Context, name string) error {
 	started := time.Now()
 	if strings.TrimSpace(name) == "" {
@@ -109,6 +121,9 @@ func (c *ChromaClient) EnsureCollection(ctx context.Context, name string) error 
 	return nil
 }
 
+// Upsert inserts or updates vectors with their associated documents and metadata.
+// It ensures the collection exists, batches the input by chromaBatchSize, and
+// validates that all input slices have matching lengths.
 func (c *ChromaClient) Upsert(ctx context.Context, collection string, ids []string, embeddings [][]float32, documents []string, metadatas []map[string]any) error {
 	started := time.Now()
 	if len(ids) == 0 {
@@ -160,6 +175,8 @@ func (c *ChromaClient) Upsert(ctx context.Context, collection string, ids []stri
 	return nil
 }
 
+// Query performs a similarity search against the collection using the provided
+// query embedding. It returns up to nResults matching documents.
 func (c *ChromaClient) Query(ctx context.Context, collection string, queryEmbedding []float32, nResults int) (*QueryResult, error) {
 	started := time.Now()
 	if len(queryEmbedding) == 0 {
@@ -191,6 +208,8 @@ func (c *ChromaClient) Query(ctx context.Context, collection string, queryEmbedd
 	return result, nil
 }
 
+// Delete removes vectors by ID from the collection.
+// After deletion, it refreshes the collection cache and ensures the collection exists.
 func (c *ChromaClient) Delete(ctx context.Context, collection string, ids []string) error {
 	started := time.Now()
 	if len(ids) == 0 {

@@ -1,3 +1,5 @@
+// Package config loads and validates server configuration from environment variables.
+// All settings have sensible defaults for local development.
 package config
 
 import (
@@ -12,6 +14,7 @@ import (
 
 const defaultJWTSecret = "change-me-in-production"
 
+// Config is the root configuration structure containing all subsystem settings.
 type Config struct {
 	Server     ServerConfig
 	Storage    StorageConfig
@@ -26,11 +29,13 @@ type Config struct {
 	Trash      TrashConfig
 }
 
+// ServerConfig holds HTTP server bind address settings.
 type ServerConfig struct {
 	Host string
 	Port string
 }
 
+// StorageConfig configures the file storage layer including paths, limits, and upload behavior.
 type StorageConfig struct {
 	Root         string
 	DBPath       string
@@ -41,12 +46,14 @@ type StorageConfig struct {
 	UploadTTL    time.Duration
 }
 
+// AuthConfig holds JWT-based authentication settings.
 type AuthConfig struct {
 	Password  string
 	JWTSecret string
 	TokenTTL  time.Duration
 }
 
+// PipelineConfig controls the document processing pipeline: text splitting, embedding, and indexing.
 type PipelineConfig struct {
 	Workers         int
 	SkipLarge       int64
@@ -57,6 +64,8 @@ type PipelineConfig struct {
 	ChildChunkSize  int
 }
 
+// LLMConfig holds connection details for language model providers (Ollama and OpenAI)
+// and the vector database (ChromaDB).
 type LLMConfig struct {
 	OllamaBaseURL string
 	OllamaChat    string
@@ -68,6 +77,8 @@ type LLMConfig struct {
 	ChromaBaseURL string
 }
 
+// RAGConfig tunes retrieval-augmented generation behavior: retrieval strategy,
+// result counts, scoring thresholds, and query rewriting.
 type RAGConfig struct {
 	TopK              int
 	SearchTopK        int
@@ -86,6 +97,7 @@ type RAGConfig struct {
 	IntentFileLimit   int
 }
 
+// OCRConfig configures Tesseract OCR for extracting text from images.
 type OCRConfig struct {
 	Enabled       bool
 	Bin           string
@@ -95,6 +107,8 @@ type OCRConfig struct {
 	MaxImageBytes int64
 }
 
+// TranscribeConfig configures audio transcription, supporting local whisper.cpp
+// or remote API-based transcription.
 type TranscribeConfig struct {
 	Enabled    bool
 	Mode       string
@@ -108,6 +122,7 @@ type TranscribeConfig struct {
 	MaxBytes   int64
 }
 
+// VideoConfig controls video processing: frame extraction for OCR and audio track handling.
 type VideoConfig struct {
 	OCREnabled    bool
 	FrameInterval int
@@ -115,6 +130,8 @@ type VideoConfig struct {
 	AudioEnabled  bool
 }
 
+// JanitorConfig controls the background maintenance worker that recovers stuck tasks
+// and optionally sweeps orphaned storage files.
 type JanitorConfig struct {
 	Enabled             bool
 	Interval            time.Duration
@@ -123,11 +140,15 @@ type JanitorConfig struct {
 	SweepStorageEnabled bool
 }
 
+// TrashConfig controls automatic trash purging behavior.
 type TrashConfig struct {
 	AutoPurgeEnabled bool
 	RetentionDays    int
 }
 
+// Load reads configuration from environment variables and returns a validated Config.
+// It applies defaults for any unset variables and returns an error if required
+// values are invalid (e.g., non-positive chunk sizes).
 func Load() (*Config, error) {
 	cfg := &Config{
 		Server: ServerConfig{
@@ -309,6 +330,7 @@ func Load() (*Config, error) {
 	return cfg, nil
 }
 
+// EnsureDirs creates all required storage directories if they do not exist.
 func (c *Config) EnsureDirs() error {
 	dirs := []string{
 		c.Storage.Root,

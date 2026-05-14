@@ -55,10 +55,6 @@ func maxInt(a, b int) int {
 	return b
 }
 
-func maxIntValue() int {
-	return int(^uint(0) >> 1)
-}
-
 func makeSnippet(text string, limit int) string {
 	text = strings.TrimSpace(text)
 	if limit <= 0 {

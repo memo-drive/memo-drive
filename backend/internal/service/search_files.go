@@ -14,6 +14,8 @@ import (
 	"github.com/memodrive/backend/internal/store"
 )
 
+// SearchFiles performs file-level search across file names, metadata, and optionally
+// semantic vector search. Results are merged by file ID with multi-match scoring.
 func (s *SearchService) SearchFiles(ctx context.Context, req FileSearchRequest) (*FileSearchResponse, error) {
 	started := time.Now()
 	query := strings.TrimSpace(req.Query)

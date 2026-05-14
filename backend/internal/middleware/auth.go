@@ -1,3 +1,5 @@
+// Package middleware provides HTTP middleware for the Fiber web framework,
+// including JWT authentication, CORS, and rate limiting.
 package middleware
 
 import (
@@ -10,11 +12,14 @@ import (
 	"github.com/memodrive/backend/internal/config"
 )
 
+// Claims extends JWT registered claims with an admin role field.
 type Claims struct {
 	Role string `json:"role"`
 	jwt.RegisteredClaims
 }
 
+// NewAuthMiddleware returns a Fiber middleware that validates JWT bearer tokens.
+// If no admin password is configured, authentication is skipped.
 func NewAuthMiddleware(cfg config.AuthConfig) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		if cfg.Password == "" {
@@ -35,6 +40,7 @@ func NewAuthMiddleware(cfg config.AuthConfig) fiber.Handler {
 	}
 }
 
+// GenerateToken creates a signed JWT for the admin role and returns its expiration time.
 func GenerateToken(cfg config.AuthConfig) (string, time.Time, error) {
 	expiresAt := time.Now().Add(cfg.TokenTTL)
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, Claims{
@@ -48,6 +54,8 @@ func GenerateToken(cfg config.AuthConfig) (string, time.Time, error) {
 	return signed, expiresAt, err
 }
 
+// ValidatePassword checks the provided password against the configured admin password.
+// If no password is configured, all attempts succeed.
 func ValidatePassword(cfg config.AuthConfig, password string) error {
 	if cfg.Password == "" {
 		return nil

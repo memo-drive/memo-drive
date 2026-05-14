@@ -9,10 +9,12 @@ import (
 	"github.com/memodrive/backend/internal/store"
 )
 
+// ConversationService manages AI conversation and message history.
 type ConversationService struct {
 	store *store.Store
 }
 
+// NewConversationService creates a new ConversationService.
 func NewConversationService(s *store.Store) *ConversationService {
 	return &ConversationService{store: s}
 }

@@ -17,6 +17,8 @@ import (
 	"github.com/memodrive/backend/internal/vectordb"
 )
 
+// SoftDelete moves a file to the trash by setting deleted_at and preserving the original path/name.
+// For directories, all descendants are also soft-deleted recursively.
 func (s *FileService) SoftDelete(ctx context.Context, id string) error {
 	started := time.Now()
 	file, err := s.store.GetFile(ctx, id)
@@ -38,6 +40,8 @@ func (s *FileService) SoftDelete(ctx context.Context, id string) error {
 	return nil
 }
 
+// Restore moves a file out of the trash back to its original location.
+// If a naming conflict exists, the file is renamed with a "(restored)" suffix.
 func (s *FileService) Restore(ctx context.Context, id string) (*model.File, error) {
 	started := time.Now()
 	file, err := s.store.GetFileIncludeDeleted(ctx, id)
@@ -78,6 +82,8 @@ func (s *FileService) Restore(ctx context.Context, id string) (*model.File, erro
 	return restored, nil
 }
 
+// Purge permanently deletes a trashed file: removes the stored object from disk,
+// deletes vector embeddings from ChromaDB, removes chunk rows from SQLite, and deletes the file record.
 func (s *FileService) Purge(ctx context.Context, id string) error {
 	started := time.Now()
 	childrenPurged, file, err := s.purgeTrashEntry(ctx, id)
@@ -89,6 +95,7 @@ func (s *FileService) Purge(ctx context.Context, id string) error {
 	return nil
 }
 
+// ListTrashed returns files currently in the trash, limited to the given count (max 500).
 func (s *FileService) ListTrashed(ctx context.Context, limit int) ([]model.File, error) {
 	if limit <= 0 || limit > 500 {
 		limit = 100
@@ -96,6 +103,7 @@ func (s *FileService) ListTrashed(ctx context.Context, limit int) ([]model.File,
 	return s.store.ListTrashed(ctx, limit)
 }
 
+// EmptyTrash permanently purges all files currently in the trash.
 func (s *FileService) EmptyTrash(ctx context.Context) (int, error) {
 	items, err := s.store.ListTrashed(ctx, 5000)
 	if err != nil {

@@ -12,27 +12,35 @@ const (
 	maxLookback         = 100
 )
 
+// SplitOptions controls how text is split into chunks.
 type SplitOptions struct {
 	ChunkSize int // Target characters per chunk.
 	Overlap   int // Characters shared by adjacent chunks.
 }
 
+// Chunk is a contiguous piece of text with a heading and positional index.
 type Chunk struct {
 	Text    string
 	Index   int
 	Heading string
 }
 
+// HierarchicalChunks holds a two-level chunk hierarchy: large parent chunks
+// (for context) and smaller child chunks (for precise retrieval).
 type HierarchicalChunks struct {
 	Parents  []Chunk
 	Children []ChildChunk
 }
 
+// ChildChunk extends Chunk with a reference to its parent chunk index.
 type ChildChunk struct {
 	Chunk
 	ParentIndex int
 }
 
+// SplitDocument divides a parsed document into chunks respecting section boundaries.
+// Each chunk is at most opts.ChunkSize characters, with opts.Overlap characters
+// shared between adjacent chunks.
 func SplitDocument(doc *ParsedDocument, opts SplitOptions) []Chunk {
 	started := time.Now()
 	if doc == nil {
@@ -71,6 +79,8 @@ func SplitDocument(doc *ParsedDocument, opts SplitOptions) []Chunk {
 	return chunks
 }
 
+// SplitDocumentHierarchical creates a two-level chunk hierarchy: parents (larger)
+// provide retrieval context, and children (smaller) enable precise matching.
 func SplitDocumentHierarchical(doc *ParsedDocument, parentSize, childSize, overlap int) *HierarchicalChunks {
 	parentOpts := SplitOptions{ChunkSize: parentSize, Overlap: overlap}
 	parents := SplitDocument(doc, parentOpts)
@@ -104,6 +114,7 @@ func SplitDocumentHierarchical(doc *ParsedDocument, parentSize, childSize, overl
 	return &HierarchicalChunks{Parents: parents, Children: children}
 }
 
+// SplitText is a convenience wrapper that splits plain text into string chunks.
 func SplitText(text string, maxChunkSize int) []string {
 	chunks := SplitDocument(&ParsedDocument{Text: text}, SplitOptions{ChunkSize: maxChunkSize})
 	texts := make([]string, 0, len(chunks))

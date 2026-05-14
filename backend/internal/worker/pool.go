@@ -1,3 +1,4 @@
+// Package worker provides a simple goroutine pool for executing asynchronous jobs.
 package worker
 
 import (
@@ -5,8 +6,12 @@ import (
 	"sync"
 )
 
+// ErrStopped is returned when attempting to submit a job to a stopped pool.
 var ErrStopped = errors.New("worker pool stopped")
 
+// Pool is a fixed-size goroutine pool that accepts functions for asynchronous execution.
+// Callers submit jobs with Submit and shut down with Stop. Stop waits for all
+// in-flight jobs to complete.
 type Pool struct {
 	jobs    chan func()
 	wg      sync.WaitGroup
@@ -16,6 +21,7 @@ type Pool struct {
 	done    chan struct{}
 }
 
+// New creates a pool with the given number of workers. If size <= 0, 1 is used.
 func New(size int) *Pool {
 	if size <= 0 {
 		size = 1
@@ -37,6 +43,7 @@ func New(size int) *Pool {
 	return p
 }
 
+// Submit adds a job to the pool. It returns ErrStopped if the pool has been stopped.
 func (p *Pool) Submit(job func()) error {
 	p.mu.Lock()
 	if p.stopped {
@@ -49,6 +56,8 @@ func (p *Pool) Submit(job func()) error {
 	return nil
 }
 
+// Stop initiates graceful shutdown: it prevents new submissions, waits for
+// all running jobs to finish, then closes internal channels.
 func (p *Pool) Stop() {
 	p.stop.Do(func() {
 		p.mu.Lock()

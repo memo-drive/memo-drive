@@ -17,6 +17,8 @@ import (
 
 var execLookPath = exec.LookPath
 
+// OCRRunner wraps the tesseract OCR binary. It validates availability on creation
+// and handles image format conversion, timeout enforcement, and text cleaning.
 type OCRRunner struct {
 	bin           string
 	langs         string
@@ -29,6 +31,8 @@ type OCRRunner struct {
 	runFunc func(ctx context.Context, imagePath string) (string, error)
 }
 
+// NewOCRRunner creates an OCRRunner. If OCR is disabled or tesseract is not
+// found, the runner reports !Available() and Run returns empty text without error.
 func NewOCRRunner(cfg config.OCRConfig) *OCRRunner {
 	r := &OCRRunner{
 		bin:           strings.TrimSpace(cfg.Bin),

@@ -14,6 +14,7 @@ import (
 
 const defaultChunkSnippetLength = 240
 
+// ChunkRow is the database representation of a chunk record.
 type ChunkRow struct {
 	ID            string
 	FileID        string

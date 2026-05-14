@@ -15,6 +15,11 @@ type chunkRankingOptions struct {
 	NormalizeScores bool
 }
 
+// rankChunkEvidence post-processes search results in three passes:
+//  1. filterAvailableSources — removes chunks whose parent file no longer exists in the DB
+//  2. resolveParentTexts — replaces child chunk text with the richer parent chunk text
+//     (child chunks are small and optimized for vector matching; parent chunks provide context)
+//  3. truncate to TopK, optionally normalize scores to [0, 1]
 func (s *SearchService) rankChunkEvidence(ctx context.Context, sources []SourceChunk, opts chunkRankingOptions) []SourceChunk {
 	sources = s.filterAvailableSources(ctx, sources)
 	sources = s.resolveParentTexts(ctx, sources)
@@ -27,6 +32,10 @@ func (s *SearchService) rankChunkEvidence(ctx context.Context, sources []SourceC
 	return sources
 }
 
+// resolveParentTexts implements the "parent document retrieval" pattern.
+// Each child chunk has a ParentChunkID pointing to a larger parent chunk.
+// After vector search finds relevant child chunks (small, precise), we swap
+// their text with the parent chunk text (large, context-rich) for better RAG quality.
 func (s *SearchService) resolveParentTexts(ctx context.Context, sources []SourceChunk) []SourceChunk {
 	if s == nil || s.store == nil || len(sources) == 0 {
 		return sources

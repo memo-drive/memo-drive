@@ -16,6 +16,9 @@ type chunkQueryMergeResult struct {
 	ErrorCount int
 }
 
+// FuseHybrid merges vector and BM25 results using Reciprocal Rank Fusion (RRF).
+// Each source is scored as sum(1 / (k + rank)) across both result lists, then
+// results are sorted by descending RRF score.
 func (f chunkEvidenceFusion) FuseHybrid(vectorResults, bm25Results []SourceChunk) []SourceChunk {
 	k := f.RRFConstant
 	if k <= 0 {

@@ -27,6 +27,14 @@ func (m chunkRetrievalModes) Available() bool {
 	return m.Vector || m.BM25
 }
 
+// buildChunkRetrievalPlan constructs the search execution plan from a SearchRequest:
+//  1. If intent parsing is enabled, extract structured filters (MIME types, dates, etc.)
+//     from the natural language query and rewrite the query to its pure semantic part.
+//  2. If intent filters produce an empty file list, return early with empty results.
+//  3. Determine retrieval modes:
+//       Vector  = available when LLM + ChromaDB are configured
+//       BM25    = available when hybrid search is enabled + SQLite has FTS5
+//  4. Expand the query into multiple variants for recall diversity.
 func (s *SearchService) buildChunkRetrievalPlan(ctx context.Context, req SearchRequest, started time.Time) (*chunkRetrievalPlan, *SearchResponse, error) {
 	query := strings.TrimSpace(req.Query)
 	if query == "" {
@@ -82,6 +90,9 @@ func (s *SearchService) chunkRetrievalModes() chunkRetrievalModes {
 	}
 }
 
+// candidateLimit computes how many candidates to request from each retrieval backend.
+// When a file filter is active, we over-request (4x, min 20) because the vector store
+// doesn't know about file-level filters — we retrieve extra and apply the filter client-side.
 func candidateLimit(topK int, hasFilter bool) int {
 	if topK <= 0 {
 		topK = defaultSearchTopK

@@ -20,12 +20,16 @@ import (
 
 const minTranscribedRunes = 8
 
+// Transcriber is the interface for audio-to-text engines.
+// Implementations include local whisper.cpp and OpenAI Whisper API.
 type Transcriber interface {
 	Available() bool
 	Transcribe(ctx context.Context, audioPath string) (string, error)
 	Mode() string
 }
 
+// NewTranscriber creates a Transcriber based on configuration. Returns a no-op
+// implementation if transcription is disabled.
 func NewTranscriber(cfg config.TranscribeConfig) Transcriber {
 	mode := strings.ToLower(strings.TrimSpace(cfg.Mode))
 	if mode == "" {
@@ -253,6 +257,8 @@ func (t *openAITranscriber) Transcribe(ctx context.Context, audioPath string) (s
 	return cleaned, nil
 }
 
+// ParseAudio transcribes an audio file and returns a ParsedDocument.
+// Returns a document with skipped metadata if transcription is unavailable or produces no text.
 func ParseAudio(ctx context.Context, transcriber Transcriber, absPath string) (*ParsedDocument, error) {
 	started := time.Now()
 	if transcriber == nil || !transcriber.Available() {

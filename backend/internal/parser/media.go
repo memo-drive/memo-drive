@@ -21,6 +21,8 @@ import (
 	"github.com/rwcarlsen/goexif/exif"
 )
 
+// ExtractMedia extracts metadata and generates a thumbnail for image/video/audio files.
+// Returns the media metadata, thumbnail path (empty if none), and any error.
 func ExtractMedia(ctx context.Context, absPath, mimeType, fileID, thumbnailDir string) (*model.MediaMeta, string, error) {
 	started := time.Now()
 	meta := &model.MediaMeta{}

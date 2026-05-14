@@ -16,12 +16,15 @@ const maxConversationMessages = 10
 const condenseSystemPrompt = `给定一段对话历史和一个后续问题，将后续问题改写为一个独立的检索查询。
 只输出改写后的查询文本，不要解释。如果问题已经独立，原样返回。`
 
+// RAGService implements retrieval-augmented generation: it searches for relevant
+// chunks, builds a context prompt, and streams an LLM response.
 type RAGService struct {
 	cfg    *config.Config
 	llm    llm.Provider
 	search *SearchService
 }
 
+// NewRAGService creates a new RAGService.
 func NewRAGService(cfg *config.Config, llmProvider llm.Provider, search *SearchService) *RAGService {
 	return &RAGService{
 		cfg:    cfg,

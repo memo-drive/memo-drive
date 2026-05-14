@@ -1,3 +1,6 @@
+// Package service implements the business logic layer for MemoDrive.
+// It orchestrates file management, upload handling, the document indexing pipeline,
+// multi-strategy search, RAG-based AI chat, and background maintenance tasks.
 package service
 
 import (
@@ -23,12 +26,14 @@ var (
 	ErrNotInTrash   = errors.New("file is not in trash")
 )
 
+// FileService manages file CRUD, listing, search, and storage usage queries.
 type FileService struct {
 	cfg      *config.Config
 	store    *store.Store
 	vectorDB vectordb.VectorStore
 }
 
+// NewFileService creates a new FileService.
 func NewFileService(cfg *config.Config, store *store.Store, vectorDB vectordb.VectorStore) *FileService {
 	return &FileService{cfg: cfg, store: store, vectorDB: vectorDB}
 }
@@ -283,6 +288,8 @@ func (s *FileService) absStoragePath(rel string) string {
 	return filepath.Join(s.cfg.Storage.Root, filepath.FromSlash(rel))
 }
 
+// CleanVirtualPath normalizes a virtual filesystem path: ensures leading slash, removes trailing slash,
+// and collapses redundant slashes.
 func CleanVirtualPath(value string) string {
 	value = strings.TrimSpace(strings.ReplaceAll(value, "\\", "/"))
 	if value == "" {
@@ -295,6 +302,7 @@ func CleanVirtualPath(value string) string {
 	return cleaned
 }
 
+// SafeName sanitizes a filename by stripping path separators and trimming whitespace.
 func SafeName(value string) string {
 	value = strings.TrimSpace(strings.ReplaceAll(value, "\\", "/"))
 	value = path.Base(value)

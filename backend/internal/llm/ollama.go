@@ -19,6 +19,7 @@ const (
 	defaultOllamaEmbedModel = "nomic-embed-text"
 )
 
+// OllamaProvider implements Provider for a local Ollama server.
 type OllamaProvider struct {
 	BaseURL    string
 	ChatModel  string
@@ -28,6 +29,8 @@ type OllamaProvider struct {
 	chatClient  *http.Client
 }
 
+// NewOllama creates an Ollama provider. If baseURL, chatModel, or embedModel
+// are empty, sensible defaults are used.
 func NewOllama(baseURL, chatModel, embedModel string) *OllamaProvider {
 	if strings.TrimSpace(baseURL) == "" {
 		baseURL = defaultOllamaBaseURL

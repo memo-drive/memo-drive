@@ -1,7 +1,11 @@
+// Package model defines the core domain entities and status constants for MemoDrive.
 package model
 
 import "time"
 
+// File represents a user file stored in the system.
+// It tracks the file's logical path, physical storage location, processing status,
+// and trash-related metadata for soft-delete and recovery.
 type File struct {
 	ID           string        `json:"id"`
 	Name         string        `json:"name"`
@@ -22,6 +26,9 @@ type File struct {
 	Metadata     *FileMetadata `json:"metadata,omitempty"`
 }
 
+// FileMetadata stores extracted metadata for a file, such as EXIF data for images
+// or document properties. The metadata is stored as a JSON blob in MetaJSON,
+// and an optional thumbnail path is recorded for media files.
 type FileMetadata struct {
 	FileID        string    `json:"file_id"`
 	MetaJSON      string    `json:"meta_json"`
@@ -29,6 +36,9 @@ type FileMetadata struct {
 	ExtractedAt   time.Time `json:"extracted_at"`
 }
 
+// UploadSession tracks the state of a chunked file upload.
+// Each session records which chunks have been received, allowing resumable uploads.
+// Sessions expire after the configured TTL and are cleaned up by a background job.
 type UploadSession struct {
 	ID             string    `json:"id"`
 	FileName       string    `json:"file_name"`

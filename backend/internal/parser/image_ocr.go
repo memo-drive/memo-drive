@@ -7,6 +7,9 @@ import (
 	"time"
 )
 
+// ParseImageOCR runs OCR on an image file and returns a ParsedDocument.
+// If OCR is unavailable or produces no text, it returns a document with
+// the skipped reason in metadata rather than an error.
 func ParseImageOCR(ctx context.Context, runner *OCRRunner, absPath string) (*ParsedDocument, error) {
 	started := time.Now()
 	if runner == nil || !runner.Available() {

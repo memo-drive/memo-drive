@@ -8,6 +8,8 @@ import (
 	"time"
 )
 
+// ParsePlainText reads a plain text file, strips BOM if present, and returns
+// a ParsedDocument with normalized whitespace.
 func ParsePlainText(path string) (*ParsedDocument, error) {
 	started := time.Now()
 	body, err := os.ReadFile(path)

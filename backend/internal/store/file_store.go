@@ -12,6 +12,7 @@ import (
 	"github.com/memodrive/backend/internal/model"
 )
 
+// ErrNotFound is returned when a requested record does not exist.
 var ErrNotFound = errors.New("not found")
 
 const (
@@ -22,6 +23,7 @@ const (
 	fileColumnsWithAlias   = "f.id, f.name, f.path, f.storage_path, f.size, f.mime_type, f.is_dir, f.parent_id, f.status, f.chunk_count, f.created_at, f.updated_at, f.deleted_at, f.original_path, f.original_name, f.trash_root_id"
 )
 
+// FileSearchFilter holds optional criteria for filtering file queries.
 type FileSearchFilter struct {
 	Keyword    string
 	PathPrefix string
@@ -36,6 +38,7 @@ func (f FileSearchFilter) HasStructuredFilters() bool {
 	return strings.TrimSpace(f.MimePrefix) != "" || len(f.Extensions) > 0 || f.DateFrom != nil || f.DateTo != nil
 }
 
+// MetadataHit pairs a file with a snippet of matched metadata text.
 type MetadataHit struct {
 	File    model.File
 	Snippet string

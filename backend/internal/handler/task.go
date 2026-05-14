@@ -5,10 +5,12 @@ import (
 	"github.com/memodrive/backend/internal/service"
 )
 
+// TaskHandler serves pipeline task status queries.
 type TaskHandler struct {
 	pipeline *service.PipelineService
 }
 
+// NewTaskHandler creates a new TaskHandler.
 func NewTaskHandler(pipeline *service.PipelineService) *TaskHandler {
 	return &TaskHandler{pipeline: pipeline}
 }

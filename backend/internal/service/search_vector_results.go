@@ -17,6 +17,14 @@ type vectorChunkMappingOptions struct {
 	TopK    int
 }
 
+// Map converts a raw ChromaDB query result into ranked SourceChunks.
+// Steps:
+//  1. Read each result's metadata via the indexing ChunkMetadata contract
+//  2. Compute Score = 1 - cosine distance (clamped to [0, 1])
+//  3. Filter by FileIDs whitelist (if provided)
+//  4. Filter by MinScore threshold
+//  5. Apply ScorePercentile pruning (drops results below the Nth percentile score)
+//  6. Truncate to TopK
 func (m vectorChunkMapper) Map(result *vectordb.QueryResult, opts vectorChunkMappingOptions) []SourceChunk {
 	if result == nil || opts.TopK <= 0 {
 		return nil
@@ -49,6 +57,9 @@ func (m vectorChunkMapper) Map(result *vectordb.QueryResult, opts vectorChunkMap
 	return sources
 }
 
+// sourceFromQueryResult deserializes a single result row from ChromaDB.
+// Distance is the cosine distance (lower = more similar).
+// Score is derived as 1 - distance, clamped to [0, 1] for intuitive "higher is better" sorting.
 func sourceFromQueryResult(result *vectordb.QueryResult, index int) SourceChunk {
 	metadata := indexing.ChunkMetadataFromMap(metadataAt(result.Metadatas, index))
 	source := SourceChunk{

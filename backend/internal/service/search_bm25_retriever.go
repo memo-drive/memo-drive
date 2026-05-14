@@ -2,6 +2,7 @@ package service
 
 import "context"
 
+// bm25ChunkStore is the subset of store.Store needed for BM25 keyword search.
 type bm25ChunkStore interface {
 	SearchChunksBM25(ctx context.Context, query string, fileIDs []string, limit int) ([]SourceChunk, error)
 }

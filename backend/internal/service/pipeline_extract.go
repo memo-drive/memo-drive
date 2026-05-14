@@ -30,6 +30,8 @@ func (s *PipelineService) mediaTextExtractionEnabled() bool {
 	return s.cfg.OCR.Enabled || s.cfg.Transcribe.Enabled
 }
 
+// IsMedia reports whether a file is a media file (image, video, or audio) based on
+// its MIME type or file extension.
 func IsMedia(mimeType, name string) bool {
 	if strings.HasPrefix(mimeType, "image/") || strings.HasPrefix(mimeType, "video/") || strings.HasPrefix(mimeType, "audio/") {
 		return true

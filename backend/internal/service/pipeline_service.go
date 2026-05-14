@@ -18,6 +18,8 @@ import (
 	"github.com/memodrive/backend/internal/worker"
 )
 
+// PipelineService orchestrates the document processing pipeline:
+// parse -> split -> embed -> index. It uses a worker pool for asynchronous execution.
 type PipelineService struct {
 	cfg         *config.Config
 	store       *store.Store
@@ -28,6 +30,7 @@ type PipelineService struct {
 	runner      *worker.Pool
 }
 
+// NewPipelineService creates a new PipelineService with the configured number of workers.
 func NewPipelineService(cfg *config.Config, store *store.Store, llmProvider llm.Provider, vectorDB vectordb.VectorStore, ocr *parser.OCRRunner, transcriber parser.Transcriber) *PipelineService {
 	workers := 1
 	if cfg != nil && cfg.Pipeline.Workers > 0 {
@@ -44,6 +47,7 @@ func NewPipelineService(cfg *config.Config, store *store.Store, llmProvider llm.
 	}
 }
 
+// Enqueue creates a pipeline task for the given file and submits it to the worker pool.
 func (s *PipelineService) Enqueue(ctx context.Context, file *model.File) (*model.Task, error) {
 	started := time.Now()
 	task := &model.Task{
@@ -66,6 +70,7 @@ func (s *PipelineService) Enqueue(ctx context.Context, file *model.File) (*model
 	return task, nil
 }
 
+// GetTask retrieves a pipeline task by ID.
 func (s *PipelineService) GetTask(ctx context.Context, id string) (*model.Task, error) {
 	return s.store.GetTask(ctx, id)
 }

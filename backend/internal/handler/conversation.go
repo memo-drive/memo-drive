@@ -8,10 +8,12 @@ import (
 	"github.com/memodrive/backend/internal/service"
 )
 
+// ConversationHandler manages conversation CRUD: list, get, rename, and delete.
 type ConversationHandler struct {
 	svc *service.ConversationService
 }
 
+// NewConversationHandler creates a new ConversationHandler.
 func NewConversationHandler(svc *service.ConversationService) *ConversationHandler {
 	return &ConversationHandler{svc: svc}
 }

@@ -15,11 +15,13 @@ import (
 	"github.com/memodrive/backend/internal/store"
 )
 
+// FileHandler handles file CRUD, listing, download, search, and thumbnail endpoints.
 type FileHandler struct {
 	files    *service.FileService
 	searches *service.SearchService
 }
 
+// NewFileHandler creates a new FileHandler.
 func NewFileHandler(files *service.FileService, searches *service.SearchService) *FileHandler {
 	return &FileHandler{files: files, searches: searches}
 }

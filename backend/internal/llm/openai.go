@@ -20,6 +20,7 @@ const (
 	defaultOpenAIEmbedModel = "text-embedding-3-small"
 )
 
+// OpenAIProvider implements Provider for OpenAI-compatible APIs.
 type OpenAIProvider struct {
 	BaseURL    string
 	APIKey     string
@@ -30,6 +31,8 @@ type OpenAIProvider struct {
 	chatClient  *http.Client
 }
 
+// NewOpenAI creates an OpenAI-compatible provider. If baseURL, chatModel, or embedModel
+// are empty, sensible defaults are used.
 func NewOpenAI(baseURL, apiKey, chatModel, embedModel string) *OpenAIProvider {
 	if strings.TrimSpace(baseURL) == "" {
 		baseURL = defaultOpenAIBaseURL

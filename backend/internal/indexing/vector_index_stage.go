@@ -8,14 +8,18 @@ import (
 
 const defaultVectorIndexBatchSize = 20
 
+// Embedder is the interface for generating vector embeddings from text.
 type Embedder interface {
 	Embed(ctx context.Context, texts []string) ([][]float32, error)
 }
 
+// VectorStore is the subset of vectordb.VectorStore needed for indexing.
 type VectorStore interface {
 	Upsert(ctx context.Context, collection string, ids []string, embeddings [][]float32, documents []string, metadatas []map[string]any) error
 }
 
+// VectorIndexStage runs the embedding and vector store upsert steps for a document.
+// It batches texts, calls the embedder (with retries), then upserts to the vector store.
 type VectorIndexStage struct {
 	Embedder      Embedder
 	Store         VectorStore
@@ -29,6 +33,7 @@ type VectorIndexResult struct {
 	Dimensions int
 }
 
+// Run executes the full indexing pipeline: embed all texts, then upsert to the vector store.
 func (s VectorIndexStage) Run(ctx context.Context, plan DocumentIndexPlan) (VectorIndexResult, error) {
 	embeddings, err := s.EmbedTexts(ctx, plan.VectorTexts)
 	if err != nil {
@@ -43,6 +48,7 @@ func (s VectorIndexStage) Run(ctx context.Context, plan DocumentIndexPlan) (Vect
 	}, nil
 }
 
+// EmbedTexts generates embeddings for the given texts in batches, with retry on failure.
 func (s VectorIndexStage) EmbedTexts(ctx context.Context, texts []string) ([][]float32, error) {
 	if len(texts) == 0 {
 		return nil, nil
@@ -85,6 +91,7 @@ func (s VectorIndexStage) EmbedTexts(ctx context.Context, texts []string) ([][]f
 	return embeddings, nil
 }
 
+// UpsertPlan sends the pre-computed plan entries and generated embeddings to the vector store.
 func (s VectorIndexStage) UpsertPlan(ctx context.Context, plan DocumentIndexPlan, embeddings [][]float32) error {
 	if len(plan.VectorIDs) == 0 {
 		return nil

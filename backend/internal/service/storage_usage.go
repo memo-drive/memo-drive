@@ -5,6 +5,7 @@ import (
 	"log"
 )
 
+// StorageUsage reports the total and used disk space for the storage root.
 type StorageUsage struct {
 	UsedBytes  int64 `json:"used_bytes"`
 	TotalBytes int64 `json:"total_bytes"`

@@ -7,10 +7,12 @@ import (
 	"github.com/memodrive/backend/internal/service"
 )
 
+// TrashHandler manages trash/recycle bin operations: list, restore, and permanent delete.
 type TrashHandler struct {
 	files *service.FileService
 }
 
+// NewTrashHandler creates a new TrashHandler.
 func NewTrashHandler(files *service.FileService) *TrashHandler {
 	return &TrashHandler{files: files}
 }

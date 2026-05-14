@@ -1,3 +1,8 @@
+// Package parser extracts text from documents and media files.
+// It supports PDF, DOCX, Markdown, plain text, images (OCR via Tesseract),
+// audio (transcription via whisper), and video (frame extraction + OCR).
+// The package also provides text splitting for chunking parsed documents
+// into hierarchical parent/child chunks suitable for vector indexing.
 package parser
 
 import (
@@ -16,6 +21,7 @@ var (
 	ErrAudioTooLarge     = errors.New("audio file is too large for transcription")
 )
 
+// ParsedDocument is the canonical output of document parsing.
 type ParsedDocument struct {
 	Text     string            // Extracted plain text.
 	Title    string            // Optional document title.
@@ -23,11 +29,13 @@ type ParsedDocument struct {
 	Meta     map[string]string // Parser-specific metadata such as pages or author.
 }
 
+// Section represents a titled section within a parsed document.
 type Section struct {
 	Heading string // Section heading when available.
 	Body    string // Plain-text section body.
 }
 
+// HasContent reports whether the document contains any non-empty text.
 func (doc *ParsedDocument) HasContent() bool {
 	if doc == nil {
 		return false
@@ -43,6 +51,8 @@ func (doc *ParsedDocument) HasContent() bool {
 	return false
 }
 
+// Parse extracts text from a file based on its MIME type and extension.
+// It returns ErrUnsupportedFormat for unrecognized formats.
 func Parse(filePath string, mimeType string) (*ParsedDocument, error) {
 	normalizedMIME := normalizeMIME(mimeType)
 	ext := strings.ToLower(filepath.Ext(filePath))

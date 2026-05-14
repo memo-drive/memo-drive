@@ -1,3 +1,6 @@
+// Package store provides SQLite-backed persistence for all domain entities.
+// It manages schema migrations, file CRUD, chunk storage with full-text search,
+// and conversation/message history.
 package store
 
 import (
@@ -14,10 +17,12 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
+// Store wraps a SQLite database connection and provides all persistence operations.
 type Store struct {
 	db *sql.DB
 }
 
+// Open creates a new Store, applies pending migrations, and returns it ready for use.
 func Open(ctx context.Context, cfg *config.Config) (*Store, error) {
 	started := time.Now()
 	db, err := sql.Open("sqlite3", fmt.Sprintf("%s?_foreign_keys=on&_busy_timeout=5000&parseTime=true", cfg.Storage.DBPath))

@@ -15,6 +15,7 @@ import (
 
 const maxPDFPages = 500
 
+// ParsePDF extracts plain text from a PDF file page by page, up to maxPDFPages.
 func ParsePDF(path string) (*ParsedDocument, error) {
 	started := time.Now()
 	file, err := os.Open(path)

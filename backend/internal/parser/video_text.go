@@ -21,6 +21,8 @@ type frameText struct {
 	Text         string
 }
 
+// ExtractVideoText extracts text from a video by sampling frames at intervals
+// and running OCR on each frame, with optional audio transcription.
 func ExtractVideoText(
 	ctx context.Context,
 	cfg config.VideoConfig,

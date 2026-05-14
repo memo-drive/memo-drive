@@ -18,6 +18,8 @@ const (
 	maxDOCXMetaSize = 1 * 1024 * 1024
 )
 
+// ParseDOCX extracts text from a .docx file by reading the word/document.xml
+// and processing paragraphs, tables, and text runs.
 func ParseDOCX(path string) (*ParsedDocument, error) {
 	started := time.Now()
 	reader, err := zip.OpenReader(path)

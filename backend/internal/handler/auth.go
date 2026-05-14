@@ -8,10 +8,12 @@ import (
 	"github.com/memodrive/backend/internal/middleware"
 )
 
+// AuthHandler handles authentication endpoints: status check and login.
 type AuthHandler struct {
 	cfg *config.Config
 }
 
+// NewAuthHandler creates a new AuthHandler.
 func NewAuthHandler(cfg *config.Config) *AuthHandler {
 	return &AuthHandler{cfg: cfg}
 }

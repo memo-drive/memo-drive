@@ -6,17 +6,20 @@ import (
 	"github.com/memodrive/backend/internal/parser"
 )
 
+// DocumentRef is a lightweight reference to a file used during indexing.
 type DocumentRef struct {
 	ID   string
 	Name string
 }
 
+// DocumentIndexOptions controls how a document is split into parent and child chunks.
 type DocumentIndexOptions struct {
 	ParentChunkSize int
 	ChildChunkSize  int
 	ChunkOverlap    int
 }
 
+// ChunkRecord represents a chunk to be stored in the SQLite chunks table.
 type ChunkRecord struct {
 	ID            string
 	FileID        string
@@ -28,6 +31,9 @@ type ChunkRecord struct {
 	IsParent      bool
 }
 
+// DocumentIndexPlan is the complete plan for indexing a document:
+// the hierarchical chunk structure, pre-computed vector IDs/texts/metadatas,
+// and chunk records for SQLite storage.
 type DocumentIndexPlan struct {
 	Hierarchy       *parser.HierarchicalChunks
 	VectorIDs       []string
@@ -36,6 +42,7 @@ type DocumentIndexPlan struct {
 	ChunkRecords    []ChunkRecord
 }
 
+// ChildCount returns the number of child chunks in the plan.
 func (p DocumentIndexPlan) ChildCount() int {
 	if p.Hierarchy == nil {
 		return 0
@@ -43,6 +50,8 @@ func (p DocumentIndexPlan) ChildCount() int {
 	return len(p.Hierarchy.Children)
 }
 
+// BuildDocumentIndexPlan creates an indexing plan by splitting a parsed document
+// into hierarchical (parent/child) chunks and pre-computing all vector store entries.
 func BuildDocumentIndexPlan(file DocumentRef, doc *parser.ParsedDocument, opts DocumentIndexOptions) DocumentIndexPlan {
 	hierarchy := parser.SplitDocumentHierarchical(doc, opts.ParentChunkSize, opts.ChildChunkSize, opts.ChunkOverlap)
 	if hierarchy == nil {
@@ -75,6 +84,8 @@ func BuildDocumentIndexPlan(file DocumentRef, doc *parser.ParsedDocument, opts D
 	}
 }
 
+// ParentIDForChild returns the parent chunk's vector store ID for a child chunk.
+// Returns empty string if the child has no parent (ParentIndex < 0).
 func ParentIDForChild(fileID string, child parser.ChildChunk) string {
 	if child.ParentIndex < 0 {
 		return ""
@@ -82,6 +93,8 @@ func ParentIDForChild(fileID string, child parser.ChildChunk) string {
 	return ParentChunkID(fileID, child.ParentIndex)
 }
 
+// TextWithHeading prepends the heading as a markdown H2 to the text,
+// making heading information part of the embeddable content.
 func TextWithHeading(heading, text string) string {
 	heading = strings.TrimSpace(heading)
 	text = strings.TrimSpace(text)

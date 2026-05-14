@@ -22,6 +22,7 @@ import (
 	"github.com/memodrive/backend/internal/store"
 )
 
+// UploadService manages chunked file upload sessions and chunk assembly.
 type UploadService struct {
 	cfg       *config.Config
 	store     *store.Store
@@ -29,15 +30,18 @@ type UploadService struct {
 	pipeline  *PipelineService
 }
 
+// UploadCompletion holds the result of a completed upload: the created file and its pipeline task.
 type UploadCompletion struct {
 	File *model.File
 	Task *model.Task
 }
 
+// NewUploadService creates a new UploadService.
 func NewUploadService(cfg *config.Config, store *store.Store, fileStore *FileService, pipeline *PipelineService) *UploadService {
 	return &UploadService{cfg: cfg, store: store, fileStore: fileStore, pipeline: pipeline}
 }
 
+// InitUploadInput is the payload for initializing a new upload session.
 type InitUploadInput struct {
 	FileName string `json:"file_name"`
 	FileSize int64  `json:"file_size"`
@@ -387,6 +391,7 @@ func stableMimeByExtension(name string) string {
 	}
 }
 
+// ChunkIndexFromOffset parses the Upload-Offset header and returns the zero-based chunk index.
 func ChunkIndexFromOffset(offsetHeader string, chunkSize int64) (int, error) {
 	offset, err := strconv.ParseInt(offsetHeader, 10, 64)
 	if err != nil {

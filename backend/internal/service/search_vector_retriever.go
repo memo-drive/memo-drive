@@ -9,10 +9,12 @@ import (
 	"github.com/memodrive/backend/internal/vectordb"
 )
 
+// vectorQueryEmbedder is the subset of llm.Provider needed for embedding search queries.
 type vectorQueryEmbedder interface {
 	Embed(ctx context.Context, texts []string) ([][]float32, error)
 }
 
+// vectorQueryStore is the subset of vectordb.VectorStore needed for vector similarity queries.
 type vectorQueryStore interface {
 	Query(ctx context.Context, collection string, queryEmbedding []float32, nResults int) (*vectordb.QueryResult, error)
 }

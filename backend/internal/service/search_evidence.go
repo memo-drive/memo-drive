@@ -8,6 +8,12 @@ import (
 	"time"
 )
 
+// searchSingle executes a single query against the configured retrieval backends:
+//  - If vector mode is enabled: embed query → ChromaDB similarity search → map results
+//  - If BM25 is also enabled: run SQLite FTS5 keyword search in addition
+//  - If both are enabled: fuse results via Reciprocal Rank Fusion (RRF)
+//  - If only BM25: use BM25 results directly
+// Results then go through rankChunkEvidence for parent-text resolution and scoring.
 func (s *SearchService) searchSingle(ctx context.Context, query string, fileIDs []string, topK int, modes chunkRetrievalModes) ([]SourceChunk, error) {
 	started := time.Now()
 	candidateTopK := candidateLimit(topK, len(fileIDs) > 0)
@@ -64,6 +70,8 @@ func (s *SearchService) searchSingle(ctx context.Context, query string, fileIDs 
 	return sources, nil
 }
 
+// searchMulti runs multiple query variants (from multi-query expansion) in parallel,
+// then merges results via RRF fusion. Single queries skip the merge step.
 func (s *SearchService) searchMulti(ctx context.Context, queries []string, fileIDs []string, topK int, modes chunkRetrievalModes) ([]SourceChunk, error) {
 	if len(queries) == 0 {
 		return nil, nil

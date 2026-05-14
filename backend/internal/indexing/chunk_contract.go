@@ -1,3 +1,7 @@
+// Package indexing orchestrates the transformation of parsed documents into
+// vector-indexable chunks. It defines the chunk ID contract, builds hierarchical
+// indexing plans from parsed documents, and runs the vector indexing pipeline
+// (embedding -> upsert).
 package indexing
 
 import (
@@ -15,6 +19,9 @@ const (
 	MetadataParentChunkID = "parent_chunk_id"
 )
 
+// ChunkMetadata is the metadata attached to each vector in the vector store.
+// It enables reconstruction of chunk identity and parent-child relationships
+// from query results.
 type ChunkMetadata struct {
 	FileID        string
 	FileName      string
@@ -24,14 +31,17 @@ type ChunkMetadata struct {
 	ParentChunkID string
 }
 
+// ChunkID returns the vector store ID for a child chunk in the format "fileID#index".
 func ChunkID(fileID string, index int) string {
 	return fmt.Sprintf("%s#%d", fileID, index)
 }
 
+// ParentChunkID returns the vector store ID for a parent chunk in the format "fileID#parent-index".
 func ParentChunkID(fileID string, index int) string {
 	return fmt.Sprintf("%s#parent-%d", fileID, index)
 }
 
+// ChunkIDs generates a slice of sequential child chunk IDs for a file.
 func ChunkIDs(fileID string, count int) []string {
 	if count <= 0 {
 		return nil
@@ -43,6 +53,7 @@ func ChunkIDs(fileID string, count int) []string {
 	return ids
 }
 
+// Map serializes the metadata into a map suitable for the vector store API.
 func (m ChunkMetadata) Map() map[string]any {
 	return map[string]any{
 		MetadataFileID:        m.FileID,
@@ -54,6 +65,7 @@ func (m ChunkMetadata) Map() map[string]any {
 	}
 }
 
+// ChunkMetadataFromMap deserializes metadata from a vector store query result.
 func ChunkMetadataFromMap(metadata map[string]any) ChunkMetadata {
 	if metadata == nil {
 		metadata = map[string]any{}

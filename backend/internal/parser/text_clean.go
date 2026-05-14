@@ -12,6 +12,8 @@ var (
 	multiSpacePattern     = regexp.MustCompile(` {2,}`)
 )
 
+// cleanExtractedText normalizes whitespace, removes stray page numbers,
+// and collapses excessive newlines in extracted document text.
 func cleanExtractedText(text string) string {
 	text = strings.ReplaceAll(text, "\r\n", "\n")
 	text = strings.ReplaceAll(text, "\r", "\n")

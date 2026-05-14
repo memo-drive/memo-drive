@@ -23,6 +23,8 @@ var (
 	bulletListPattern  = regexp.MustCompile(`^\s*[-+*]\s+`)
 )
 
+// ParseMarkdown reads a Markdown file and extracts structured sections based on
+// ATX heading markers (#). Inline formatting, images, links, and HTML tags are stripped.
 func ParseMarkdown(path string) (*ParsedDocument, error) {
 	started := time.Now()
 	body, err := os.ReadFile(path)

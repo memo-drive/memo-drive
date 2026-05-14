@@ -16,6 +16,7 @@ import (
 	"github.com/memodrive/backend/internal/service"
 )
 
+// AIHandler handles AI-powered endpoints: RAG chat and file search.
 type AIHandler struct {
 	llm       llm.Provider
 	ragSvc    *service.RAGService
@@ -23,6 +24,7 @@ type AIHandler struct {
 	convs     *service.ConversationService
 }
 
+// NewAIHandler creates a new AIHandler.
 func NewAIHandler(llmProvider llm.Provider, rag *service.RAGService, search *service.SearchService, convs *service.ConversationService) *AIHandler {
 	return &AIHandler{
 		llm:       llmProvider,
@@ -37,6 +39,13 @@ func (h *AIHandler) Register(router fiber.Router) {
 	router.Post("/ai/search", h.search)
 }
 
+// chat handles the RAG chat endpoint. It:
+//  1. Extracts the last user message as the search question
+//  2. Ensures a conversation record exists (reuses existing or creates new)
+//  3. Persists the user message
+//  4. Calls RAGService.Chat to retrieve evidence and stream an LLM response
+//  5. Streams SSE events: conversation ID, sources, delta chunks, done
+//  6. After the stream ends, persists the assistant message with sources
 func (h *AIHandler) chat(c *fiber.Ctx) error {
 	started := time.Now()
 	var request service.RAGRequest
@@ -136,6 +145,12 @@ func (h *AIHandler) chatDirect(c *fiber.Ctx, request service.RAGRequest, started
 	return nil
 }
 
+// search handles the semantic search endpoint. Flow:
+//  1. Parse request, extract query
+//  2. Ensure conversation record, persist user message
+//  3. Call SearchService.Search for hybrid (vector + BM25 + RRF fusion) retrieval
+//  4. Persist a synthetic assistant message summarizing result count
+//  5. Return JSON response with sources
 func (h *AIHandler) search(c *fiber.Ctx) error {
 	started := time.Now()
 	if h.searchSvc == nil {
@@ -196,6 +211,8 @@ func (h *AIHandler) appendMessage(ctx context.Context, msg *model.Message) {
 	}
 }
 
+// chatQuestion extracts the user's question from a RAGRequest.
+// It uses Prompt if set, otherwise scans Messages backwards for the last "user" role.
 func chatQuestion(request service.RAGRequest) string {
 	if prompt := strings.TrimSpace(request.Prompt); prompt != "" {
 		return prompt
@@ -208,6 +225,8 @@ func chatQuestion(request service.RAGRequest) string {
 	return ""
 }
 
+// aiError maps service-layer errors to HTTP status codes.
+// ErrEmptyQuery → 400, ErrServiceUnavailable → 503, others → 502.
 func aiError(err error) error {
 	switch {
 	case errors.Is(err, service.ErrEmptyQuery):

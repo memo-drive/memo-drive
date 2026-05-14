@@ -17,6 +17,8 @@ const (
 	maxJanitorRemovals      = 100
 )
 
+// Reconciler performs background maintenance: recovering stuck pipeline tasks,
+// cleaning up orphaned files, and purging expired trash entries.
 type Reconciler struct {
 	cfg      *config.Config
 	store    *store.Store
@@ -24,6 +26,7 @@ type Reconciler struct {
 	files    *FileService
 }
 
+// SweepStats tracks the results of a periodic reconciler sweep.
 type SweepStats struct {
 	TasksRecovered    int
 	TasksFailed       int
@@ -33,6 +36,7 @@ type SweepStats struct {
 	TrashPurged       int
 }
 
+// NewReconciler creates a new Reconciler.
 func NewReconciler(cfg *config.Config, store *store.Store, pipeline *PipelineService, files *FileService) *Reconciler {
 	return &Reconciler{cfg: cfg, store: store, pipeline: pipeline, files: files}
 }
