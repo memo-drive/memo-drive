@@ -224,6 +224,7 @@ MemoDrive/
 │
 ├── docker-compose.yml        # Main Docker compose file for all services
 ├── docker-compose.prod.yml   # Production Docker compose overrides
+├── docker-compose.tailnet.yml # Optional Tailscale Tailnet frontend entrypoint
 ├── deploy/nginx/tls.conf     # Edge nginx TLS, API routing, SPA proxy, mobile root redirect
 ├── .env.example              # Example environment variables
 ├── start.sh                  # macOS/Linux startup script
@@ -285,19 +286,19 @@ Then open:
 
 ## Production HTTPS (TLS Termination at Reverse Proxy)
 
-For production, use the compose override so all external traffic enters through the `edge` nginx with HTTPS:
+For production, use the compose override so public traffic enters through the `edge` nginx with HTTPS:
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
 ```
 
-The prod override:
-- Removes all direct host port bindings from `backend`, `chroma`, and `ollama` (internal only)
+The prod deployment is designed around this boundary:
 - Adds an `edge` nginx container that terminates TLS on ports `80`/`443`
 - Routes `/api/` directly to `backend:8080` (single-hop, SSE streaming supported)
 - Routes everything else to `frontend:80`
 - Redirects phone User-Agents opening the bare root path `/` to `/m` with `302`; tablet User-Agents and all deep links are left unchanged
 - Keeps mobile login closed-loop through `/login?redirect=...`, so unauthenticated phone users return to `/m` after login even if the first `/` request reached the frontend directly
+- Keep your cloud firewall/security group restricted to public `80/tcp` and `443/tcp`; block direct public access to `3000/tcp`, `8080/tcp`, `8000/tcp`, and `11434/tcp`.
 
 **Setup checklist:**
 
@@ -335,11 +336,49 @@ The prod override:
 
    | Service | Dev | Production |
    |---------|-----|------------|
-   | Frontend | `3000` (host) | internal only |
-   | Backend | `8080` (host) | internal only |
-   | Chroma | `8000` (host) | internal only |
-   | Ollama | `11434` (host) | internal only |
-   | Edge nginx | — | `80`, `443` (host) |
+   | Frontend | `3000` (host) | behind edge; do not open directly to the public internet |
+   | Backend | `8080` (host) | app-internal; block public ingress |
+   | Chroma | `8000` (host) | app-internal; block public ingress |
+   | Ollama | `11434` (host) | app-internal; block public ingress |
+   | Edge nginx | — | public `80`, `443` |
+
+### Tailscale Tailnet Acceleration
+
+If the server and phone are both in the same Tailnet, add a private high-throughput entrypoint without replacing the public HTTPS domain:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.tailnet.yml up -d --build
+```
+
+The Tailnet override replaces the frontend host binding with a loopback-only upstream for Tailscale Serve:
+
+```bash
+sudo tailscale set --hostname=memodrive
+tailscale serve --bg --https=443 http://127.0.0.1:${TAILSCALE_FRONTEND_PORT:-3000}
+```
+
+Then open the mobile entry from your phone:
+
+```text
+https://memodrive.<your-tailnet>.ts.net/m
+```
+
+Recommended Tailnet boundary:
+
+- Enable Tailscale MagicDNS and HTTPS certificates.
+- Use `tailscale serve`, not `tailscale funnel`; the Tailnet entry should stay private.
+- In the Tailscale admin console, limit access to the `memodrive` service to your own devices.
+- Keep MemoDrive's normal password/JWT login enabled. The public domain and Tailnet domain have separate browser storage, so expect to log in once on each domain.
+- Keep the cloud firewall/security group allowing public `80/tcp`, public `443/tcp`, and Tailscale `41641/udp`; block public `3000/tcp`, `8080/tcp`, `8000/tcp`, and `11434/tcp`.
+
+For slow or failed large transfers, first confirm the phone is using `https://memodrive.<your-tailnet>.ts.net/m`, then check direct connectivity:
+
+```bash
+tailscale status
+tailscale ping <phone-device-name>
+```
+
+If the connection falls back to DERP, check that `41641/udp` is allowed by the cloud firewall/security group before changing MemoDrive upload settings such as `UPLOAD_CHUNK_SIZE`.
 
 ## Local Development
 

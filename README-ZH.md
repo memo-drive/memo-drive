@@ -223,6 +223,7 @@ MemoDrive/
 │
 ├── docker-compose.yml        # Docker Compose 核心服务编排文件
 ├── docker-compose.prod.yml   # Docker Compose 生产环境配置覆写
+├── docker-compose.tailnet.yml # 可选的 Tailscale Tailnet 前端入口覆写
 ├── deploy/nginx/tls.conf     # Edge nginx TLS、API 路由、SPA 转发、移动根路径跳转
 ├── .env.example              # 环境变量配置模板文件
 ├── start.sh                  # macOS/Linux 一键启动脚本
@@ -284,19 +285,19 @@ make docker-up
 
 ## 生产环境 HTTPS（反向代理终止 TLS）
 
-生产环境建议使用 compose 覆盖配置，所有外部流量通过 `edge` nginx 以 HTTPS 入口访问：
+生产环境建议使用 compose 覆盖配置，让公网流量通过 `edge` nginx 以 HTTPS 入口访问：
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
 ```
 
-生产 compose 覆盖的作用：
-- 移除 `backend`、`chroma`、`ollama` 的宿主机端口绑定（仅内网通信）
+生产部署的边界设计：
 - 新增 `edge` nginx 容器，在 `80`/`443` 上终止 TLS
 - `/api/` 请求直接代理到 `backend:8080`（单跳，支持 SSE 流式响应）
 - 其余请求代理到 `frontend:80`
 - 手机 User-Agent 访问裸根路径 `/` 时，以 `302` 临时跳转到 `/m`；平板 User-Agent 和所有深链不受影响
 - 移动端登录通过 `/login?redirect=...` 保持闭环，即使首次 `/` 请求直接到达前端，未登录手机用户登录后也会回到 `/m`
+- 云服务器防火墙/安全组应只向公网开放 `80/tcp` 与 `443/tcp`；不要向公网开放 `3000/tcp`、`8080/tcp`、`8000/tcp`、`11434/tcp`。
 
 **部署检查清单：**
 
@@ -334,11 +335,49 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
 
    | 服务 | 开发环境 | 生产环境 |
    |------|---------|---------|
-   | Frontend | `3000`（宿主机） | 仅内网 |
-   | Backend | `8080`（宿主机） | 仅内网 |
-   | Chroma | `8000`（宿主机） | 仅内网 |
-   | Ollama | `11434`（宿主机） | 仅内网 |
-   | Edge nginx | — | `80`、`443`（宿主机） |
+   | Frontend | `3000`（宿主机） | 通过 edge 访问，不应直接对公网开放 |
+   | Backend | `8080`（宿主机） | 应用内部服务，阻断公网入站 |
+   | Chroma | `8000`（宿主机） | 应用内部服务，阻断公网入站 |
+   | Ollama | `11434`（宿主机） | 应用内部服务，阻断公网入站 |
+   | Edge nginx | — | 公网 `80`、`443` |
+
+### Tailscale Tailnet 私网加速入口
+
+当云服务器和手机都已加入同一个 Tailnet 时，可以新增一个私有高速入口，不替代原有公网 HTTPS 域名：
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.tailnet.yml up -d --build
+```
+
+Tailnet 覆写会把 frontend 的宿主机端口替换成仅本机回环可访问的 Tailscale Serve upstream：
+
+```bash
+sudo tailscale set --hostname=memodrive
+tailscale serve --bg --https=443 http://127.0.0.1:${TAILSCALE_FRONTEND_PORT:-3000}
+```
+
+然后在手机端打开移动入口：
+
+```text
+https://memodrive.<your-tailnet>.ts.net/m
+```
+
+推荐的 Tailnet 边界：
+
+- 开启 Tailscale MagicDNS 和 HTTPS Certificates。
+- 使用 `tailscale serve`，不要使用 `tailscale funnel`；Tailnet 入口应保持私有。
+- 在 Tailscale Admin Console 中把 `memodrive` 服务限制为仅你的个人设备可访问。
+- 保留 MemoDrive 自己的密码/JWT 登录。公网域名和 Tailnet 域名的浏览器存储相互隔离，因此两边各登录一次是正常现象。
+- 云服务器防火墙/安全组向公网开放 `80/tcp`、`443/tcp`，并放行 Tailscale `41641/udp`；阻断公网 `3000/tcp`、`8080/tcp`、`8000/tcp`、`11434/tcp`。
+
+大文件传输慢或失败时，先确认手机打开的是 `https://memodrive.<your-tailnet>.ts.net/m`，再检查 Tailscale 是否直连：
+
+```bash
+tailscale status
+tailscale ping <phone-device-name>
+```
+
+如果连接回落到 DERP 中继，优先检查云服务器防火墙/安全组是否放行 `41641/udp`，再考虑调整 MemoDrive 的 `UPLOAD_CHUNK_SIZE` 等上传参数。
 
 ## 本地开发
 
