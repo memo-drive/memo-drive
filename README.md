@@ -347,7 +347,7 @@ The prod deployment is designed around this boundary:
 If the server and phone are both in the same Tailnet, add a private high-throughput entrypoint without replacing the public HTTPS domain:
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.tailnet.yml up -d --build
+make docker-tailnet-build
 ```
 
 The Tailnet override replaces the frontend host binding with a loopback-only upstream for Tailscale Serve:

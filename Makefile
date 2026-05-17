@@ -1,4 +1,6 @@
-.PHONY: help dev-backend dev-frontend build-backend build-frontend build-all docker-up docker-down docker-build test clean build-linux build-windows build-mac
+.PHONY: help dev-backend dev-frontend build-backend build-frontend build-all docker-up docker-down docker-build docker-tailnet-up docker-tailnet-down docker-tailnet-build test clean build-linux build-windows build-mac
+
+COMPOSE_TAILNET := docker compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.tailnet.yml
 
 # Default target
 help:
@@ -13,6 +15,9 @@ help:
 	@echo "  make docker-up       - Start all services with Docker Compose"
 	@echo "  make docker-down     - Stop all Docker Compose services"
 	@echo "  make docker-build    - Rebuild and start all Docker Compose services"
+	@echo "  make docker-tailnet-up    - Start production services with Tailnet frontend entry"
+	@echo "  make docker-tailnet-down  - Stop production Tailnet Compose services"
+	@echo "  make docker-tailnet-build - Rebuild and start production services with Tailnet frontend entry"
 	@echo ""
 	@echo "Local Build:"
 	@echo "  make build-all       - Build both frontend and backend for current OS"
@@ -55,6 +60,15 @@ docker-down:
 
 docker-build:
 	docker compose up -d --build
+
+docker-tailnet-up:
+	$(COMPOSE_TAILNET) up -d
+
+docker-tailnet-down:
+	$(COMPOSE_TAILNET) down
+
+docker-tailnet-build:
+	$(COMPOSE_TAILNET) up -d --build
 
 # --- Local Build ---
 build-backend:

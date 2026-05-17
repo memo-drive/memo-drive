@@ -346,7 +346,7 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
 当云服务器和手机都已加入同一个 Tailnet 时，可以新增一个私有高速入口，不替代原有公网 HTTPS 域名：
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.tailnet.yml up -d --build
+make docker-tailnet-build
 ```
 
 Tailnet 覆写会把 frontend 的宿主机端口替换成仅本机回环可访问的 Tailscale Serve upstream：
