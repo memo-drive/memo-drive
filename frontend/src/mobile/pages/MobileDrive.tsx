@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useLocation } from "react-router-dom";
 import {
@@ -20,6 +20,7 @@ import {
   driveFolderPayloadName,
   driveRenameErrorKey,
   driveRenamePayloadName,
+  startDriveFolderEntry,
   startDriveFolderCreate,
 } from "../../workflows/driveWorkflow";
 import { UploadFab } from "../components/UploadFab/UploadFab";
@@ -50,14 +51,18 @@ export function MobileDrivePage() {
   const [createFolderOpen, setCreateFolderOpen] = useState(false);
   const [createFolderDraft, setCreateFolderDraft] = useState("");
   const [creatingFolder, setCreatingFolder] = useState(false);
+  const [enteringFolderId, setEnteringFolderId] = useState<string | null>(null);
+  const enteringFolderIdRef = useRef<string | null>(null);
+  const enteringPathRef = useRef<string | null>(null);
   const { upload } = useChunkedUpload(() => {
     void refresh();
   });
 
   function refresh() {
     let cancelled = false;
+    const path = currentPath;
     setLoading(true);
-    listFiles(currentPath)
+    listFiles(path)
       .then((response) => {
         if (cancelled) return;
         setFiles(response.files ?? []);
@@ -69,7 +74,13 @@ export function MobileDrivePage() {
         setError(err instanceof Error ? err.message : t("drive.loadError"));
       })
       .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (cancelled) return;
+        setLoading(false);
+        if (enteringPathRef.current === path) {
+          enteringPathRef.current = null;
+          enteringFolderIdRef.current = null;
+          setEnteringFolderId(null);
+        }
       });
     return () => {
       cancelled = true;
@@ -77,6 +88,11 @@ export function MobileDrivePage() {
   }
 
   useEffect(() => {
+    if (enteringPathRef.current && enteringPathRef.current !== currentPath) {
+      enteringPathRef.current = null;
+      enteringFolderIdRef.current = null;
+      setEnteringFolderId(null);
+    }
     const cancel = refresh();
     setSearchDraft("");
     setSearchQuery("");
@@ -160,6 +176,15 @@ export function MobileDrivePage() {
     }
   }
 
+  function handleEnterFolder(file: DriveFile) {
+    const entry = startDriveFolderEntry(file, enteringFolderIdRef.current);
+    if (!entry) return false;
+    enteringFolderIdRef.current = entry.enteringFolderId;
+    enteringPathRef.current = entry.nextPath;
+    setEnteringFolderId(entry.enteringFolderId);
+    return true;
+  }
+
   function requestRename(file: DriveFile) {
     setActionFile(null);
     setRenameTarget(file);
@@ -216,6 +241,7 @@ export function MobileDrivePage() {
         currentPath={currentPath}
         files={files}
         loading={loading}
+        enteringFolderId={enteringFolderId}
         error={error}
         searchDraft={searchDraft}
         searchActive={Boolean(searchQuery)}
@@ -236,6 +262,7 @@ export function MobileDrivePage() {
         createFolderBusy={creatingFolder}
         onOpenActions={setActionFile}
         onCloseActions={() => setActionFile(null)}
+        onEnterFolder={handleEnterFolder}
         onSearchDraftChange={handleSearchDraftChange}
         onSearchSubmit={() => void handleSearchSubmit()}
         onClearSearch={clearSearch}

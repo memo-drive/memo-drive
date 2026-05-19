@@ -129,6 +129,8 @@
     "modified": "修改日期",
     "size": "大小",
     "actions": "操作",
+    "enteringFolder": "进入中...",
+    "loadingFolder": "正在加载...",
     "pagination": "第 {{current}} / {{total}} 页（共 {{count}} 条）"
   },
   "moveDialog": {
@@ -307,6 +309,7 @@
     "title": "AI 助手",
     "eyebrow": "AI Copilot",
     "openAssistant": "打开 AI 助手",
+    "resizePanel": "拖拽调整 AI 助手尺寸",
     "modeLabel": "AI 模式",
     "modeRag": "文件问答",
     "modeRagHint": "基于已索引文件回答",

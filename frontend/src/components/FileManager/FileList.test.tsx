@@ -29,6 +29,65 @@ describe("FileList", () => {
     expect(html).toContain('alt="receipt.jpg"');
   });
 
+  it("marks a folder row as busy while entering it", () => {
+    const html = renderToString(
+      <FileList
+        files={[
+          makeFile({
+            id: "folder-1",
+            name: "Photos",
+            is_dir: true,
+            mime_type: "",
+          }),
+        ]}
+        enteringFolderId="folder-1"
+        folderNavigationDisabled
+        onOpenFolder={vi.fn()}
+        onSelect={vi.fn()}
+        onDelete={vi.fn()}
+        onRename={vi.fn()}
+        onMove={vi.fn()}
+        onDownload={vi.fn()}
+      />,
+    );
+
+    expect(html).toContain("aria-busy=\"true\"");
+    expect(html).toContain("进入中");
+  });
+
+  it("blocks the whole file list while entering a folder", () => {
+    const html = renderToString(
+      <FileList
+        files={[
+          makeFile({
+            id: "folder-1",
+            name: "Photos",
+            is_dir: true,
+            mime_type: "",
+          }),
+          makeFile({
+            id: "image-1",
+            name: "receipt.jpg",
+            mime_type: "image/jpeg",
+            metadata: makeMetadata("image-1.jpg"),
+          }),
+        ]}
+        enteringFolderId="folder-1"
+        folderNavigationDisabled
+        onOpenFolder={vi.fn()}
+        onSelect={vi.fn()}
+        onDelete={vi.fn()}
+        onRename={vi.fn()}
+        onMove={vi.fn()}
+        onDownload={vi.fn()}
+      />,
+    );
+
+    expect(html).toContain("data-file-list-busy=\"true\"");
+    expect(html.match(/aria-disabled="true"/g)).toHaveLength(3);
+    expect(html).toContain("正在加载");
+  });
+
   it("renders QuickTime video files with their generated thumbnail", () => {
     const html = renderToString(
       <FileList

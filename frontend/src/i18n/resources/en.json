@@ -128,6 +128,8 @@
     "modified": "Modified",
     "size": "Size",
     "actions": "Actions",
+    "enteringFolder": "Entering...",
+    "loadingFolder": "Loading...",
     "pagination": "Page {{current}} / {{total}} ({{count}} items)"
   },
   "moveDialog": {
@@ -306,6 +308,7 @@
     "title": "AI Assistant",
     "eyebrow": "AI Copilot",
     "openAssistant": "Open AI Assistant",
+    "resizePanel": "Drag to resize AI Assistant",
     "modeLabel": "AI Mode",
     "modeRag": "Q&A",
     "modeRagHint": "Answer questions based on indexed files",

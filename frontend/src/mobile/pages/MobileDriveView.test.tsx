@@ -25,6 +25,27 @@ describe("MobileDriveView", () => {
     expect(html).toContain("href=\"/m/preview/file-1?path=%2FDocs\"");
   });
 
+  it("shows an entering state for the folder currently loading", () => {
+    const html = renderToString(
+      <MemoryRouter>
+        <MobileDriveView
+          currentPath="/Docs"
+          files={[
+            makeFile({ id: "folder-1", name: "AI", is_dir: true }),
+            makeFile({ id: "folder-2", name: "Notes", is_dir: true }),
+          ]}
+          loading
+          enteringFolderId="folder-1"
+        />
+      </MemoryRouter>,
+    );
+
+    expect(html).toContain("进入中");
+    expect(html).toContain("aria-disabled=\"true\"");
+    expect(html).toContain("data-mobile-file-list-busy=\"true\"");
+    expect(html).toContain("正在加载");
+  });
+
   it("renders a single File action sheet without sharing actions", () => {
     const file = makeFile({ id: "file-1", name: "Memo.pdf" });
     const html = renderToString(

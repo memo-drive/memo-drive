@@ -25,6 +25,54 @@ describe("MobileFileCard", () => {
     expect(fileHtml).toContain("href=\"/m/preview/file-1?path=%2FDocs\"");
   });
 
+  it("keeps stale folder cards from appending the same path again while entering", () => {
+    const html = renderCard(
+      <MobileFileCard
+        file={makeFile({
+          is_dir: true,
+          name: "Photos",
+          path: "/",
+          storage_path: "Photos",
+        })}
+        currentPath="/Photos"
+      />,
+    );
+
+    expect(html).toContain("href=\"/m?path=%2FPhotos\"");
+    expect(html).not.toContain("%2FPhotos%2FPhotos");
+  });
+
+  it("marks an entering folder as busy so repeat taps are ignored", () => {
+    const html = renderCard(
+      <MobileFileCard
+        file={makeFile({ is_dir: true, name: "Photos" })}
+        currentPath="/"
+        entering
+        folderNavigationDisabled
+      />,
+    );
+
+    expect(html).toContain("aria-disabled=\"true\"");
+    expect(html).toContain("进入中");
+  });
+
+  it("disables file preview and actions while the folder view is loading", () => {
+    const html = renderCard(
+      <MobileFileCard
+        file={makeFile({
+          id: "image-1",
+          name: "receipt.jpg",
+          mime_type: "image/jpeg",
+        })}
+        currentPath="/Photos"
+        folderNavigationDisabled
+      />,
+    );
+
+    expect(html).toContain("aria-disabled=\"true\"");
+    expect(html).toContain("disabled=\"\"");
+  });
+
   it("renders image files with their generated thumbnail", () => {
     const html = renderCard(
       <MobileFileCard

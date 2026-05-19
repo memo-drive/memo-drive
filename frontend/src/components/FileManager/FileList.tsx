@@ -13,6 +13,8 @@ import styles from "./FileList.module.css";
 interface Props {
 	files: DriveFile[];
 	selectedId?: string;
+	enteringFolderId?: string | null;
+	folderNavigationDisabled?: boolean;
 	onOpenFolder: (file: DriveFile) => void;
 	onSelect: (file: DriveFile) => void;
 	onDelete: (file: DriveFile) => void;
@@ -26,6 +28,8 @@ const PAGE_SIZE = 50;
 export function FileList({
 	files,
 	selectedId,
+	enteringFolderId = null,
+	folderNavigationDisabled = false,
 	onOpenFolder,
 	onSelect,
 	onDelete,
@@ -59,10 +63,15 @@ export function FileList({
 		image: styles.iconBoxImg,
 		video: styles.iconBoxFile,
 	};
+	const busy = folderNavigationDisabled || Boolean(enteringFolderId);
 
 	return (
-		<div className={styles.tableWrapper}>
-			<table className={styles.table}>
+		<div
+			className={styles.tableWrapper}
+			aria-busy={busy || undefined}
+			data-file-list-busy={busy || undefined}
+		>
+			<table className={styles.table} aria-disabled={busy || undefined}>
 				<thead>
 					<tr className={styles.tableHeadRow}>
 						<th className={styles.tableHeadCell}>{t("fileList.name")}</th>
@@ -77,6 +86,8 @@ export function FileList({
 							key={file.id}
 							file={file}
 							iconClasses={iconClasses}
+							entering={enteringFolderId === file.id}
+							fileListBusy={busy}
 							onDelete={onDelete}
 							onDownload={onDownload}
 							onMove={onMove}
@@ -93,7 +104,7 @@ export function FileList({
 				<div className={styles.pagination}>
 					<button
 						className={styles.pageBtn}
-						disabled={page <= 1}
+						disabled={busy || page <= 1}
 						onClick={() => setPage((p) => p - 1)}
 					>
 						<span className="material-symbols-outlined">
@@ -105,7 +116,7 @@ export function FileList({
 					</span>
 					<button
 						className={styles.pageBtn}
-						disabled={page >= totalPages}
+						disabled={busy || page >= totalPages}
 						onClick={() => setPage((p) => p + 1)}
 					>
 						<span className="material-symbols-outlined">
@@ -114,6 +125,12 @@ export function FileList({
 					</button>
 				</div>
 			)}
+			{busy ? (
+				<div className={styles.busyOverlay} role="status" aria-live="polite">
+					<LoadingSpinnerIcon className={styles.loadingIcon} />
+					<span>{t("fileList.loadingFolder")}</span>
+				</div>
+			) : null}
 		</div>
 	);
 }
@@ -121,6 +138,8 @@ export function FileList({
 interface FileRowProps {
 	file: DriveFile;
 	iconClasses: Record<FilePresentationKind, string>;
+	entering: boolean;
+	fileListBusy: boolean;
 	onOpenFolder: (file: DriveFile) => void;
 	onSelect: (file: DriveFile) => void;
 	onDelete: (file: DriveFile) => void;
@@ -134,6 +153,8 @@ interface FileRowProps {
 function FileRow({
 	file,
 	iconClasses,
+	entering,
+	fileListBusy,
 	onDelete,
 	onDownload,
 	onMove,
@@ -146,8 +167,11 @@ function FileRow({
 	const presentation = filePresentation(file);
 	return (
 		<tr
-			className={`${styles.tableRow} ${selected ? styles.tableRowSelected : ""}`}
+			className={`${styles.tableRow} ${selected ? styles.tableRowSelected : ""} ${fileListBusy ? styles.tableRowDisabled : ""}`}
+			aria-busy={entering || undefined}
+			aria-disabled={fileListBusy || undefined}
 			onClick={() => {
+				if (fileListBusy) return;
 				onSelect(file);
 				if (file.is_dir) onOpenFolder(file);
 			}}
@@ -157,14 +181,18 @@ function FileRow({
 					<div
 						className={`${styles.iconBox} ${iconClasses[presentation.kind]}`}
 					>
-						<FileIcon file={file} presentation={presentation} />
+						{entering ? (
+							<LoadingSpinnerIcon className={styles.loadingIcon} />
+						) : (
+							<FileIcon file={file} presentation={presentation} />
+						)}
 					</div>
 					<div>
 						<p className={styles.fileName}>
 							{file.name}
 						</p>
 						<p className={styles.fileDesc}>
-							{presentation.description}
+							{entering ? t("fileList.enteringFolder") : presentation.description}
 						</p>
 					</div>
 				</div>
@@ -248,6 +276,7 @@ function FileRow({
 								>
 									<button
 										className={styles.actionButton}
+										disabled={fileListBusy}
 										onClick={(e: any) =>
 											e.stopPropagation()
 										}
@@ -259,6 +288,33 @@ function FileRow({
 								</Popover>
 							</td>
 						</tr>
+	);
+}
+
+function LoadingSpinnerIcon({ className = "" }: { className?: string }) {
+	return (
+		<svg
+			className={className}
+			viewBox="0 0 24 24"
+			fill="none"
+			aria-hidden="true"
+			focusable="false"
+		>
+			<circle
+				cx="12"
+				cy="12"
+				r="9"
+				stroke="currentColor"
+				strokeWidth="3"
+				opacity="0.18"
+			/>
+			<path
+				d="M21 12a9 9 0 0 0-9-9"
+				stroke="currentColor"
+				strokeLinecap="round"
+				strokeWidth="3"
+			/>
+		</svg>
 	);
 }
 

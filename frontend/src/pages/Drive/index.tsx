@@ -28,7 +28,6 @@ import {
 	completeDriveMove,
 	confirmDriveDelete,
 	driveFolderPayloadName,
-	driveFolderPath,
 	driveParentPath,
 	driveRenameErrorKey,
 	driveRenamePayloadName,
@@ -36,6 +35,7 @@ import {
 	pickSearchResult,
 	selectedDriveUploadFiles,
 	shouldStartDriveUpload,
+	startDriveFolderEntry,
 	startDriveDelete,
 	startDriveFolderCreate,
 	startDriveMove,
@@ -73,10 +73,13 @@ export function DrivePage() {
 	const [newName, setNewName] = useState("");
 	const [renaming, setRenaming] = useState(false);
 	const [moveTarget, setMoveTarget] = useState<DriveFile | null>(null);
+	const [enteringFolderId, setEnteringFolderId] = useState<string | null>(null);
 	const { upload } = useChunkedUpload(() => {
 		void refresh();
 	});
 	const searchSerial = useRef(0);
+	const enteringFolderIdRef = useRef<string | null>(null);
+	const enteringPathRef = useRef<string | null>(null);
 
 	const crumbs = buildDriveCrumbs(
 		currentPath,
@@ -92,6 +95,12 @@ export function DrivePage() {
 			setError("");
 		} catch (err) {
 			setError(err instanceof Error ? err.message : t("drive.loadError"));
+		} finally {
+			if (enteringPathRef.current === path) {
+				enteringPathRef.current = null;
+				enteringFolderIdRef.current = null;
+				setEnteringFolderId(null);
+			}
 		}
 	}
 
@@ -206,8 +215,20 @@ export function DrivePage() {
 
 	const renameErrorKey = driveRenameErrorKey(newName);
 
+	function navigateToPath(path: string) {
+		enteringPathRef.current = null;
+		enteringFolderIdRef.current = null;
+		setEnteringFolderId(null);
+		setCurrentPath(path);
+	}
+
 	function openFolder(file: DriveFile) {
-		setCurrentPath(driveFolderPath(file));
+		const entry = startDriveFolderEntry(file, enteringFolderIdRef.current);
+		if (!entry) return;
+		enteringFolderIdRef.current = entry.enteringFolderId;
+		enteringPathRef.current = entry.nextPath;
+		setEnteringFolderId(entry.enteringFolderId);
+		setCurrentPath(entry.nextPath);
 	}
 
 	function triggerUpload() {
@@ -238,7 +259,7 @@ export function DrivePage() {
 		const pick = pickSearchResult(file);
 		setSelectedFile(pick.selectedFile);
 		setPreviewFile(pick.previewFile);
-		if (pick.nextPath) setCurrentPath(pick.nextPath);
+		if (pick.nextPath) navigateToPath(pick.nextPath);
 	}
 
 	async function handleMoveComplete() {
@@ -291,7 +312,7 @@ export function DrivePage() {
 				{parentPath && (
 					<button
 						className={styles.backBtn}
-						onClick={() => setCurrentPath(parentPath)}
+						onClick={() => navigateToPath(parentPath)}
 						title={t("drive.backToParent")}
 					>
 						<span
@@ -308,7 +329,7 @@ export function DrivePage() {
 							<button
 								className={`${styles.crumbBtn} ${i === crumbs.length - 1 ? styles.crumbBtnCurrent : ""}`}
 								onClick={() =>
-									crumb.path && setCurrentPath(crumb.path)
+									crumb.path && navigateToPath(crumb.path)
 								}
 								disabled={!crumb.path}
 							>
@@ -376,6 +397,8 @@ export function DrivePage() {
 							<FileList
 								files={files}
 								selectedId={selectedFile?.id}
+								enteringFolderId={enteringFolderId}
+								folderNavigationDisabled={Boolean(enteringFolderId)}
 								onOpenFolder={openFolder}
 								onSelect={handleFileClick}
 								onDelete={onDelete}

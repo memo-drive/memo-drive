@@ -34,6 +34,11 @@ export interface DrivePickResult {
   nextPath: string | null;
 }
 
+export interface DriveFolderEntry {
+  enteringFolderId: string;
+  nextPath: string;
+}
+
 export interface DriveRenameDraft {
   target: DriveFile;
   draftName: string;
@@ -94,6 +99,17 @@ export function driveParentPath(currentPath: string): string | null {
 
 export function driveFolderPath(file: DriveFile): string {
   return file.path === "/" ? `/${file.name}` : `${file.path}/${file.name}`;
+}
+
+export function startDriveFolderEntry(
+  file: DriveFile,
+  activeEnteringFolderId: string | null,
+): DriveFolderEntry | null {
+  if (!file.is_dir || activeEnteringFolderId) return null;
+  return {
+    enteringFolderId: file.id,
+    nextPath: driveFolderPath(file),
+  };
 }
 
 export function startDriveFolderCreate(): DriveFolderDraft {

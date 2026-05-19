@@ -157,6 +157,36 @@
   display: grid;
   gap: 0.4rem;
   margin-top: 0.5rem;
+  position: relative;
+}
+
+.listBusy {
+  min-height: 5rem;
+}
+
+.listBusyOverlay {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  border-radius: var(--radius-md);
+  color: var(--color-accent-text);
+  background: var(--color-surface-glass);
+  font-size: 0.875rem;
+  font-weight: 750;
+  backdrop-filter: blur(2px);
+  pointer-events: all;
+}
+
+.listBusyIcon {
+  width: 1.15rem;
+  height: 1.15rem;
+  color: var(--color-accent);
+  animation: spin 0.9s linear infinite;
+  transform-origin: center;
 }
 
 .searchResults {
@@ -411,4 +441,10 @@
 
 .sheetActions .dangerAction :global(.material-symbols-outlined) {
   color: currentColor;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }

@@ -11,6 +11,7 @@ interface MobileDriveViewProps {
   currentPath: string;
   files: DriveFile[];
   loading?: boolean;
+  enteringFolderId?: string | null;
   error?: string;
   searchDraft?: string;
   searchActive?: boolean;
@@ -34,6 +35,7 @@ interface MobileDriveViewProps {
   onClearSearch?: () => void;
   onSemanticChange?: (includeSemantic: boolean) => void;
   onOpenCreateFolder?: () => void;
+  onEnterFolder?: (file: DriveFile) => boolean | void;
   onCreateFolderDraftChange?: (value: string) => void;
   onCancelCreateFolder?: () => void;
   onConfirmCreateFolder?: () => void;
@@ -52,6 +54,7 @@ export function MobileDriveView({
   currentPath,
   files,
   loading = false,
+  enteringFolderId = null,
   error = "",
   searchDraft = "",
   searchActive = false,
@@ -75,6 +78,7 @@ export function MobileDriveView({
   onClearSearch,
   onSemanticChange,
   onOpenCreateFolder,
+  onEnterFolder,
   onCreateFolderDraftChange,
   onCancelCreateFolder,
   onConfirmCreateFolder,
@@ -90,6 +94,7 @@ export function MobileDriveView({
 }: MobileDriveViewProps) {
   const { t } = useTranslation();
   const hasSearchDraft = searchDraft.trim().length > 0;
+  const fileListBusy = loading && files.length > 0 && !searchActive;
 
   return (
     <>
@@ -156,15 +161,28 @@ export function MobileDriveView({
       ) : files.length === 0 ? (
         <div className={styles.state}>{t("mobile.files.empty")}</div>
       ) : (
-        <div className={styles.list}>
+        <div
+          className={`${styles.list} ${fileListBusy ? styles.listBusy : ""}`}
+          aria-busy={fileListBusy || undefined}
+          data-mobile-file-list-busy={fileListBusy || undefined}
+        >
           {files.map((file) => (
             <MobileFileCard
               key={file.id}
               file={file}
               currentPath={currentPath}
+              entering={enteringFolderId === file.id}
+              folderNavigationDisabled={loading}
+              onFolderEnter={onEnterFolder}
               onMore={onOpenActions}
             />
           ))}
+          {fileListBusy ? (
+            <div className={styles.listBusyOverlay} role="status" aria-live="polite">
+              <LoadingSpinnerIcon className={styles.listBusyIcon} />
+              <span>{t("fileList.loadingFolder")}</span>
+            </div>
+          ) : null}
         </div>
       )}
       {actionFile ? (
@@ -254,6 +272,33 @@ export function MobileDriveView({
         onConfirm={() => onConfirmCreateFolder?.()}
       />
     </>
+  );
+}
+
+function LoadingSpinnerIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <circle
+        cx="12"
+        cy="12"
+        r="9"
+        stroke="currentColor"
+        strokeWidth="3"
+        opacity="0.18"
+      />
+      <path
+        d="M21 12a9 9 0 0 0-9-9"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeWidth="3"
+      />
+    </svg>
   );
 }
 
