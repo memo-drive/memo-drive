@@ -55,6 +55,29 @@ describe("FileList", () => {
     expect(html).toContain("进入中");
   });
 
+  it("virtualizes large desktop file lists without mounting every row", () => {
+    const files = Array.from({ length: 120 }, (_, index) =>
+      makeFile({ id: `file-${index}`, name: `Memo-${index}.pdf` }),
+    );
+    const html = renderToString(
+      <FileList
+        files={files}
+        onOpenFolder={vi.fn()}
+        onSelect={vi.fn()}
+        onDelete={vi.fn()}
+        onRename={vi.fn()}
+        onMove={vi.fn()}
+        onDownload={vi.fn()}
+      />,
+    );
+
+    expect(html).toContain("data-virtual-list=\"true\"");
+    expect(html).toContain("data-virtual-count=\"120\"");
+    expect(html).toContain("Memo-0.pdf");
+    expect(html).not.toContain("Memo-119.pdf");
+    expect(html).not.toContain("第 1 / 3 页");
+  });
+
   it("blocks the whole file list while entering a folder", () => {
     const html = renderToString(
       <FileList

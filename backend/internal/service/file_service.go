@@ -33,6 +33,12 @@ type FileService struct {
 	vectorDB vectordb.VectorStore
 }
 
+type BatchResult struct {
+	Total     int `json:"total"`
+	Succeeded int `json:"succeeded"`
+	Failed    int `json:"failed"`
+}
+
 // NewFileService creates a new FileService.
 func NewFileService(cfg *config.Config, store *store.Store, vectorDB vectordb.VectorStore) *FileService {
 	return &FileService{cfg: cfg, store: store, vectorDB: vectorDB}
@@ -48,6 +54,78 @@ func (s *FileService) List(ctx context.Context, dirPath, sort string) ([]model.F
 	}
 	s.attachMetadata(ctx, files)
 	log.Printf("level=debug component=file event=list_complete path=%q sort=%q count=%d duration_ms=%d", cleanPath, sort, len(files), time.Since(started).Milliseconds())
+	return files, nil
+}
+
+func (s *FileService) Query(ctx context.Context, req FileQueryRequest) (*FileQueryResponse, error) {
+	items, nextCursor, hasMore, err := s.store.QueryFiles(ctx, store.FileQueryFilter{
+		Category:        req.Category,
+		Keyword:         req.Query,
+		Sort:            req.Sort,
+		Cursor:          req.Cursor,
+		Limit:           req.Limit,
+		MediaFilter:     req.MediaFilter,
+		DocumentSubtype: req.DocumentSubtype,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if items == nil {
+		items = []model.File{}
+	}
+	s.attachMetadata(ctx, items)
+	return &FileQueryResponse{
+		Items:      items,
+		NextCursor: nextCursor,
+		HasMore:    hasMore,
+	}, nil
+}
+
+func (s *FileService) PhotoMonths(ctx context.Context) (*PhotoMonthIndexResponse, error) {
+	months, err := s.store.ListPhotoMonths(ctx)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]PhotoMonthIndexItem, 0, len(months))
+	for _, month := range months {
+		items = append(items, PhotoMonthIndexItem{
+			Year:  month.Year,
+			Month: month.Month,
+			Count: month.Count,
+		})
+	}
+	return &PhotoMonthIndexResponse{Months: items}, nil
+}
+
+func (s *FileService) PhotoTimeline(ctx context.Context, req PhotoTimelineRequest) (*FileQueryResponse, error) {
+	items, nextCursor, hasMore, err := s.store.QueryPhotoTimeline(ctx, store.PhotoTimelineFilter{
+		Year:    req.Year,
+		Month:   req.Month,
+		Keyword: req.Query,
+		Sort:    req.Sort,
+		Cursor:  req.Cursor,
+		Limit:   req.Limit,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if items == nil {
+		items = []model.File{}
+	}
+	s.attachMetadata(ctx, items)
+	return &FileQueryResponse{
+		Items:      items,
+		NextCursor: nextCursor,
+		HasMore:    hasMore,
+	}, nil
+}
+
+func (s *FileService) RecentlyViewed(ctx context.Context, limit int) ([]model.File, error) {
+	files, err := s.store.ListRecentlyViewedFiles(ctx, limit)
+	if err != nil {
+		return nil, err
+	}
+	s.attachMetadata(ctx, files)
 	return files, nil
 }
 
@@ -145,6 +223,38 @@ func (s *FileService) Metadata(ctx context.Context, id string) (*model.FileMetad
 		return nil, err
 	}
 	return s.store.GetMetadata(ctx, id)
+}
+
+func (s *FileService) MarkViewed(ctx context.Context, id string) (*model.File, error) {
+	file, err := s.store.MarkFileViewed(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if meta, err := s.store.GetMetadata(ctx, id); err == nil {
+		file.Metadata = meta
+	}
+	return file, nil
+}
+
+func (s *FileService) BatchMove(ctx context.Context, ids []string, destPath string) BatchResult {
+	result := BatchResult{Total: len(ids)}
+	destPath = CleanVirtualPath(destPath)
+	for _, id := range ids {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			result.Failed++
+			log.Printf("level=warn component=file event=batch_move_item_failed reason=empty_id dest_path=%q", destPath)
+			continue
+		}
+		if _, err := s.RenameMove(ctx, id, "", destPath); err != nil {
+			result.Failed++
+			log.Printf("level=warn component=file event=batch_move_item_failed file_id=%s dest_path=%q err=%q", id, destPath, err)
+			continue
+		}
+		result.Succeeded++
+	}
+	log.Printf("level=info component=file event=batch_move_complete dest_path=%q total=%d succeeded=%d failed=%d", destPath, result.Total, result.Succeeded, result.Failed)
+	return result
 }
 
 func (s *FileService) RenameMove(ctx context.Context, id, newName, newPath string) (*model.File, error) {

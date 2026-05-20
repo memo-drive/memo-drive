@@ -1,5 +1,15 @@
 import { getToken, httpClient } from "./HttpClient";
-import type { DriveFile, FileSearchResponse, MediaMeta, StorageUsage } from "../types";
+import type {
+  BatchFileResult,
+  DriveFile,
+  FileQueryRequest,
+  FileQueryResponse,
+  FileSearchResponse,
+  MediaMeta,
+  PhotoMonthIndexResponse,
+  PhotoTimelineRequest,
+  StorageUsage,
+} from "../types";
 
 export async function listFiles(path: string, sort = "name") {
   return httpClient.get<{ files: DriveFile[] }>(
@@ -27,6 +37,10 @@ export async function getFile(id: string) {
   return httpClient.get<DriveFile>(`/files/${id}`);
 }
 
+export async function markFileViewed(id: string) {
+  return httpClient.post<DriveFile>(`/files/${id}/view`, {});
+}
+
 export async function getMetadata(id: string) {
   return httpClient.get<MediaMeta>(`/files/${id}/metadata`);
 }
@@ -39,6 +53,23 @@ export async function searchFiles(request: {
   limit?: number;
 }) {
   return httpClient.post<FileSearchResponse>("/files/search", request);
+}
+
+export async function queryFiles(request: FileQueryRequest) {
+  return httpClient.post<FileQueryResponse>("/files/query", request);
+}
+
+export async function listRecentlyViewedFiles(limit?: number) {
+  const suffix = limit === undefined ? "" : `?limit=${encodeURIComponent(String(limit))}`;
+  return httpClient.get<{ files: DriveFile[] }>(`/files/recent${suffix}`);
+}
+
+export async function listPhotoMonths() {
+  return httpClient.get<PhotoMonthIndexResponse>("/files/photos/months");
+}
+
+export async function queryPhotoTimeline(request: PhotoTimelineRequest) {
+  return httpClient.post<FileQueryResponse>("/files/photos/timeline", request);
 }
 
 export async function getDownloadText(id: string): Promise<string> {
@@ -56,6 +87,19 @@ export async function getDownloadText(id: string): Promise<string> {
 
 export async function deleteFile(id: string) {
   return httpClient.delete<void>(`/files/${id}`);
+}
+
+export async function batchMoveFiles(fileIds: string[], path: string) {
+  return httpClient.post<BatchFileResult>("/files/batch/move", {
+    file_ids: fileIds,
+    path,
+  });
+}
+
+export async function batchDeleteFiles(fileIds: string[]) {
+  return httpClient.post<BatchFileResult>("/files/batch/delete", {
+    file_ids: fileIds,
+  });
 }
 
 export async function listTrash() {

@@ -18,9 +18,13 @@ English | [中文](./README-ZH.md)
 - PDF, DOCX, Markdown, and plain-text parsing with section-aware smart chunking.
 - OpenAI-compatible and Ollama LLM providers with automatic fallback.
 - ChromaDB REST client for collection management, vector upsert, query, and delete.
-- React frontend with separate desktop and mobile H5 surfaces sharing API clients, hooks, stores, types, upload logic, AI streaming, and preview renderers.
+- React frontend with separate desktop and mobile H5 surfaces sharing API clients, hooks, stores, types, upload logic, AI streaming, virtualized rendering helpers, and preview renderers.
 - Desktop Web routes for Drive, Smart Search, Transfer, Trash, and Settings.
-- Mobile H5 entry under `/m/*` with mobile Files, full-screen AI, Transfer, Me, Trash, full-screen Preview, bottom navigation, URL-backed Folder paths, fixed upload FAB, lightweight mobile prompts, and current-folder search with semantic search opt-in.
+- Mobile H5 Home at `/m` with search, Transfer entry, category shortcuts for photos/videos/documents/audio, recent viewed Files, and root upload.
+- Mobile Files at `/m/files` with URL-backed Folder paths, current-folder search, upload FAB, lightweight prompts, single File/Folder move, long-press multi-select, batch move, and batch soft-delete.
+- Mobile media categories under `/m/category/*` with category-local search, photo timeline/list modes, video duration filters, document subtype filters, audio sorting, cursor pagination, lazy thumbnails, and virtualized lists/grids.
+- Dedicated mobile media previews under `/m/media/*` for photos, videos, and audio, with same-category queues, swipe navigation, More-menu metadata/actions, and normal document preview preserved under `/m/preview/:fileId`.
+- Large-list performance work: backend cursor pagination, lazy thumbnail rendering, mobile list/grid virtualization, and desktop FileList virtualization.
 - Standalone smart search page with a docked AI assistant, semantic result list, and conversation history drawer.
 - AI conversation persistence backed by `conversations` / `messages`, including history list, switching, rename, and delete APIs.
 - RAG quality upgrades: query condense, heading-aware indexing, dynamic score filtering, multi-query expansion, hybrid keyword/vector retrieval, and parent-child chunks.
@@ -49,7 +53,7 @@ flowchart TB
         Router["BrowserRouter + AuthGuard\nredirect-aware login\nphone root fallback"]
         Shared["Shared frontend core\napi, hooks, stores, types, utils"]
         DesktopUI["Desktop Web\n/, /smart-search, /transfer, /trash, /settings"]
-        MobileUI["Mobile H5\n/m, /m/ai, /m/transfer, /m/me, /m/trash, /m/preview/:id"]
+        MobileUI["Mobile H5\n/m Home, /m/files, /m/category/*,\n/m/media/*, /m/preview/:id"]
     end
 
     subgraph Backend ["Backend (Go Fiber)"]
@@ -142,7 +146,7 @@ flowchart TB
 - **Smart Search and RAG**: intent parsing, file filtering, multi-query expansion, hybrid keyword/vector retrieval, parent-child Chunk restoration, score filtering, and RAG evidence assembly are split into focused internal modules while callers still use compact Search and RAG APIs.
 - **Trash Lifecycle**: soft delete, restore, permanent purge, descendant handling, Chunk cleanup, Vector Index cleanup, physical storage cleanup, and Janitor Sweep purging are concentrated in one lifecycle implementation.
 - **Drive Workflow**: Drive page path, search, selection, rename, delete, move, create-Folder, upload, preview, and file-presentation rules are split into tested workflow helpers, leaving the page to compose UI and side effects.
-- **Mobile H5 Surface**: mobile routes live under `frontend/src/mobile` and use independent pages/CSS for phone ergonomics. They share stable business logic with desktop but keep layout, navigation, prompts, AI workspace, upload entry, and preview shells mobile-specific.
+- **Mobile H5 Surface**: mobile routes live under `frontend/src/mobile` and use independent pages/CSS for phone ergonomics. They share stable business logic with desktop but keep Home, Files, category pages, media previews, selection/batch actions, layout, navigation, prompts, AI workspace, and upload entry mobile-specific.
 - **Production Edge Routing**: the `edge` nginx terminates TLS, sends `/api/*` directly to the backend, serves all SPA routes through the frontend, and redirects phone User-Agents opening the bare `/` path to `/m` with a temporary `302`.
 
 ### Architecture Vocabulary
@@ -176,7 +180,7 @@ Desktop and mobile share backend APIs and business helpers, but their routes and
 | Surface | Routes | Notes |
 |---------|--------|-------|
 | Desktop Web | `/`, `/smart-search`, `/transfer`, `/trash`, `/settings` | Full productivity surface with desktop layout, table/list controls, docked AI assistant, and settings. |
-| Mobile H5 | `/m`, `/m/ai`, `/m/transfer`, `/m/me`, `/m/trash`, `/m/preview/:fileId` | Phone-first surface with bottom navigation, full-screen AI/Preview, fixed upload FAB, mobile prompts, and URL-backed Folder paths. |
+| Mobile H5 | `/m`, `/m/files`, `/m/category/photos`, `/m/category/videos`, `/m/category/documents`, `/m/category/audio`, `/m/media/:category/:fileId`, `/m/preview/:fileId`, `/m/ai`, `/m/transfer`, `/m/me`, `/m/trash` | Phone-first surface with Home, five-entry bottom navigation, category-local search, virtualized media/file lists, full-screen AI/Preview, fixed upload FAB, mobile prompts, URL-backed Folder paths, and batch management. |
 | Auth | `/login` | `AuthGuard` redirects unauthenticated users to `/login?redirect=...`; after login the user returns to the original desktop or mobile target. |
 | API | `/api/*` | Production edge nginx routes API traffic directly to `backend:8080`; frontend dev server proxies `/api` to the local backend. |
 
@@ -480,10 +484,14 @@ cd frontend && pnpm build
     - `[✓]` **14-D** Frontend adaptation: display parsed filter Chips in search results; add `intent` field to `SearchResponse`.
 - `[✓]` **Priority 15: Mobile H5 Entry**
     - `[✓]` Add independent `/m/*` routes under `frontend/src/mobile`, leaving desktop routes unchanged.
-    - `[✓]` Implement mobile Files, AI, Transfer, Me, Trash, and full-screen Preview pages with mobile-specific CSS and layout contracts.
-    - `[✓]` Add Files upload FAB, URL-backed Folder paths, mobile file cards, current-folder search, semantic search opt-in, lightweight confirm/text prompts, and single-file actions.
+    - `[✓]` Split `/m` into a real mobile Home and move Folder browsing to `/m/files`, with five-entry bottom navigation.
+    - `[✓]` Add Home search, Transfer shortcut, media category shortcuts, recent viewed Files, and root upload.
+    - `[✓]` Implement mobile Files with upload FAB, URL-backed Folder paths, mobile file cards, current-folder search, lightweight confirm/text prompts, single File/Folder move, long-press multi-select, batch move, and batch soft-delete.
+    - `[✓]` Add photos/videos/documents/audio category routes with category-local search, filters/sorts, cursor pagination, lazy thumbnails, and virtualized list/grid rendering.
+    - `[✓]` Add dedicated photo/video/audio media previews with same-category queues, swipe navigation, and More-menu metadata/actions; keep document previews on `/m/preview/:fileId`.
     - `[✓]` Build full-screen mobile AI with fixed bottom composer, scrollable content region, RAG/Search mode switch, and streaming stop behavior.
     - `[✓]` Wire mobile Transfer, Me, and Trash to shared upload/session/trash APIs.
+    - `[✓]` Virtualize desktop FileList and mobile large-list surfaces to keep DOM size bounded.
     - `[✓]` Add production edge nginx phone-only `/` to `/m` redirect and redirect-aware Login/AuthGuard flow.
 
 ## License

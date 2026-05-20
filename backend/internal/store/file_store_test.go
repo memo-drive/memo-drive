@@ -2,7 +2,9 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -23,6 +25,143 @@ func TestSearchFilesByName(t *testing.T) {
 	}
 	if len(hits) != 1 || hits[0].Name != "季报2024.pdf" {
 		t.Fatalf("expected 季报 PDF hit, got %#v", hits)
+	}
+}
+
+func TestNewFileHasEmptyLastViewedAt(t *testing.T) {
+	db := newSearchTestStore(t)
+	file := &model.File{
+		ID:          "fresh-file",
+		Name:        "fresh.pdf",
+		Path:        "/",
+		StoragePath: "fresh.pdf",
+		Size:        128,
+		MimeType:    "application/pdf",
+		Status:      model.FileStatusReady,
+	}
+	if err := db.CreateFile(context.Background(), file); err != nil {
+		t.Fatalf("create file: %v", err)
+	}
+
+	stored, err := db.GetFile(context.Background(), file.ID)
+	if err != nil {
+		t.Fatalf("get file: %v", err)
+	}
+	if stored.LastViewedAt != nil {
+		t.Fatalf("expected new file last_viewed_at to be empty, got %s", stored.LastViewedAt.Format(time.RFC3339Nano))
+	}
+}
+
+func TestExistingDatabaseMigratesLastViewedAt(t *testing.T) {
+	dbPath := seedLegacyFileDatabaseWithoutLastViewedAt(t)
+	db, err := Open(context.Background(), &config.Config{Storage: config.StorageConfig{DBPath: dbPath}})
+	if err != nil {
+		t.Fatalf("open migrated store: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = db.Close()
+	})
+
+	stored, err := db.GetFile(context.Background(), "legacy-file")
+	if err != nil {
+		t.Fatalf("get legacy file: %v", err)
+	}
+	if stored.LastViewedAt != nil {
+		t.Fatalf("expected migrated legacy file last_viewed_at to be empty, got %s", stored.LastViewedAt.Format(time.RFC3339Nano))
+	}
+
+	viewedAt := time.Date(2026, 5, 19, 6, 30, 0, 0, time.UTC)
+	if _, err := db.db.ExecContext(context.Background(), `UPDATE files SET last_viewed_at = ? WHERE id = ?`, viewedAt, stored.ID); err != nil {
+		t.Fatalf("set last_viewed_at: %v", err)
+	}
+	stored, err = db.GetFile(context.Background(), stored.ID)
+	if err != nil {
+		t.Fatalf("get viewed legacy file: %v", err)
+	}
+	if stored.LastViewedAt == nil || !stored.LastViewedAt.Equal(viewedAt) {
+		t.Fatalf("expected last_viewed_at %s, got %#v", viewedAt.Format(time.RFC3339Nano), stored.LastViewedAt)
+	}
+}
+
+func TestListRecentlyViewedFilesFiltersSortsAndLimits(t *testing.T) {
+	db := newSearchTestStore(t)
+	files := []*model.File{
+		{ID: "old", Name: "old.pdf", Path: "/", StoragePath: "old.pdf", Size: 1, MimeType: "application/pdf", Status: model.FileStatusReady},
+		{ID: "new", Name: "new.pdf", Path: "/", StoragePath: "new.pdf", Size: 1, MimeType: "application/pdf", Status: model.FileStatusReady},
+		{ID: "never-viewed", Name: "never.pdf", Path: "/", StoragePath: "never.pdf", Size: 1, MimeType: "application/pdf", Status: model.FileStatusReady},
+		{ID: "folder", Name: "folder", Path: "/", StoragePath: "folder", IsDir: true, Status: model.FileStatusReady},
+		{ID: "trashed", Name: "trashed.pdf", Path: "/", StoragePath: "trashed.pdf", Size: 1, MimeType: "application/pdf", Status: model.FileStatusReady},
+	}
+	for _, file := range files {
+		if err := db.CreateFile(context.Background(), file); err != nil {
+			t.Fatalf("create file %s: %v", file.ID, err)
+		}
+	}
+	base := time.Date(2026, 5, 19, 7, 0, 0, 0, time.UTC)
+	for _, item := range []struct {
+		id       string
+		viewedAt time.Time
+	}{
+		{id: "old", viewedAt: base},
+		{id: "new", viewedAt: base.Add(time.Minute)},
+		{id: "folder", viewedAt: base.Add(2 * time.Minute)},
+		{id: "trashed", viewedAt: base.Add(3 * time.Minute)},
+	} {
+		if _, err := db.db.ExecContext(context.Background(), `UPDATE files SET last_viewed_at = ? WHERE id = ?`, item.viewedAt, item.id); err != nil {
+			t.Fatalf("set viewed time for %s: %v", item.id, err)
+		}
+	}
+	if err := db.SoftDeleteFile(context.Background(), "trashed", "trashed"); err != nil {
+		t.Fatalf("soft delete trashed: %v", err)
+	}
+
+	recent, err := db.ListRecentlyViewedFiles(context.Background(), 2)
+	if err != nil {
+		t.Fatalf("ListRecentlyViewedFiles returned error: %v", err)
+	}
+	if len(recent) != 2 || recent[0].ID != "new" || recent[1].ID != "old" {
+		t.Fatalf("expected recent files [new old], got %#v", recent)
+	}
+	if recent[0].LastViewedAt == nil || !recent[0].LastViewedAt.Equal(base.Add(time.Minute)) {
+		t.Fatalf("expected new last_viewed_at to be loaded, got %#v", recent[0].LastViewedAt)
+	}
+}
+
+func TestListRecentlyViewedFilesNormalizesLimit(t *testing.T) {
+	db := newSearchTestStore(t)
+	base := time.Date(2026, 5, 19, 8, 0, 0, 0, time.UTC)
+	for i := 0; i < 12; i++ {
+		id := fmt.Sprintf("viewed-%02d", i)
+		if err := db.CreateFile(context.Background(), &model.File{
+			ID:          id,
+			Name:        id + ".pdf",
+			Path:        "/",
+			StoragePath: id + ".pdf",
+			Size:        1,
+			MimeType:    "application/pdf",
+			Status:      model.FileStatusReady,
+		}); err != nil {
+			t.Fatalf("create file %s: %v", id, err)
+		}
+		if _, err := db.db.ExecContext(context.Background(), `UPDATE files SET last_viewed_at = ? WHERE id = ?`, base.Add(time.Duration(i)*time.Minute), id); err != nil {
+			t.Fatalf("set viewed time for %s: %v", id, err)
+		}
+	}
+
+	recent, err := db.ListRecentlyViewedFiles(context.Background(), 0)
+	if err != nil {
+		t.Fatalf("ListRecentlyViewedFiles default limit returned error: %v", err)
+	}
+	if len(recent) != 10 {
+		t.Fatalf("expected default limit 10, got %d", len(recent))
+	}
+
+	recent, err = db.ListRecentlyViewedFiles(context.Background(), 1000)
+	if err != nil {
+		t.Fatalf("ListRecentlyViewedFiles max limit returned error: %v", err)
+	}
+	if len(recent) != 12 {
+		t.Fatalf("expected max limit to allow all 12 seeded files, got %d", len(recent))
 	}
 }
 
@@ -360,4 +499,52 @@ func seedDescendantFiles(t *testing.T, db *Store) {
 			t.Fatalf("create file %s: %v", file.ID, err)
 		}
 	}
+}
+
+func seedLegacyFileDatabaseWithoutLastViewedAt(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	dbPath := filepath.Join(root, "db", "memodrive.db")
+	if err := os.MkdirAll(filepath.Dir(dbPath), 0o755); err != nil {
+		t.Fatalf("mkdir db dir: %v", err)
+	}
+	db, err := sql.Open("sqlite3", dbPath)
+	if err != nil {
+		t.Fatalf("open legacy db: %v", err)
+	}
+	defer db.Close()
+	if _, err := db.ExecContext(context.Background(), `
+CREATE TABLE files (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    path TEXT NOT NULL,
+    storage_path TEXT NOT NULL,
+    size INTEGER,
+    mime_type TEXT,
+    is_dir BOOLEAN DEFAULT FALSE,
+    parent_id TEXT,
+    status TEXT DEFAULT 'uploaded',
+    chunk_count INTEGER DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    deleted_at DATETIME,
+    original_path TEXT,
+    original_name TEXT,
+    trash_root_id TEXT
+);
+CREATE TABLE schema_migrations (
+    id TEXT PRIMARY KEY,
+    applied_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+INSERT INTO schema_migrations(id) VALUES
+    ('010_trash_columns'),
+    ('011_trash_root_id'),
+    ('012_conversation_columns'),
+    ('013_chunks_fts');
+INSERT INTO files (id, name, path, storage_path, size, mime_type, is_dir, status, chunk_count, created_at, updated_at)
+VALUES ('legacy-file', 'legacy.pdf', '/', 'legacy.pdf', 256, 'application/pdf', 0, 'ready', 0, '2026-05-18 10:00:00', '2026-05-18 10:00:00');
+`); err != nil {
+		t.Fatalf("seed legacy db: %v", err)
+	}
+	return dbPath
 }

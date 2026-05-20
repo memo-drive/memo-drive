@@ -29,7 +29,14 @@ func NewFileHandler(files *service.FileService, searches *service.SearchService)
 func (h *FileHandler) Register(router fiber.Router) {
 	router.Get("/files", h.list)
 	router.Post("/files/search", h.search)
+	router.Post("/files/query", h.query)
+	router.Get("/files/recent", h.recent)
+	router.Get("/files/photos/months", h.photoMonths)
+	router.Post("/files/photos/timeline", h.photoTimeline)
+	router.Post("/files/batch/move", h.batchMove)
+	router.Post("/files/batch/delete", h.batchDelete)
 	router.Get("/files/:id", h.get)
+	router.Post("/files/:id/view", h.markViewed)
 	router.Get("/files/:id/download", h.download)
 	router.Head("/files/:id/download", h.download)
 	router.Get("/files/:id/thumbnail", h.thumbnail)
@@ -45,6 +52,49 @@ func (h *FileHandler) list(c *fiber.Ctx) error {
 		return err
 	}
 	return c.JSON(fiber.Map{"files": files})
+}
+
+func (h *FileHandler) recent(c *fiber.Ctx) error {
+	files, err := h.files.RecentlyViewed(c.Context(), c.QueryInt("limit", 10))
+	if err != nil {
+		return err
+	}
+	return c.JSON(fiber.Map{"files": files})
+}
+
+func (h *FileHandler) query(c *fiber.Ctx) error {
+	var body service.FileQueryRequest
+	if err := c.BodyParser(&body); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "invalid file query payload")
+	}
+	resp, err := h.files.Query(c.Context(), body)
+	if err != nil {
+		return mapStoreError(err)
+	}
+	return c.JSON(resp)
+}
+
+func (h *FileHandler) photoMonths(c *fiber.Ctx) error {
+	resp, err := h.files.PhotoMonths(c.Context())
+	if err != nil {
+		return mapStoreError(err)
+	}
+	return c.JSON(resp)
+}
+
+func (h *FileHandler) photoTimeline(c *fiber.Ctx) error {
+	var body service.PhotoTimelineRequest
+	if err := c.BodyParser(&body); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "invalid photo timeline payload")
+	}
+	if body.Year <= 0 || body.Month < 1 || body.Month > 12 {
+		return fiber.NewError(fiber.StatusBadRequest, "year and month are required")
+	}
+	resp, err := h.files.PhotoTimeline(c.Context(), body)
+	if err != nil {
+		return mapStoreError(err)
+	}
+	return c.JSON(resp)
 }
 
 func (h *FileHandler) search(c *fiber.Ctx) error {
@@ -94,6 +144,14 @@ func (h *FileHandler) metadata(c *fiber.Ctx) error {
 	return c.SendString(meta.MetaJSON)
 }
 
+func (h *FileHandler) markViewed(c *fiber.Ctx) error {
+	file, err := h.files.MarkViewed(c.Context(), c.Params("id"))
+	if err != nil {
+		return mapStoreError(err)
+	}
+	return c.JSON(file)
+}
+
 func (h *FileHandler) thumbnail(c *fiber.Ctx) error {
 	path, err := h.files.ThumbnailPath(c.Context(), c.Params("id"))
 	if err != nil {
@@ -128,6 +186,36 @@ func (h *FileHandler) delete(c *fiber.Ctx) error {
 		return mapStoreError(err)
 	}
 	return c.SendStatus(fiber.StatusNoContent)
+}
+
+func (h *FileHandler) batchDelete(c *fiber.Ctx) error {
+	var body struct {
+		FileIDs []string `json:"file_ids"`
+	}
+	if err := c.BodyParser(&body); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "invalid batch delete payload")
+	}
+	if body.FileIDs == nil {
+		return fiber.NewError(fiber.StatusBadRequest, "file_ids is required")
+	}
+	return c.JSON(h.files.BatchSoftDelete(c.Context(), body.FileIDs))
+}
+
+func (h *FileHandler) batchMove(c *fiber.Ctx) error {
+	var body struct {
+		FileIDs []string `json:"file_ids"`
+		Path    string   `json:"path"`
+	}
+	if err := c.BodyParser(&body); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "invalid batch move payload")
+	}
+	if body.FileIDs == nil {
+		return fiber.NewError(fiber.StatusBadRequest, "file_ids is required")
+	}
+	if strings.TrimSpace(body.Path) == "" {
+		return fiber.NewError(fiber.StatusBadRequest, "path is required")
+	}
+	return c.JSON(h.files.BatchMove(c.Context(), body.FileIDs, body.Path))
 }
 
 func (h *FileHandler) download(c *fiber.Ctx) error {
@@ -309,6 +397,9 @@ func isRFC5987AttrChar(ch byte) bool {
 func mapStoreError(err error) error {
 	if errors.Is(err, store.ErrNotFound) {
 		return fiber.NewError(fiber.StatusNotFound, "not found")
+	}
+	if errors.Is(err, store.ErrInvalidCursor) {
+		return fiber.NewError(fiber.StatusBadRequest, err.Error())
 	}
 	if errors.Is(err, service.ErrPathConflict) {
 		return fiber.NewError(fiber.StatusConflict, err.Error())

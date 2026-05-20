@@ -40,6 +40,26 @@ func (s *FileService) SoftDelete(ctx context.Context, id string) error {
 	return nil
 }
 
+func (s *FileService) BatchSoftDelete(ctx context.Context, ids []string) BatchResult {
+	result := BatchResult{Total: len(ids)}
+	for _, id := range ids {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			result.Failed++
+			log.Printf("level=warn component=file event=batch_soft_delete_item_failed reason=empty_id")
+			continue
+		}
+		if err := s.SoftDelete(ctx, id); err != nil {
+			result.Failed++
+			log.Printf("level=warn component=file event=batch_soft_delete_item_failed file_id=%s err=%q", id, err)
+			continue
+		}
+		result.Succeeded++
+	}
+	log.Printf("level=info component=file event=batch_soft_delete_complete total=%d succeeded=%d failed=%d", result.Total, result.Succeeded, result.Failed)
+	return result
+}
+
 // Restore moves a file out of the trash back to its original location.
 // If a naming conflict exists, the file is renamed with a "(restored)" suffix.
 func (s *FileService) Restore(ctx context.Context, id string) (*model.File, error) {

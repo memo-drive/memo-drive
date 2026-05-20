@@ -1,8 +1,7 @@
-import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { thumbnailUrl } from "../../api/fileApi";
 import type { DriveFile } from "../../types";
 import { Popover } from "../base";
+import { LazyThumbnail, VirtualList } from "../Virtualized";
 import {
 	filePresentation,
 	fileSizeLabel,
@@ -23,8 +22,6 @@ interface Props {
 	onDownload: (file: DriveFile) => void;
 }
 
-const PAGE_SIZE = 50;
-
 export function FileList({
 	files,
 	selectedId,
@@ -38,12 +35,6 @@ export function FileList({
 	onDownload,
 }: Props) {
 	const { t } = useTranslation();
-	const [page, setPage] = useState(1);
-
-	useEffect(() => {
-		setPage(1);
-	}, [files]);
-
 
 	if (!files || files.length === 0) {
 		return (
@@ -52,9 +43,6 @@ export function FileList({
 			</div>
 		);
 	}
-
-	const totalPages = Math.ceil(files?.length / PAGE_SIZE);
-	const paged = files.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
 	const iconClasses: Record<FilePresentationKind, string> = {
 		audio: styles.iconBoxFile,
@@ -71,17 +59,23 @@ export function FileList({
 			aria-busy={busy || undefined}
 			data-file-list-busy={busy || undefined}
 		>
-			<table className={styles.table} aria-disabled={busy || undefined}>
-				<thead>
-					<tr className={styles.tableHeadRow}>
-						<th className={styles.tableHeadCell}>{t("fileList.name")}</th>
-						<th className={styles.tableHeadCell}>{t("fileList.modified")}</th>
-						<th className={styles.tableHeadCell}>{t("fileList.size")}</th>
-						<th className={styles.tableHeadCellRight}>{t("fileList.actions")}</th>
-					</tr>
-				</thead>
-				<tbody className={styles.tbody}>
-					{paged.map((file) => (
+			<div className={styles.table} role="table" aria-disabled={busy || undefined}>
+				<div className={styles.tableHeadRow} role="row">
+					<div className={styles.tableHeadCell} role="columnheader">{t("fileList.name")}</div>
+					<div className={styles.tableHeadCell} role="columnheader">{t("fileList.modified")}</div>
+					<div className={styles.tableHeadCell} role="columnheader">{t("fileList.size")}</div>
+					<div className={styles.tableHeadCellRight} role="columnheader">{t("fileList.actions")}</div>
+				</div>
+				<VirtualList
+					className={styles.virtualBody}
+					itemClassName={styles.virtualSlot}
+					items={files}
+					height="calc(100% - 3.125rem)"
+					estimateSize={73}
+					overscan={8}
+					role="rowgroup"
+					getItemKey={(file) => file.id}
+					renderItem={(file) => (
 						<FileRow
 							key={file.id}
 							file={file}
@@ -97,34 +91,9 @@ export function FileList({
 							selected={selectedId === file.id}
 							t={t}
 						/>
-					))}
-				</tbody>
-			</table>
-			{totalPages > 1 && (
-				<div className={styles.pagination}>
-					<button
-						className={styles.pageBtn}
-						disabled={busy || page <= 1}
-						onClick={() => setPage((p) => p - 1)}
-					>
-						<span className="material-symbols-outlined">
-							chevron_left
-						</span>
-					</button>
-					<span className={styles.pageInfo}>
-						{t("fileList.pagination", { current: page, total: totalPages, count: files.length })}
-					</span>
-					<button
-						className={styles.pageBtn}
-						disabled={busy || page >= totalPages}
-						onClick={() => setPage((p) => p + 1)}
-					>
-						<span className="material-symbols-outlined">
-							chevron_right
-						</span>
-					</button>
-				</div>
-			)}
+					)}
+				/>
+			</div>
 			{busy ? (
 				<div className={styles.busyOverlay} role="status" aria-live="polite">
 					<LoadingSpinnerIcon className={styles.loadingIcon} />
@@ -166,7 +135,7 @@ function FileRow({
 }: FileRowProps) {
 	const presentation = filePresentation(file);
 	return (
-		<tr
+		<div
 			className={`${styles.tableRow} ${selected ? styles.tableRowSelected : ""} ${fileListBusy ? styles.tableRowDisabled : ""}`}
 			aria-busy={entering || undefined}
 			aria-disabled={fileListBusy || undefined}
@@ -175,8 +144,9 @@ function FileRow({
 				onSelect(file);
 				if (file.is_dir) onOpenFolder(file);
 			}}
+			role="row"
 		>
-			<td className={styles.tableCell}>
+			<div className={styles.tableCell} role="cell">
 				<div className={styles.fileIconWrapper}>
 					<div
 						className={`${styles.iconBox} ${iconClasses[presentation.kind]}`}
@@ -196,98 +166,98 @@ function FileRow({
 						</p>
 					</div>
 				</div>
-			</td>
-							<td className={styles.tableCell}>
-								<span className={styles.metaText}>
-									{new Date(file.updated_at).toLocaleString(
-										undefined,
-										{
-											year: "numeric",
-											month: "short",
-											day: "numeric",
-											hour: "2-digit",
-											minute: "2-digit",
-										},
-									)}
-								</span>
-							</td>
-							<td className={styles.tableCell}>
-								<span className={styles.metaText}>
-									{fileSizeLabel(file)}
-								</span>
-							</td>
-							<td className={styles.tableCellRight}>
-								<Popover
-									placement="bottom-end"
-									content={
-										<div className={styles.popoverMenu}>
-											<button
-												className={styles.menuItem}
-												onClick={(e: any) => {
-													e.stopPropagation();
-													onRename(file);
-												}}
-											>
-												<span className="material-symbols-outlined text-[18px]">
-													edit
-												</span>{" "}
-												{t("common.rename")}
-											</button>
-											<button
-												className={styles.menuItem}
-												onClick={(e: any) => {
-													e.stopPropagation();
-													onMove(file);
-												}}
-											>
-												<span className="material-symbols-outlined text-[18px]">
-													drive_file_move
-												</span>{" "}
-												{t("common.moveTo")}
-											</button>
-											{!file.is_dir && (
-												<button
-													className={styles.menuItem}
-													onClick={(e: any) => {
-														e.stopPropagation();
-														onDownload(file);
-													}}
-												>
-													<span className="material-symbols-outlined text-[18px]">
-														download
-													</span>{" "}
-													{t("common.download")}
-												</button>
-											)}
-											<button
-												className={styles.menuItemDanger}
-												onClick={(e: any) => {
-													e.stopPropagation();
-													onDelete(file);
-												}}
-											>
-												<span className="material-symbols-outlined text-[18px]">
-													delete
-												</span>{" "}
-												{t("drive.deleteToTrash")}
-											</button>
-										</div>
-									}
+			</div>
+			<div className={styles.tableCell} role="cell">
+				<span className={styles.metaText}>
+					{new Date(file.updated_at).toLocaleString(
+						undefined,
+						{
+							year: "numeric",
+							month: "short",
+							day: "numeric",
+							hour: "2-digit",
+							minute: "2-digit",
+						},
+					)}
+				</span>
+			</div>
+			<div className={styles.tableCell} role="cell">
+				<span className={styles.metaText}>
+					{fileSizeLabel(file)}
+				</span>
+			</div>
+			<div className={styles.tableCellRight} role="cell">
+				<Popover
+					placement="bottom-end"
+					content={
+						<div className={styles.popoverMenu}>
+							<button
+								className={styles.menuItem}
+								onClick={(e: any) => {
+									e.stopPropagation();
+									onRename(file);
+								}}
+							>
+								<span className="material-symbols-outlined text-[18px]">
+									edit
+								</span>{" "}
+								{t("common.rename")}
+							</button>
+							<button
+								className={styles.menuItem}
+								onClick={(e: any) => {
+									e.stopPropagation();
+									onMove(file);
+								}}
+							>
+								<span className="material-symbols-outlined text-[18px]">
+									drive_file_move
+								</span>{" "}
+								{t("common.moveTo")}
+							</button>
+							{!file.is_dir && (
+								<button
+									className={styles.menuItem}
+									onClick={(e: any) => {
+										e.stopPropagation();
+										onDownload(file);
+									}}
 								>
-									<button
-										className={styles.actionButton}
-										disabled={fileListBusy}
-										onClick={(e: any) =>
-											e.stopPropagation()
-										}
-									>
-										<span className="material-symbols-outlined">
-											more_vert
-										</span>
-									</button>
-								</Popover>
-							</td>
-						</tr>
+									<span className="material-symbols-outlined text-[18px]">
+										download
+									</span>{" "}
+									{t("common.download")}
+								</button>
+							)}
+							<button
+								className={styles.menuItemDanger}
+								onClick={(e: any) => {
+									e.stopPropagation();
+									onDelete(file);
+								}}
+							>
+								<span className="material-symbols-outlined text-[18px]">
+									delete
+								</span>{" "}
+								{t("drive.deleteToTrash")}
+							</button>
+						</div>
+					}
+				>
+					<button
+						className={styles.actionButton}
+						disabled={fileListBusy}
+						onClick={(e: any) =>
+							e.stopPropagation()
+						}
+					>
+						<span className="material-symbols-outlined">
+							more_vert
+						</span>
+					</button>
+				</Popover>
+			</div>
+		</div>
 	);
 }
 
@@ -325,27 +295,24 @@ function FileIcon({
 	file: DriveFile;
 	presentation: ReturnType<typeof filePresentation>;
 }) {
-	const [thumbnailFailed, setThumbnailFailed] = useState(false);
 	const hasThumbnail =
 		file.status === "ready" &&
 		Boolean(file.metadata?.thumbnail_path) &&
 		(presentation.kind === "image" || presentation.kind === "video");
-	if (hasThumbnail && !thumbnailFailed) {
-		return (
-			<img
-				className={styles.thumbnail}
-				src={thumbnailUrl(file.id)}
-				alt={file.name}
-				loading="lazy"
-				decoding="async"
-				onError={() => setThumbnailFailed(true)}
-			/>
-		);
-	}
-
-	return (
+	const icon = (
 		<span className="material-symbols-outlined">
 			{presentation.iconName}
 		</span>
 	);
+	if (hasThumbnail) {
+		return (
+			<LazyThumbnail
+				file={file}
+				className={styles.thumbnail}
+				fallback={icon}
+			/>
+		);
+	}
+
+	return icon;
 }

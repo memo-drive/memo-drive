@@ -1,10 +1,10 @@
-import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { thumbnailUrl } from "../../../api/fileApi";
 import type { DriveFile } from "../../../types";
 import { filePresentation, fileSizeLabel } from "../../../components/FileManager/filePresentation";
+import { LazyThumbnail } from "../../../components/Virtualized";
 import { driveFolderPath } from "../../../workflows/driveWorkflow";
+import { useMobileLongPress } from "../../selection/useMobileLongPress";
 import { mobileFilesHref, mobilePreviewHref } from "../../utils/mobilePath";
 import styles from "./MobileFileCard.module.css";
 
@@ -13,8 +13,12 @@ interface MobileFileCardProps {
   currentPath: string;
   entering?: boolean;
   folderNavigationDisabled?: boolean;
+  selectionMode?: boolean;
+  selected?: boolean;
   onFolderEnter?: (file: DriveFile) => boolean | void;
   onMore?: (file: DriveFile) => void;
+  onSelectionToggle?: (file: DriveFile) => void;
+  onLongPress?: (file: DriveFile) => void;
 }
 
 export function MobileFileCard({
@@ -22,8 +26,12 @@ export function MobileFileCard({
   currentPath,
   entering = false,
   folderNavigationDisabled = false,
+  selectionMode = false,
+  selected = false,
   onFolderEnter,
   onMore,
+  onSelectionToggle,
+  onLongPress,
 }: MobileFileCardProps) {
   const { t } = useTranslation();
   const presentation = filePresentation(file);
@@ -31,14 +39,33 @@ export function MobileFileCard({
     ? mobileFilesHref(driveFolderPath(file))
     : mobilePreviewHref(file.id, currentPath);
   const viewBusy = entering || folderNavigationDisabled;
+  const longPress = useMobileLongPress(onLongPress ? () => onLongPress(file) : undefined);
 
   return (
-    <article className={styles.card}>
+    <article
+      className={`${styles.card} ${selectionMode ? styles.cardSelectable : ""} ${selected ? styles.cardSelected : ""}`}
+      data-mobile-selectable={selectionMode || undefined}
+      aria-selected={selectionMode ? selected : undefined}
+      onPointerDown={longPress.onPointerDown}
+      onPointerUp={longPress.onPointerUp}
+      onPointerLeave={longPress.onPointerLeave}
+      onPointerCancel={longPress.onPointerCancel}
+      onContextMenu={longPress.onContextMenu}
+    >
       <Link
         className={`${styles.main} ${viewBusy ? styles.mainDisabled : ""}`}
-        to={href}
+        to={selectionMode ? "#" : href}
         aria-disabled={viewBusy || undefined}
         onClick={(event) => {
+          if (longPress.consumeClickAfterLongPress()) {
+            event.preventDefault();
+            return;
+          }
+          if (selectionMode) {
+            event.preventDefault();
+            onSelectionToggle?.(file);
+            return;
+          }
           if (viewBusy) {
             event.preventDefault();
             return;
@@ -75,19 +102,27 @@ export function MobileFileCard({
           </span>
         </span>
       </Link>
-      <button
-        className={styles.moreButton}
-        type="button"
-        aria-label={t("mobile.files.moreActions", { name: file.name })}
-        disabled={viewBusy}
-        onClick={() => {
-          if (!viewBusy) onMore?.(file);
-        }}
-      >
-        <span className="material-symbols-outlined" aria-hidden>
-          more_vert
+      {selectionMode ? (
+        <span className={styles.selectionMark} aria-hidden>
+          <span className="material-symbols-outlined">
+            {selected ? "check_circle" : "radio_button_unchecked"}
+          </span>
         </span>
-      </button>
+      ) : (
+        <button
+          className={styles.moreButton}
+          type="button"
+          aria-label={t("mobile.files.moreActions", { name: file.name })}
+          disabled={viewBusy}
+          onClick={() => {
+            if (!viewBusy) onMore?.(file);
+          }}
+        >
+          <span className="material-symbols-outlined" aria-hidden>
+            more_vert
+          </span>
+        </button>
+      )}
     </article>
   );
 }
@@ -128,23 +163,20 @@ function MobileFileIcon({
   iconName: string;
   hasThumbnail: boolean;
 }) {
-  const [thumbnailFailed, setThumbnailFailed] = useState(false);
-  if (hasThumbnail && !thumbnailFailed) {
-    return (
-      <img
-        className={styles.thumbnail}
-        src={thumbnailUrl(file.id)}
-        alt={file.name}
-        loading="lazy"
-        decoding="async"
-        onError={() => setThumbnailFailed(true)}
-      />
-    );
-  }
-
-  return (
+  const icon = (
     <span className="material-symbols-outlined" aria-hidden>
       {iconName}
     </span>
   );
+  if (hasThumbnail) {
+    return (
+      <LazyThumbnail
+        file={file}
+        className={styles.thumbnail}
+        fallback={icon}
+      />
+    );
+  }
+
+  return icon;
 }

@@ -47,10 +47,85 @@
       "nav": "Mobile bottom navigation"
     },
     "nav": {
+      "home": "Home",
       "files": "Files",
       "ai": "AI",
       "transfer": "Transfer",
       "me": "Me"
+    },
+    "home": {
+      "title": "Mobile Home",
+      "searchPlaceholder": "Search all files",
+      "transfer": "Transfer list",
+      "categoriesLabel": "File category shortcuts",
+      "categories": {
+        "photos": "Photos",
+        "videos": "Videos",
+        "documents": "Documents",
+        "audio": "Audio"
+      },
+      "recent": "Recently Viewed",
+      "recentEmpty": "No recently viewed files yet",
+      "searchResults": "Search Results"
+    },
+    "category": {
+      "modeNav": "Category mode navigation",
+      "photos": {
+        "title": "Photos",
+        "searchPlaceholder": "Search photos",
+        "timeline": "Timeline",
+        "list": "List",
+        "empty": "No photos yet",
+        "count": "{{count}} photos",
+        "monthQuickNav": "Quick month navigation",
+        "jumpToMonth": "Jump to {{month}}"
+      },
+      "videos": {
+        "title": "Videos",
+        "searchPlaceholder": "Search videos",
+        "recent": "Recently Watched",
+        "recentEmpty": "No recently watched videos yet",
+        "all": "All Videos",
+        "lt1m": "Under 1 minute",
+        "oneToTen": "1-10 minutes",
+        "gt10m": "Over 10 minutes"
+      },
+      "documents": {
+        "title": "Documents",
+        "searchPlaceholder": "Search documents",
+        "all": "All Documents",
+        "pdf": "PDF",
+        "text": "Text",
+        "spreadsheet": "Spreadsheets",
+        "presentation": "Presentations",
+        "txt": "TXT",
+        "other": "Other"
+      },
+      "audio": {
+        "title": "Audio",
+        "searchPlaceholder": "Search audio",
+        "all": "All Audio"
+      },
+      "filters": {
+        "all": "All"
+      },
+      "sort": {
+        "updatedAt": "By time",
+        "name": "By name",
+        "size": "By size"
+      }
+    },
+    "selection": {
+      "selectedCount": "{{count}} selected",
+      "selectAll": "Select All",
+      "allSelected": "All Selected",
+      "batchActions": "Batch actions",
+      "batchMoveTitle": "Move {{count}} items",
+      "singleMoveTitle": "Move {{name}}",
+      "confirmBatchDelete": "Delete selected files",
+      "batchDeleteBody": "Move {{count}} selected items to trash?",
+      "batchSuccess": "Processed {{succeeded}} / {{total}} items",
+      "batchPartial": "Processed {{succeeded}} / {{total}} items, {{failed}} failed"
     },
     "files": {
       "title": "Mobile Files",
@@ -87,6 +162,14 @@
     "preview": {
       "title": "Mobile Preview",
       "subtitle": "View File content in a full-screen mobile page."
+    },
+    "media": {
+      "title": "Media Preview",
+      "more": "More",
+      "info": "Media Info",
+      "previous": "Previous item",
+      "next": "Next item",
+      "queueControls": "Media queue controls"
     }
   },
   "drive": {
@@ -117,6 +200,7 @@
     "renameFailed": "Failed to rename",
     "moveSuccess": "Moved successfully",
     "moveFailed": "Failed to move",
+    "filesAddedToTransfer": "{{count}} files added to transfer list. View progress in the Transfer page.",
     "filesAddedToTransfer_one": "{{count}} file added to transfer list. View progress in the Transfer page.",
     "filesAddedToTransfer_other": "{{count}} files added to transfer list. View progress in the Transfer page.",
     "searchFailed": "Search failed",

@@ -59,7 +59,8 @@ CREATE TABLE IF NOT EXISTS files (
     status TEXT DEFAULT 'uploaded',
     chunk_count INTEGER DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    last_viewed_at DATETIME
 );
 
 CREATE INDEX IF NOT EXISTS idx_files_path ON files(path);
@@ -143,6 +144,11 @@ CREATE INDEX IF NOT EXISTS idx_files_trash_root_id ON files(trash_root_id);
 		return err
 	}
 	if err := s.migrateChunks(ctx); err != nil {
+		return err
+	}
+	if err := s.applyOnce(ctx, "014_last_viewed_at", `
+ALTER TABLE files ADD COLUMN last_viewed_at DATETIME;
+`); err != nil {
 		return err
 	}
 	return nil

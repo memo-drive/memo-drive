@@ -21,7 +21,7 @@ describe("MobileFileCard", () => {
       />,
     );
 
-    expect(folderHtml).toContain("href=\"/m?path=%2FPhotos\"");
+    expect(folderHtml).toContain("href=\"/m/files?path=%2FPhotos\"");
     expect(fileHtml).toContain("href=\"/m/preview/file-1?path=%2FDocs\"");
   });
 
@@ -38,7 +38,7 @@ describe("MobileFileCard", () => {
       />,
     );
 
-    expect(html).toContain("href=\"/m?path=%2FPhotos\"");
+    expect(html).toContain("href=\"/m/files?path=%2FPhotos\"");
     expect(html).not.toContain("%2FPhotos%2FPhotos");
   });
 
@@ -141,6 +141,25 @@ describe("MobileFileCard", () => {
 
     expect(html).not.toContain('src="/api/files/video-1/thumbnail"');
     expect(html).toContain("video_library");
+  });
+
+  it("renders a selectable state for multi-select mode and hides per-file actions", () => {
+    const html = renderCard(
+      <MobileFileCard
+        file={makeFile({ id: "file-1", name: "note.pdf" })}
+        currentPath="/Docs"
+        selectionMode
+        selected
+        onSelectionToggle={() => undefined}
+        onLongPress={() => undefined}
+      />,
+    );
+
+    expect(html).toContain("data-mobile-selectable=\"true\"");
+    expect(html).toContain("aria-selected=\"true\"");
+    expect(html).toContain("check_circle");
+    expect(html).not.toContain("more_vert");
+    expect(html).not.toContain("href=\"/m/preview/file-1?path=%2FDocs\"");
   });
 });
 

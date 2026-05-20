@@ -3,12 +3,11 @@ import { useTranslation } from "react-i18next";
 import { FilePreview } from "../../components/FilePreview/FilePreview";
 import { PreviewChromeProvider } from "../../components/FilePreview/PreviewState";
 import type { DriveFile } from "../../types";
-import { mobileFilesHref } from "../utils/mobilePath";
 import styles from "./MobilePreviewView.module.css";
 
 interface MobilePreviewViewProps {
   file?: DriveFile;
-  returnPath: string;
+  returnHref: string;
   downloadHref?: string;
   loading?: boolean;
   error?: string;
@@ -16,7 +15,7 @@ interface MobilePreviewViewProps {
 
 export function MobilePreviewView({
   file,
-  returnPath,
+  returnHref,
   downloadHref,
   loading = false,
   error = "",
@@ -26,7 +25,7 @@ export function MobilePreviewView({
   return (
     <section className={styles.page}>
       <header className={styles.header}>
-        <Link className={styles.iconButton} to={mobileFilesHref(returnPath)}>
+        <Link className={styles.iconButton} to={returnHref}>
           <span className="material-symbols-outlined" aria-hidden>
             arrow_back
           </span>

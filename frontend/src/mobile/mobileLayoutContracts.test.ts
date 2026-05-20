@@ -77,6 +77,19 @@ describe("mobile layout contracts", () => {
     expect(pageCss).toContain("var(--mobile-upload-fab-clearance)");
   });
 
+  it("keeps fixed bottom controls ordered and safe-area aware", () => {
+    const shellCss = readMobileCss("layouts/MobileShell.module.css");
+    const uploadCss = readMobileCss("components/UploadFab/UploadFab.module.css");
+    const selectionCss = readMobileCss("selection/MobileSelectionBars.module.css");
+
+    expect(shellCss).toMatch(/\.bottomNav\s*{[^}]*z-index:\s*100;/s);
+    expect(shellCss).toMatch(/\.bottomNav\s*{[^}]*env\(safe-area-inset-bottom\)/s);
+    expect(uploadCss).toMatch(/\.wrap\s*{[^}]*bottom:\s*var\(--mobile-upload-fab-bottom\);/s);
+    expect(uploadCss).toMatch(/\.wrap\s*{[^}]*z-index:\s*120;/s);
+    expect(selectionCss).toMatch(/\.batchBar\s*{[^}]*z-index:\s*130;/s);
+    expect(selectionCss).toMatch(/\.batchBar\s*{[^}]*env\(safe-area-inset-bottom\)/s);
+  });
+
   it("lets Mobile AI occupy the full viewport without bottom-navigation inset", () => {
     const css = readMobileCss("pages/MobileAIView.module.css");
 
@@ -88,12 +101,17 @@ describe("mobile layout contracts", () => {
 
   it("lets the mobile preview content fill the center viewport without inset spacing", () => {
     const css = readMobileCss("pages/MobilePreviewView.module.css");
+    const page = css.match(/\.page\s*{(?<body>[^}]*)}/)?.groups?.body ?? "";
     const previewArea = css.match(/\.previewArea\s*{(?<body>[^}]*)}/)?.groups?.body ?? "";
 
+    expect(page).toContain("height: 100dvh");
     expect(previewArea).toContain("flex: 1");
+    expect(previewArea).toContain("display: flex");
     expect(previewArea).toContain("overflow: auto");
     expect(previewArea).toContain("padding: 0;");
     expect(previewArea).not.toMatch(/padding:\s*0\.75rem/);
+    expect(css).toMatch(/\.previewArea\s*>\s*:global\(\*\)\s*{[^}]*flex:\s*1;/s);
+    expect(css).toMatch(/\.previewArea\s*>\s*:global\(\*\)\s*{[^}]*height:\s*100%;/s);
   });
 
   it("keeps mobile form controls at 16px or larger so iOS browsers do not auto-zoom on focus", () => {
@@ -113,5 +131,44 @@ describe("mobile layout contracts", () => {
     });
 
     expect(tooSmallControls).toEqual([]);
+  });
+
+  it("keeps category filter chips scrollable without showing native scrollbars", () => {
+    const css = readMobileCss("pages/MobileCategory.module.css");
+
+    expect(css).toMatch(/\.chipBar\s*{[^}]*overflow-x:\s*auto;/s);
+    expect(css).toMatch(/\.chipBar\s*{[^}]*scrollbar-width:\s*none;/s);
+    expect(css).toMatch(/\.chipBar::\-webkit-scrollbar\s*{[^}]*display:\s*none;/s);
+  });
+
+  it("keeps the video recent rail scrollable without showing native scrollbars", () => {
+    const css = readMobileCss("pages/MobileCategory.module.css");
+
+    expect(css).toMatch(/\.recentRail\s*{[^}]*overflow-x:\s*auto;/s);
+    expect(css).toMatch(/\.recentRail\s*{[^}]*scrollbar-width:\s*none;/s);
+    expect(css).toMatch(/\.recentRail::\-webkit-scrollbar\s*{[^}]*display:\s*none;/s);
+  });
+
+  it("keeps Mobile Files from showing nested native scrollbars", () => {
+    const shellCss = readMobileCss("layouts/MobileShell.module.css");
+    const filesCss = readMobileCss("pages/MobileDriveView.module.css");
+
+    expect(shellCss).toMatch(/\.main\s*{[^}]*overflow:\s*auto;/s);
+    expect(shellCss).toMatch(/\.main\s*{[^}]*scrollbar-width:\s*none;/s);
+    expect(shellCss).toMatch(/\.main::\-webkit-scrollbar\s*{[^}]*display:\s*none;/s);
+    expect(filesCss).toMatch(/\.list\s*{[^}]*scrollbar-width:\s*none;/s);
+    expect(filesCss).toMatch(/\.list::\-webkit-scrollbar\s*{[^}]*display:\s*none;/s);
+  });
+
+  it("keeps photo timeline selection markers separate from hidden photo names", () => {
+    const css = readMobileCss("pages/MobileCategory.module.css");
+
+    expect(css).not.toContain(".photoTile span:last-child");
+    expect(css).toMatch(/\.photoName\s*{[^}]*color:\s*transparent;/s);
+    expect(css).not.toMatch(/\.photoTile\[data-mobile-photo-selected="true"\]\s*{[^}]*outline:/s);
+    expect(css).not.toMatch(/\.photoTile\[data-mobile-photo-selected="true"\]::after/s);
+    expect(css).not.toMatch(
+      /\.photoTile\[data-mobile-photo-selected="true"\]\s+\.categorySelectionMark\s*{[^}]*box-shadow:/s,
+    );
   });
 });

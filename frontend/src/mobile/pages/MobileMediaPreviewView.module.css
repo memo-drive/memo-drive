@@ -1,0 +1,265 @@
+.page {
+  display: flex;
+  min-height: 100dvh;
+  max-width: 100vw;
+  flex-direction: column;
+  overflow: hidden;
+  background: #05070b;
+  color: #f8fafc;
+}
+
+.topBar {
+  display: grid;
+  grid-template-columns: 2.75rem minmax(0, 1fr) 2.75rem;
+  align-items: center;
+  gap: 0.75rem;
+  padding: calc(0.65rem + env(safe-area-inset-top)) 0.9rem 0.65rem;
+  background: linear-gradient(180deg, rgba(5, 7, 11, 0.9), rgba(5, 7, 11, 0));
+  z-index: 2;
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+.topBarHidden {
+  opacity: 0;
+  transform: translateY(-0.5rem);
+  pointer-events: none;
+}
+
+.iconButton {
+  display: inline-flex;
+  width: 2.75rem;
+  height: 2.75rem;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 999px;
+  color: inherit;
+  background: rgba(255, 255, 255, 0.12);
+  text-decoration: none;
+  font: inherit;
+  touch-action: manipulation;
+}
+
+.titleGroup {
+  min-width: 0;
+  text-align: center;
+}
+
+.titleGroup h1 {
+  overflow: hidden;
+  margin: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 1rem;
+  font-weight: 800;
+}
+
+.titleGroup small {
+  color: rgba(248, 250, 252, 0.68);
+  font-size: 0.78rem;
+}
+
+.stage {
+  position: relative;
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  overflow: hidden;
+  touch-action: pan-y;
+}
+
+.state {
+  color: rgba(248, 250, 252, 0.72);
+  font-size: 1rem;
+}
+
+.photoImage {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  transform: scale(1);
+  transition: transform 0.2s ease;
+  user-select: none;
+}
+
+.photoZoomed {
+  cursor: zoom-out;
+  transform: scale(2);
+}
+
+.videoPlayer {
+  width: 100%;
+  height: 100%;
+  max-height: calc(100dvh - 7rem);
+  object-fit: contain;
+  background: #000;
+}
+
+.audioPanel {
+  display: flex;
+  width: min(100%, 38rem);
+  max-height: 100%;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.audioCard {
+  display: grid;
+  gap: 0.85rem;
+  padding: 1rem;
+  border-radius: 1.25rem;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.audioCard > :global(.material-symbols-outlined) {
+  color: #38bdf8;
+  font-size: 2rem;
+}
+
+.audioCard strong {
+  word-break: break-word;
+}
+
+.audioPlayer {
+  width: 100%;
+}
+
+.audioQueue {
+  display: grid;
+  gap: 0.45rem;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  list-style: none;
+}
+
+.audioQueue button {
+  display: grid;
+  width: 100%;
+  grid-template-columns: 1.5rem minmax(0, 1fr);
+  align-items: center;
+  gap: 0.65rem;
+  border: 0;
+  border-radius: 0.85rem;
+  padding: 0.75rem;
+  color: rgba(248, 250, 252, 0.78);
+  background: rgba(255, 255, 255, 0.07);
+  font: inherit;
+  text-align: left;
+}
+
+.audioQueue button[aria-current="true"] {
+  color: #f8fafc;
+  background: rgba(56, 189, 248, 0.22);
+}
+
+.audioQueue button span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.moreOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 8;
+  display: flex;
+  align-items: flex-end;
+}
+
+.moreBackdrop {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: rgba(0, 0, 0, 0.42);
+}
+
+.morePanel {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  width: 100%;
+  max-height: min(72dvh, 34rem);
+  gap: 1rem;
+  padding: 1rem 1rem calc(1rem + env(safe-area-inset-bottom));
+  overflow: auto;
+  border-radius: 1.35rem 1.35rem 0 0;
+  color: #111827;
+  background: #ffffff;
+}
+
+.morePanel header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.morePanel h2 {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 800;
+}
+
+.moreClose {
+  display: inline-flex;
+  width: 2.25rem;
+  height: 2.25rem;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 999px;
+  background: #f3f4f6;
+  color: #111827;
+}
+
+.metaList {
+  display: grid;
+  gap: 0.75rem;
+  margin: 0;
+}
+
+.metaList div {
+  display: grid;
+  grid-template-columns: 5rem minmax(0, 1fr);
+  gap: 1rem;
+}
+
+.metaList dt {
+  color: #6b7280;
+  font-weight: 700;
+}
+
+.metaList dd {
+  margin: 0;
+  word-break: break-word;
+}
+
+.moreActions {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.moreActions a,
+.moreActions button {
+  display: flex;
+  min-height: 3rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border: 0;
+  border-radius: 0.95rem;
+  color: #111827;
+  background: #f3f7fb;
+  font: inherit;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.moreActions button {
+  color: #b91c1c;
+  background: #fef2f2;
+}

@@ -153,11 +153,23 @@
   font-size: 1.1rem;
 }
 
-.list {
-  display: grid;
-  gap: 0.4rem;
+.listShell {
   margin-top: 0.5rem;
   position: relative;
+}
+
+.list {
+  border-radius: var(--radius-md);
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.list::-webkit-scrollbar {
+  display: none;
+}
+
+.listRow {
+  padding-bottom: 0.4rem;
 }
 
 .listBusy {

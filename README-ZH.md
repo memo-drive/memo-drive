@@ -18,9 +18,13 @@ MemoDrive 是一个私有的、单用户的智能云盘。通过结合个人网�
 - 文档解析与智能切片：支持 PDF、DOCX、Markdown、纯文本解析，并按章节/段落进行滑动窗口切片。
 - 大模型基础能力：支持 OpenAI 兼容接口与 Ollama Provider，并可根据 `OPENAI_API_KEY` 自动降级。
 - 向量库基础能力：支持 ChromaDB collection 管理、向量入库、检索与删除。
-- 现代化前端界面：基于 React 开发，桌面 Web 与移动 H5 拆成两套独立页面和样式，共享 API 客户端、hooks、stores、types、上传逻辑、AI 流式和预览渲染能力。
+- 现代化前端界面：基于 React 开发，桌面 Web 与移动 H5 拆成两套独立页面和样式，共享 API 客户端、hooks、stores、types、上传逻辑、AI 流式、虚拟化渲染 helper 和预览渲染能力。
 - 桌面 Web 路由：包含 Drive、智能搜索、传输、回收站和设置页。
-- 移动 H5 入口：`/m/*` 下提供移动文件页、全屏 AI、传输、我的、回收站、全屏预览、底部导航、URL 化文件夹路径、右下角上传 FAB、移动端轻提示输入/确认，以及默认关闭的可选语义搜索。
+- 移动 H5 首页：`/m` 提供顶部搜索、传输入口、照片/视频/文档/音频大分类快捷入口、最近查看 File 和根目录上传。
+- 移动文件页：`/m/files` 支持 URL 化文件夹路径、当前文件夹搜索、右下角上传 FAB、移动端轻提示输入/确认、单 File/Folder 移动、长按多选、批量移动和批量软删除。
+- 移动媒体分类页：`/m/category/*` 支持分类内搜索、照片时光轴/列表、视频时长筛选、文档子类型筛选、音频排序、cursor 分页、缩略图懒加载和虚拟列表/网格。
+- 移动媒体专用预览：`/m/media/*` 为照片、视频、音频提供同类全盘队列、左右滑动切换、更多菜单中的元信息/操作；文档和其它 File 继续使用 `/m/preview/:fileId`。
+- 大列表性能优化：后端 cursor 分页、缩略图懒加载、移动端列表/网格虚拟化，以及桌面 FileList 虚拟化。
 - 智能搜索独立页：3 栏布局、常驻 AI 助手、历史会话抽屉，支持流式问答与语义检索切换。
 - AI 会话持久化：自动落库 `conversations` / `messages`，支持历史会话列表、切换、重命名与删除。
 - RAG 检索质量增强：多轮 query 改写、heading-aware 索引、动态分数过滤、多 query 扩展、关键词/向量混合检索与父子 chunk。
@@ -48,7 +52,7 @@ flowchart TB
         Router["BrowserRouter + AuthGuard\n登录 redirect 回跳\n手机根路径兜底"]
         Shared["前端共享核心\napi、hooks、stores、types、utils"]
         DesktopUI["桌面 Web\n/、/smart-search、/transfer、/trash、/settings"]
-        MobileUI["移动 H5\n/m、/m/ai、/m/transfer、/m/me、/m/trash、/m/preview/:id"]
+        MobileUI["移动 H5\n/m 首页、/m/files、/m/category/*\n/m/media/*、/m/preview/:id"]
     end
 
     subgraph Backend ["后端 (Go Fiber)"]
@@ -141,7 +145,7 @@ flowchart TB
 - **Smart Search and RAG**：意图解析、File 过滤、多 query 扩展、关键词/向量混合检索、父子 Chunk 还原、分数过滤和 RAG 证据组装拆成聚焦的内部模块，对调用方仍保持简洁的 Search / RAG 接口。
 - **Trash Lifecycle**：软删除、恢复、永久删除、子项处理、Chunk 清理、Vector Index 清理、物理存储清理，以及 Janitor Sweep 的过期 Trash Entry 清理，都集中在一个生命周期实现中。
 - **Drive Workflow**：Drive 页面中的路径、搜索、选择、重命名、删除、移动、创建 Folder、上传、预览和文件展示规则已拆成有测试的 workflow helper，页面负责组合 UI 和副作用。
-- **Mobile H5 Surface**：移动端路由集中在 `frontend/src/mobile`，用独立页面和 CSS 处理手机端体验。它复用桌面端稳定业务逻辑，但导航、布局、轻提示、AI 工作台、上传入口和预览外壳都按移动端单独设计。
+- **Mobile H5 Surface**：移动端路由集中在 `frontend/src/mobile`，用独立页面和 CSS 处理手机端体验。它复用桌面端稳定业务逻辑，但首页、文件页、分类页、媒体预览、多选批量操作、导航、布局、轻提示、AI 工作台和上传入口都按移动端单独设计。
 - **Production Edge Routing**：`edge` nginx 负责 TLS 终止、`/api/*` 直连后端、SPA 路由转发到前端，并在手机 User-Agent 访问裸 `/` 时用临时 `302` 跳转到 `/m`。
 
 ### 架构词汇
@@ -175,7 +179,7 @@ flowchart TB
 | 入口 | 路由 | 说明 |
 |------|------|------|
 | 桌面 Web | `/`、`/smart-search`、`/transfer`、`/trash`、`/settings` | 重生产力入口，保留桌面布局、表格/列表控制、常驻 AI 助手和设置页。 |
-| 移动 H5 | `/m`、`/m/ai`、`/m/transfer`、`/m/me`、`/m/trash`、`/m/preview/:fileId` | 手机优先入口，包含底部导航、全屏 AI/预览、固定上传 FAB、移动端轻提示，以及 URL 化文件夹路径。 |
+| 移动 H5 | `/m`、`/m/files`、`/m/category/photos`、`/m/category/videos`、`/m/category/documents`、`/m/category/audio`、`/m/media/:category/:fileId`、`/m/preview/:fileId`、`/m/ai`、`/m/transfer`、`/m/me`、`/m/trash` | 手机优先入口，包含首页、五项底部导航、分类内搜索、虚拟化媒体/文件列表、全屏 AI/预览、固定上传 FAB、移动端轻提示、URL 化文件夹路径和批量管理。 |
 | 鉴权 | `/login` | `AuthGuard` 会把未登录用户带到 `/login?redirect=...`，登录成功后回到原始桌面或移动目标。 |
 | API | `/api/*` | 生产环境 edge nginx 将 API 流量直接转发到 `backend:8080`；前端开发服务器把 `/api` 代理到本地后端。 |
 
@@ -479,10 +483,14 @@ cd frontend && pnpm build
     - `[✓]` **14-D** 前端适配：搜索结果展示解析出的筛选条件 Chips，`SearchResponse` 增加 `intent` 字段
 - `[✓]` **优先级 15: 移动 H5 入口**
     - `[✓]` 在 `frontend/src/mobile` 下新增独立 `/m/*` 路由，桌面路由保持不变
-    - `[✓]` 实现移动文件、AI、传输、我的、回收站、全屏预览页面，并补充移动端 CSS 与布局契约测试
-    - `[✓]` 实现文件页上传 FAB、URL 化文件夹路径、移动文件卡片、当前目录搜索、可选语义搜索、轻提示确认/输入以及单文件操作
+    - `[✓]` 将 `/m` 拆为真正的移动首页，文件夹浏览迁移到 `/m/files`，底部导航调整为五项
+    - `[✓]` 实现首页搜索、传输快捷入口、媒体大分类入口、最近查看 File 和根目录上传
+    - `[✓]` 实现移动文件页上传 FAB、URL 化文件夹路径、移动文件卡片、当前目录搜索、轻提示确认/输入、单 File/Folder 移动、长按多选、批量移动和批量软删除
+    - `[✓]` 新增照片/视频/文档/音频分类路由，支持分类内搜索、筛选/排序、cursor 分页、缩略图懒加载和虚拟列表/网格渲染
+    - `[✓]` 新增照片/视频/音频专用媒体预览，支持同类全盘队列、左右滑动切换、更多菜单元信息/操作；文档预览继续走 `/m/preview/:fileId`
     - `[✓]` 实现全屏移动 AI：底部输入框固定、内容区滚动、RAG/Search 模式切换与停止流式输出
     - `[✓]` 移动传输、我的、回收站接入共享上传会话、存储、语言、退出登录与回收站 API
+    - `[✓]` 桌面 FileList 和移动端大列表完成虚拟化，控制大量数据下的 DOM 节点数量
     - `[✓]` 生产环境 edge nginx 增加手机访问 `/` 自动进入 `/m`，并完善 Login/AuthGuard 的 redirect 回跳闭环
 
 ## 许可证
