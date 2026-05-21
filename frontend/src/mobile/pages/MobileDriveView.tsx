@@ -205,7 +205,7 @@ export function MobileDriveView({
             className={styles.list}
             itemClassName={styles.listRow}
             items={files}
-            height="calc(100dvh - 18.5rem)"
+            height="100%"
             estimateSize={68}
             overscan={6}
             getItemKey={(file) => file.id}

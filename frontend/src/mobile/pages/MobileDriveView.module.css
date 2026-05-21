@@ -154,14 +154,21 @@
 }
 
 .listShell {
-  margin-top: 0.5rem;
   position: relative;
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  margin-top: 0.5rem;
 }
 
 .list {
+  min-height: 0;
   border-radius: var(--radius-md);
+  overscroll-behavior: contain;
   scrollbar-width: none;
   -ms-overflow-style: none;
+  -webkit-overflow-scrolling: touch;
 }
 
 .list::-webkit-scrollbar {
@@ -203,8 +210,19 @@
 
 .searchResults {
   display: grid;
+  flex: 1;
+  min-height: 0;
   gap: 0.4rem;
   margin-top: 0.5rem;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.searchResults::-webkit-scrollbar {
+  display: none;
 }
 
 .searchInfo {
@@ -321,6 +339,7 @@
 
 .state {
   display: flex;
+  flex: 1;
   min-height: 8rem;
   align-items: center;
   justify-content: center;

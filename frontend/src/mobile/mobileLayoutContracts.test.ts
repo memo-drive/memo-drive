@@ -54,27 +54,27 @@ describe("mobile layout contracts", () => {
     expect(css).toMatch(/\.header\s*{[^}]*padding:\s*calc\(1rem \+ env\(safe-area-inset-top\)\)/s);
   });
 
-  it("reserves scroll clearance below Mobile Files for the fixed upload button", () => {
+  it("keeps the fixed upload button from reducing the Mobile Files list height", () => {
     const pageCss = readMobileCss("pages/MobilePlaceholder.module.css");
     const uploadCss = readMobileCss("components/UploadFab/UploadFab.module.css");
+    const filesPage = pageCss.match(/\.page\[data-mobile-page="files"\]\s*{(?<body>[^}]*)}/)?.groups?.body ?? "";
 
     expect(uploadCss).toMatch(/\.wrap\s*{[^}]*position:\s*fixed/s);
-    expect(pageCss).toMatch(
-      /\.page\[data-mobile-page="files"\]\s*{[^}]*padding-bottom:\s*var\(--mobile-upload-fab-clearance\)/s,
-    );
+    expect(filesPage).not.toContain("--mobile-upload-fab-clearance");
+    expect(filesPage).not.toMatch(/padding-bottom:\s*calc\(var\(--mobile-upload-fab-clearance\)/);
   });
 
   it("shares bottom navigation and upload clearance tokens across mobile surfaces", () => {
     const tokensCss = readMobileCss("styles/tokens.css");
     const shellCss = readMobileCss("layouts/MobileShell.module.css");
     const uploadCss = readMobileCss("components/UploadFab/UploadFab.module.css");
-    const pageCss = readMobileCss("pages/MobilePlaceholder.module.css");
+    const homeCss = readMobileCss("pages/MobileHomeView.module.css");
 
     expect(tokensCss).toContain("--mobile-bottom-nav-height");
     expect(tokensCss).toContain("--mobile-upload-fab-clearance");
     expect(shellCss).toContain("var(--mobile-bottom-nav-height)");
     expect(uploadCss).toContain("var(--mobile-upload-fab-bottom)");
-    expect(pageCss).toContain("var(--mobile-upload-fab-clearance)");
+    expect(homeCss).toContain("var(--mobile-upload-fab-clearance)");
   });
 
   it("keeps fixed bottom controls ordered and safe-area aware", () => {
@@ -149,14 +149,19 @@ describe("mobile layout contracts", () => {
     expect(css).toMatch(/\.recentRail::\-webkit-scrollbar\s*{[^}]*display:\s*none;/s);
   });
 
-  it("keeps Mobile Files from showing nested native scrollbars", () => {
-    const shellCss = readMobileCss("layouts/MobileShell.module.css");
+  it("keeps Mobile Files as a single virtual-list scroller", () => {
+    const pageCss = readMobileCss("pages/MobilePlaceholder.module.css");
     const filesCss = readMobileCss("pages/MobileDriveView.module.css");
 
-    expect(shellCss).toMatch(/\.main\s*{[^}]*overflow:\s*auto;/s);
-    expect(shellCss).toMatch(/\.main\s*{[^}]*scrollbar-width:\s*none;/s);
-    expect(shellCss).toMatch(/\.main::\-webkit-scrollbar\s*{[^}]*display:\s*none;/s);
+    expect(pageCss).toMatch(
+      /\.page\[data-mobile-page="files"\]\s*{[^}]*height:\s*calc\(100dvh - var\(--mobile-bottom-nav-height\)\);/s,
+    );
+    expect(pageCss).toMatch(/\.page\[data-mobile-page="files"\]\s*{[^}]*overflow:\s*hidden;/s);
+    expect(pageCss).toMatch(/\.page\[data-mobile-page="files"\]\s*{[^}]*min-height:\s*0;/s);
+    expect(filesCss).toMatch(/\.listShell\s*{[^}]*flex:\s*1;/s);
+    expect(filesCss).toMatch(/\.listShell\s*{[^}]*min-height:\s*0;/s);
     expect(filesCss).toMatch(/\.list\s*{[^}]*scrollbar-width:\s*none;/s);
+    expect(filesCss).toMatch(/\.list\s*{[^}]*overscroll-behavior:\s*contain;/s);
     expect(filesCss).toMatch(/\.list::\-webkit-scrollbar\s*{[^}]*display:\s*none;/s);
   });
 

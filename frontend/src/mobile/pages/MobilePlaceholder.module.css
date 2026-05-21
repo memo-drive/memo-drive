@@ -5,7 +5,12 @@
 }
 
 .page[data-mobile-page="files"] {
-  padding-bottom: var(--mobile-upload-fab-clearance);
+  box-sizing: border-box;
+  display: flex;
+  min-height: 0;
+  height: calc(100dvh - var(--mobile-bottom-nav-height));
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .page h1 {

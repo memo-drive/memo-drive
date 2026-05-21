@@ -79,6 +79,19 @@ describe("MobileHomeView", () => {
     expect(html).toContain("alt=\"IMG_8196.jpeg\"");
     expect(html).toContain("alt=\"IMG_8158.mov\"");
   });
+
+  it("does not render transient picker feedback that native sheets would cover", () => {
+    const html = renderHome(
+      <MobileHomeView
+        searchDraft=""
+        recentFiles={[]}
+      />,
+    );
+
+    expect(html).not.toContain("正在打开相册");
+    expect(html).not.toContain("正在读取选择结果");
+    expect(html).not.toContain("未选择文件");
+  });
 });
 
 function renderHome(node: React.ReactNode) {

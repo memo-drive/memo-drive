@@ -264,6 +264,7 @@
     "etaMinutes": "约 {{minutes}} 分钟",
     "etaHours": "约 {{hours}} 小时",
     "status": {
+      "preparing": "准备上传",
       "uploading": "上传中",
       "paused": "已暂停",
       "processing": "处理中",

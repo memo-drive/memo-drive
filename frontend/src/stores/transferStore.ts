@@ -7,6 +7,7 @@ import {
 import { transferUploadedBytes } from "../utils/uploadProgress";
 import {
   isActiveTransferStatus,
+  isLocalTransferTaskID,
   transferTaskFromSession,
 } from "./transferProjection";
 import type { TransferTask } from "./transferProjection";
@@ -32,6 +33,7 @@ type PersistedTransferTask = Omit<TransferTask, "file" | "uploadedBytes"> & {
 
 function persistTasks(tasks: TransferTask[]) {
   const serializable = tasks
+    .filter((task) => !isLocalTransferTaskID(task.id))
     .slice(0, MAX_TASKS)
     .map(({ file: _file, ...task }) => task);
   localStorage.setItem(STORAGE_KEY, JSON.stringify(serializable));
@@ -89,7 +91,7 @@ export const useTransferStore = create<TransferState>((set, get) => ({
     ),
   removeTask: async (id) => {
     const task = get().tasks.find((item) => item.id === id);
-    if (task && !isActiveTransferStatus(task.status)) {
+    if (task && !isActiveTransferStatus(task.status) && !isLocalTransferTaskID(task.id)) {
       await deleteUploadSession(id);
     }
     commit(set, (tasks) => tasks.filter((item) => item.id !== id));

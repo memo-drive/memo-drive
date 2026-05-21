@@ -8,6 +8,7 @@ import {
 } from "../api/uploadApi";
 import { useTransferStore } from "../stores/transferStore";
 import type { TransferTask } from "../stores/transferStore";
+import { preparingTransferTaskFromFile } from "../stores/transferProjection";
 import type { DriveFile, UploadSession } from "../types";
 import {
   uploadedBytesForChunks,
@@ -301,11 +302,19 @@ export function useChunkedUpload(onUploaded: (file: DriveFile) => void) {
   const [progress, setProgress] = useState<UploadProgress | null>(null);
 
   async function upload(file: File, destPath: string) {
+    const preparingTask = preparingTransferTaskFromFile(file, destPath);
+    useTransferStore.getState().addTask(preparingTask);
     setProgress({ fileName: file.name, percent: 0, status: "uploading" });
     let session: UploadSession;
     try {
       session = await initUpload(file, destPath);
     } catch (error) {
+      useTransferStore.getState().updateTask(preparingTask.id, {
+        status: "failed",
+        error: error instanceof Error ? error.message : "upload failed",
+        speed: 0,
+        file: undefined,
+      });
       setProgress({
         fileName: file.name,
         percent: 0,
@@ -314,7 +323,7 @@ export function useChunkedUpload(onUploaded: (file: DriveFile) => void) {
       });
       throw error;
     }
-    useTransferStore.getState().addTask(taskFromUpload(file, session));
+    useTransferStore.getState().updateTask(preparingTask.id, taskFromUpload(file, session));
     return uploadRemainingChunks(file, session, { onUploaded, setProgress });
   }
 

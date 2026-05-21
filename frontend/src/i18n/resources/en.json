@@ -264,6 +264,7 @@
     "etaMinutes": "~{{minutes}}min",
     "etaHours": "~{{hours}}h",
     "status": {
+      "preparing": "Preparing",
       "uploading": "Uploading",
       "paused": "Paused",
       "processing": "Processing",

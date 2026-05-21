@@ -102,8 +102,10 @@ export function VirtualList<T>({
 function virtualScrollerStyle(height: number | string): CSSProperties {
   return {
     height: cssSize(height),
+    overscrollBehavior: "contain",
     overflow: "auto",
     position: "relative",
+    WebkitOverflowScrolling: "touch",
     width: "100%",
   };
 }

@@ -17,6 +17,7 @@ describe("virtualized file foundations", () => {
 
     expect(html).toContain('data-virtual-list="true"');
     expect(html).toContain('data-virtual-total-size="4000"');
+    expect(html).toContain("overscroll-behavior:contain");
     expect(html).toContain("row-0");
     expect(html).toContain("row-4");
     expect(html).not.toContain("row-99");
