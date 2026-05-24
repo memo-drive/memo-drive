@@ -20,9 +20,9 @@ func handleWebDAVMove(c *fiber.Ctx, webdav *service.WebDAVService, resource *ser
 	if resource != nil && resource.File != nil {
 		writeLog.withFile(resource.File.ID, 0)
 	}
-	destination, ok := webDAVDestinationPath(c)
+	destination, reason, ok := webDAVDestinationPathWithReason(c)
 	if !ok {
-		writeLog.fail(fiber.StatusBadRequest, "invalid destination")
+		writeLog.fail(fiber.StatusBadRequest, "invalid destination: "+reason)
 		return c.SendStatus(fiber.StatusBadRequest)
 	}
 	writeLog.withDestination(destination)
@@ -57,18 +57,30 @@ func handleWebDAVMove(c *fiber.Ctx, webdav *service.WebDAVService, resource *ser
 }
 
 func webDAVDestinationPath(c *fiber.Ctx) (string, bool) {
+	destination, _, ok := webDAVDestinationPathWithReason(c)
+	return destination, ok
+}
+
+func webDAVDestinationPathWithReason(c *fiber.Ctx) (string, string, bool) {
 	raw := strings.TrimSpace(c.Get("Destination"))
 	if raw == "" {
-		return "", false
+		return "", "missing", false
 	}
 	destination, err := url.Parse(raw)
 	if err != nil || destination.Scheme == "" || destination.Host == "" {
-		return "", false
+		return "", "invalid_url", false
 	}
-	if !strings.EqualFold(destination.Scheme, c.Protocol()) || !strings.EqualFold(destination.Host, c.Hostname()) {
-		return "", false
+	if !strings.EqualFold(destination.Scheme, c.Protocol()) {
+		return "", "scheme_mismatch", false
 	}
-	return webDAVVirtualPathFromRawPath(destination.EscapedPath())
+	if !strings.EqualFold(destination.Host, c.Hostname()) {
+		return "", "host_mismatch", false
+	}
+	virtualPath, ok := webDAVVirtualPathFromRawPath(destination.EscapedPath())
+	if !ok {
+		return "", "invalid_path", false
+	}
+	return virtualPath, "", true
 }
 
 func webDAVOverwriteAllowed(c *fiber.Ctx) bool {

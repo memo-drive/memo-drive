@@ -18,9 +18,9 @@ func handleWebDAVCopy(c *fiber.Ctx, webdav *service.WebDAVService, resource *ser
 	if resource != nil && resource.File != nil {
 		writeLog.withFile(resource.File.ID, resource.File.Size)
 	}
-	destination, ok := webDAVDestinationPath(c)
+	destination, reason, ok := webDAVDestinationPathWithReason(c)
 	if !ok {
-		writeLog.fail(fiber.StatusBadRequest, "invalid destination")
+		writeLog.fail(fiber.StatusBadRequest, "invalid destination: "+reason)
 		return c.SendStatus(fiber.StatusBadRequest)
 	}
 	writeLog.withDestination(destination)

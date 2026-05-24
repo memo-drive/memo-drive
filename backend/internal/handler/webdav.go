@@ -79,34 +79,42 @@ func RegisterWebDAV(router fiber.Router, cfg *config.Config, services ...*servic
 		if !webDAVAuthorized(c, cfg.Auth) {
 			if !authFailures.allow(c.IP()) {
 				c.Set("Retry-After", strconv.Itoa(int(webDAVAuthFailureWindow/time.Second)))
+				logWebDAVRequestRejected(c, "", fiber.StatusTooManyRequests, "auth_rate_limited", nil)
 				return c.SendStatus(fiber.StatusTooManyRequests)
 			}
 			c.Set("WWW-Authenticate", webDAVRealm)
+			logWebDAVRequestRejected(c, "", fiber.StatusUnauthorized, "auth_failed", nil)
 			return c.SendStatus(fiber.StatusUnauthorized)
 		}
 		authFailures.reset(c.IP())
 		virtualPath, ok := webDAVVirtualPath(c)
 		if !ok {
+			logWebDAVRequestRejected(c, "", fiber.StatusBadRequest, "invalid_path", nil)
 			return c.SendStatus(fiber.StatusBadRequest)
 		}
 		c.Locals(webDAVVirtualPathLocal, virtualPath)
+		logWebDAVRequestBegin(c, virtualPath)
 		if c.Method() == fiber.MethodOptions {
 			setWebDAVCapabilityHeaders(c)
 			return c.SendStatus(fiber.StatusNoContent)
 		}
 		if !webDAVMethodAllowed(c.Method()) {
 			setWebDAVCapabilityHeaders(c)
+			logWebDAVRequestRejected(c, virtualPath, fiber.StatusMethodNotAllowed, "method_not_allowed", nil)
 			return c.SendStatus(fiber.StatusMethodNotAllowed)
 		}
 		if webdav != nil && webDAVMethodRequiresExistingResource(c.Method()) {
 			resource, err := webdav.Resolve(c.Context(), virtualPath)
 			if errors.Is(err, store.ErrNotFound) {
+				logWebDAVRequestRejected(c, virtualPath, fiber.StatusNotFound, "resource_not_found", err)
 				return c.SendStatus(fiber.StatusNotFound)
 			}
 			if errors.Is(err, service.ErrPathConflict) {
+				logWebDAVRequestRejected(c, virtualPath, fiber.StatusConflict, "path_conflict", err)
 				return c.SendStatus(fiber.StatusConflict)
 			}
 			if err != nil {
+				logWebDAVRequestRejected(c, virtualPath, fiber.StatusInternalServerError, "resolve_failed", err)
 				return err
 			}
 			c.Locals(webDAVResourceLocal, resource)
@@ -115,19 +123,23 @@ func RegisterWebDAV(router fiber.Router, cfg *config.Config, services ...*servic
 			if resource, err := webdav.Resolve(c.Context(), virtualPath); err == nil {
 				c.Locals(webDAVResourceLocal, resource)
 			} else if errors.Is(err, service.ErrPathConflict) {
+				logWebDAVRequestRejected(c, virtualPath, fiber.StatusConflict, "path_conflict", err)
 				return c.SendStatus(fiber.StatusConflict)
 			} else if err != nil && !errors.Is(err, store.ErrNotFound) {
+				logWebDAVRequestRejected(c, virtualPath, fiber.StatusInternalServerError, "resolve_failed", err)
 				return err
 			}
 		}
 		if webDAVWriteMethod(c.Method()) {
 			resource, _ := c.Locals(webDAVResourceLocal).(*service.WebDAVResource)
 			if !checkWebDAVWritePreconditions(c, resource) {
+				logWebDAVRequestRejected(c, virtualPath, fiber.StatusPreconditionFailed, "precondition_failed", nil)
 				return c.SendStatus(fiber.StatusPreconditionFailed)
 			}
 		}
 		if c.Method() == "PROPFIND" {
 			if webdav == nil {
+				logWebDAVRequestRejected(c, virtualPath, fiber.StatusNotImplemented, "service_unavailable", nil)
 				return c.SendStatus(fiber.StatusNotImplemented)
 			}
 			resource, _ := c.Locals(webDAVResourceLocal).(*service.WebDAVResource)
@@ -135,6 +147,7 @@ func RegisterWebDAV(router fiber.Router, cfg *config.Config, services ...*servic
 		}
 		if c.Method() == fiber.MethodGet || c.Method() == fiber.MethodHead {
 			if webdav == nil {
+				logWebDAVRequestRejected(c, virtualPath, fiber.StatusNotImplemented, "service_unavailable", nil)
 				return c.SendStatus(fiber.StatusNotImplemented)
 			}
 			resource, _ := c.Locals(webDAVResourceLocal).(*service.WebDAVResource)
@@ -142,18 +155,21 @@ func RegisterWebDAV(router fiber.Router, cfg *config.Config, services ...*servic
 		}
 		if c.Method() == fiber.MethodPut {
 			if webdav == nil {
+				logWebDAVRequestRejected(c, virtualPath, fiber.StatusNotImplemented, "service_unavailable", nil)
 				return c.SendStatus(fiber.StatusNotImplemented)
 			}
 			return handleWebDAVPut(c, webdav, virtualPath)
 		}
 		if c.Method() == "MKCOL" {
 			if webdav == nil {
+				logWebDAVRequestRejected(c, virtualPath, fiber.StatusNotImplemented, "service_unavailable", nil)
 				return c.SendStatus(fiber.StatusNotImplemented)
 			}
 			return handleWebDAVMkcol(c, webdav, virtualPath)
 		}
 		if c.Method() == fiber.MethodDelete {
 			if webdav == nil {
+				logWebDAVRequestRejected(c, virtualPath, fiber.StatusNotImplemented, "service_unavailable", nil)
 				return c.SendStatus(fiber.StatusNotImplemented)
 			}
 			resource, _ := c.Locals(webDAVResourceLocal).(*service.WebDAVResource)
@@ -161,6 +177,7 @@ func RegisterWebDAV(router fiber.Router, cfg *config.Config, services ...*servic
 		}
 		if c.Method() == "MOVE" {
 			if webdav == nil {
+				logWebDAVRequestRejected(c, virtualPath, fiber.StatusNotImplemented, "service_unavailable", nil)
 				return c.SendStatus(fiber.StatusNotImplemented)
 			}
 			resource, _ := c.Locals(webDAVResourceLocal).(*service.WebDAVResource)
@@ -168,11 +185,13 @@ func RegisterWebDAV(router fiber.Router, cfg *config.Config, services ...*servic
 		}
 		if c.Method() == "COPY" {
 			if webdav == nil {
+				logWebDAVRequestRejected(c, virtualPath, fiber.StatusNotImplemented, "service_unavailable", nil)
 				return c.SendStatus(fiber.StatusNotImplemented)
 			}
 			resource, _ := c.Locals(webDAVResourceLocal).(*service.WebDAVResource)
 			return handleWebDAVCopy(c, webdav, resource)
 		}
+		logWebDAVRequestRejected(c, virtualPath, fiber.StatusNotImplemented, "not_implemented", nil)
 		return c.SendStatus(fiber.StatusNotImplemented)
 	}
 	router.Use("/dav", handler)

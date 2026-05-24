@@ -379,6 +379,57 @@ func TestWebDAVUnsupportedMethodReturnsMethodNotAllowed(t *testing.T) {
 	}
 }
 
+func TestWebDAVUnsupportedMethodLogsStructuredRejectionWithoutCredentials(t *testing.T) {
+	app := fiber.New(fiber.Config{RequestMethods: WebDAVRequestMethods(fiber.DefaultMethods)})
+	RegisterWebDAV(app, &config.Config{
+		Auth:   config.AuthConfig{Password: "secret"},
+		WebDAV: config.WebDAVConfig{Enabled: true},
+	})
+
+	var logs bytes.Buffer
+	previousOutput := log.Writer()
+	previousFlags := log.Flags()
+	log.SetOutput(&logs)
+	log.SetFlags(0)
+	defer func() {
+		log.SetOutput(previousOutput)
+		log.SetFlags(previousFlags)
+	}()
+
+	req := httptest.NewRequest("LOCK", "/dav/note.txt", nil)
+	req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte("admin:secret")))
+	req.Header.Set("User-Agent", "Fileball")
+	resp, err := app.Test(req)
+	if err != nil {
+		t.Fatalf("LOCK /dav/note.txt: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusMethodNotAllowed {
+		t.Fatalf("expected unsupported WebDAV method to return 405, got %d", resp.StatusCode)
+	}
+
+	got := logs.String()
+	for _, want := range []string{
+		"component=webdav",
+		"event=request_begin",
+		"method=LOCK",
+		`virtual_path="/note.txt"`,
+		`user_agent="Fileball"`,
+		"event=request_rejected",
+		"status=405",
+		`reason="method_not_allowed"`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("expected unsupported WebDAV method log to contain %s, got %q", want, got)
+		}
+	}
+	for _, forbidden := range []string{"secret", "Authorization"} {
+		if strings.Contains(got, forbidden) {
+			t.Fatalf("expected unsupported WebDAV method log not to contain %q, got %q", forbidden, got)
+		}
+	}
+}
+
 func TestWebDAVSupportedCustomMethodReachesHandler(t *testing.T) {
 	app := fiber.New(fiber.Config{RequestMethods: WebDAVRequestMethods(fiber.DefaultMethods)})
 	RegisterWebDAV(app, &config.Config{
@@ -1679,7 +1730,7 @@ func TestWebDAVWriteFailureLogsStatusAndError(t *testing.T) {
 		"file_id=readme",
 		"bytes=0",
 		"status=400",
-		`err="invalid destination"`,
+		`err="invalid destination: missing"`,
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("expected failed WebDAV write log to contain %s, got %q", want, got)
