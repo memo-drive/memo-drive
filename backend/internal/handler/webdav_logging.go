@@ -57,3 +57,13 @@ func cleanWebDAVLogPath(path string) string {
 	}
 	return path
 }
+
+func webDAVVirtualPathLocalValue(c *fiber.Ctx) string {
+	if c == nil {
+		return ""
+	}
+	if virtualPath, ok := c.Locals(webDAVVirtualPathLocal).(string); ok {
+		return virtualPath
+	}
+	return ""
+}

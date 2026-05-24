@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"path"
@@ -57,11 +58,16 @@ type webDAVPropfindRequest struct {
 }
 
 func handleWebDAVPropfind(c *fiber.Ctx, webdav *service.WebDAVService, resource *service.WebDAVResource) error {
+	started := time.Now()
 	if resource == nil {
+		log.Printf("level=warn component=webdav event=propfind_rejected method=%s virtual_path=%q depth=%q status=%d reason=%q",
+			c.Method(), cleanWebDAVLogPath(webDAVVirtualPathLocalValue(c)), strings.TrimSpace(c.Get("Depth")), fiber.StatusNotFound, "resource_not_found")
 		return c.SendStatus(fiber.StatusNotFound)
 	}
 	propfind, err := parseWebDAVPropfind(c.Body())
 	if err != nil {
+		log.Printf("level=warn component=webdav event=propfind_rejected method=%s virtual_path=%q depth=%q status=%d reason=%q body_bytes=%d err=%q",
+			c.Method(), cleanWebDAVLogPath(webDAVVirtualPathLocalValue(c)), strings.TrimSpace(c.Get("Depth")), fiber.StatusBadRequest, "parse_error", len(c.Body()), err)
 		return c.SendStatus(fiber.StatusBadRequest)
 	}
 	depth := strings.TrimSpace(c.Get("Depth"))
@@ -69,12 +75,16 @@ func handleWebDAVPropfind(c *fiber.Ctx, webdav *service.WebDAVService, resource 
 		depth = "0"
 	}
 	if strings.EqualFold(depth, "infinity") {
+		log.Printf("level=warn component=webdav event=propfind_rejected method=%s virtual_path=%q depth=%q mode=%s props=%d status=%d reason=%q",
+			c.Method(), cleanWebDAVLogPath(resource.VirtualPath), depth, propfind.Mode, len(propfind.Props), fiber.StatusForbidden, "depth_infinity")
 		return c.SendStatus(fiber.StatusForbidden)
 	}
 	resources := []*service.WebDAVResource{resource}
 	if depth == "1" && resource.IsDir() {
 		children, err := webdav.ListChildren(c.Context(), resource.VirtualPath)
 		if err != nil {
+			log.Printf("level=error component=webdav event=propfind_failed method=%s virtual_path=%q depth=%q mode=%s props=%d err=%q",
+				c.Method(), cleanWebDAVLogPath(resource.VirtualPath), depth, propfind.Mode, len(propfind.Props), err)
 			return err
 		}
 		for i := range children {
@@ -99,9 +109,13 @@ func handleWebDAVPropfind(c *fiber.Ctx, webdav *service.WebDAVService, resource 
 		Responses: responses,
 	})
 	if err != nil {
+		log.Printf("level=error component=webdav event=propfind_failed method=%s virtual_path=%q depth=%q mode=%s props=%d resources=%d err=%q",
+			c.Method(), cleanWebDAVLogPath(resource.VirtualPath), depth, propfind.Mode, len(propfind.Props), len(responses), err)
 		return err
 	}
 	c.Set(fiber.HeaderContentType, "application/xml; charset=utf-8")
+	log.Printf("level=info component=webdav event=propfind_complete method=%s virtual_path=%q depth=%q mode=%s props=%d resources=%d status=%d duration_ms=%d",
+		c.Method(), cleanWebDAVLogPath(resource.VirtualPath), depth, propfind.Mode, len(propfind.Props), len(responses), fiber.StatusMultiStatus, time.Since(started).Milliseconds())
 	return c.Status(fiber.StatusMultiStatus).Send(body)
 }
 
@@ -330,7 +344,7 @@ func parseWebDAVPropfind(body []byte) (webDAVPropfindRequest, error) {
 			if depth == 2 {
 				switch t.Name.Local {
 				case "allprop":
-					if req.Mode != "" {
+					if req.Mode != "" && req.Mode != webDAVPropfindAllProp {
 						return req, fmt.Errorf("multiple propfind modes")
 					}
 					req.Mode = webDAVPropfindAllProp
@@ -340,15 +354,20 @@ func parseWebDAVPropfind(body []byte) (webDAVPropfindRequest, error) {
 					}
 					req.Mode = webDAVPropfindPropName
 				case "prop":
+					if req.Mode == webDAVPropfindAllProp {
+						inInclude = true
+						continue
+					}
 					if req.Mode != "" {
 						return req, fmt.Errorf("multiple propfind modes")
 					}
 					req.Mode = webDAVPropfindProp
 					inProp = true
 				case "include":
-					if req.Mode != webDAVPropfindAllProp {
+					if req.Mode != "" && req.Mode != webDAVPropfindAllProp {
 						return req, fmt.Errorf("include requires allprop")
 					}
+					req.Mode = webDAVPropfindAllProp
 					inInclude = true
 				default:
 					return req, fmt.Errorf("unsupported propfind mode %s", t.Name.Local)
@@ -362,7 +381,7 @@ func parseWebDAVPropfind(body []byte) (webDAVPropfindRequest, error) {
 			if depth == 2 && inProp && t.Name.Local == "prop" {
 				inProp = false
 			}
-			if depth == 2 && inInclude && t.Name.Local == "include" {
+			if depth == 2 && inInclude && (t.Name.Local == "include" || t.Name.Local == "prop") {
 				inInclude = false
 			}
 			depth--

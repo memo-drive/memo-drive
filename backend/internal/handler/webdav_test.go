@@ -773,6 +773,181 @@ func TestWebDAVPropfindAllpropIncludeReturnsSupportedProperties(t *testing.T) {
 	}
 }
 
+func TestWebDAVPropfindIncludeBeforeAllpropReturnsSupportedProperties(t *testing.T) {
+	app, _, cleanup := newWebDAVLookupTestApp(t)
+	defer cleanup()
+
+	body := `<?xml version="1.0" encoding="utf-8"?>
+<D:propfind xmlns:D="DAV:">
+  <D:include>
+    <D:quota-used-bytes/>
+    <D:quota-available-bytes/>
+  </D:include>
+  <D:allprop/>
+</D:propfind>`
+	req := httptest.NewRequest("PROPFIND", "/dav/", strings.NewReader(body))
+	req.Header.Set("Depth", "0")
+	resp, err := app.Test(req)
+	if err != nil {
+		t.Fatalf("PROPFIND include allprop /dav/: %v", err)
+	}
+	defer resp.Body.Close()
+	responseBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read PROPFIND body: %v", err)
+	}
+	text := string(responseBody)
+	if resp.StatusCode != fiber.StatusMultiStatus {
+		t.Fatalf("expected include allprop PROPFIND to return 207, got %d with body %s", resp.StatusCode, text)
+	}
+	for _, want := range []string{
+		`<D:displayname></D:displayname>`,
+		`<D:quota-used-bytes>`,
+		`<D:quota-available-bytes>`,
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("expected include allprop XML to contain %q, got %s", want, text)
+		}
+	}
+}
+
+func TestWebDAVPropfindAllpropPropFallbackReturnsSupportedProperties(t *testing.T) {
+	app, _, cleanup := newWebDAVLookupTestApp(t)
+	defer cleanup()
+
+	body := `<?xml version="1.0" encoding="utf-8"?>
+<D:propfind xmlns:D="DAV:">
+  <D:allprop/>
+  <D:prop>
+    <D:quota-used-bytes/>
+    <D:quota-available-bytes/>
+  </D:prop>
+</D:propfind>`
+	req := httptest.NewRequest("PROPFIND", "/dav/", strings.NewReader(body))
+	req.Header.Set("Depth", "0")
+	resp, err := app.Test(req)
+	if err != nil {
+		t.Fatalf("PROPFIND allprop prop fallback /dav/: %v", err)
+	}
+	defer resp.Body.Close()
+	responseBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read PROPFIND body: %v", err)
+	}
+	text := string(responseBody)
+	if resp.StatusCode != fiber.StatusMultiStatus {
+		t.Fatalf("expected allprop prop fallback PROPFIND to return 207, got %d with body %s", resp.StatusCode, text)
+	}
+	for _, want := range []string{
+		`<D:displayname></D:displayname>`,
+		`<D:quota-used-bytes>`,
+		`<D:quota-available-bytes>`,
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("expected allprop prop fallback XML to contain %q, got %s", want, text)
+		}
+	}
+}
+
+func TestWebDAVPropfindLogsStructuredSuccessWithoutCredentials(t *testing.T) {
+	app, _, cleanup := newWebDAVLookupTestApp(t)
+	defer cleanup()
+
+	var logs bytes.Buffer
+	previousOutput := log.Writer()
+	previousFlags := log.Flags()
+	log.SetOutput(&logs)
+	log.SetFlags(0)
+	defer func() {
+		log.SetOutput(previousOutput)
+		log.SetFlags(previousFlags)
+	}()
+
+	req := httptest.NewRequest("PROPFIND", "/dav/Notes", nil)
+	req.Header.Set("Depth", "1")
+	req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte("admin:secret")))
+	resp, err := app.Test(req)
+	if err != nil {
+		t.Fatalf("PROPFIND /dav/Notes: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != fiber.StatusMultiStatus {
+		t.Fatalf("expected PROPFIND to return 207, got %d", resp.StatusCode)
+	}
+
+	got := logs.String()
+	for _, want := range []string{
+		"component=webdav",
+		"event=propfind_complete",
+		"method=PROPFIND",
+		`virtual_path="/Notes"`,
+		`depth="1"`,
+		"mode=allprop",
+		"props=0",
+		"resources=2",
+		"status=207",
+		"duration_ms=",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("expected PROPFIND success log to contain %s, got %q", want, got)
+		}
+	}
+	for _, forbidden := range []string{"secret", "Authorization"} {
+		if strings.Contains(got, forbidden) {
+			t.Fatalf("expected PROPFIND success log not to contain %q, got %q", forbidden, got)
+		}
+	}
+}
+
+func TestWebDAVPropfindParseFailureLogsStructuredRejectionWithoutBody(t *testing.T) {
+	app, _, cleanup := newWebDAVLookupTestApp(t)
+	defer cleanup()
+
+	var logs bytes.Buffer
+	previousOutput := log.Writer()
+	previousFlags := log.Flags()
+	log.SetOutput(&logs)
+	log.SetFlags(0)
+	defer func() {
+		log.SetOutput(previousOutput)
+		log.SetFlags(previousFlags)
+	}()
+
+	req := httptest.NewRequest("PROPFIND", "/dav/Notes", strings.NewReader(`<D:propfind xmlns:D="DAV:"><D:prop>`))
+	req.Header.Set("Depth", "0")
+	req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte("admin:secret")))
+	resp, err := app.Test(req)
+	if err != nil {
+		t.Fatalf("PROPFIND malformed XML: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != fiber.StatusBadRequest {
+		t.Fatalf("expected malformed PROPFIND XML to return 400, got %d", resp.StatusCode)
+	}
+
+	got := logs.String()
+	for _, want := range []string{
+		"component=webdav",
+		"event=propfind_rejected",
+		"method=PROPFIND",
+		`virtual_path="/Notes"`,
+		`depth="0"`,
+		"status=400",
+		`reason="parse_error"`,
+		"body_bytes=35",
+		"err=",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("expected PROPFIND rejection log to contain %s, got %q", want, got)
+		}
+	}
+	for _, forbidden := range []string{"secret", "Authorization", "<D:propfind"} {
+		if strings.Contains(got, forbidden) {
+			t.Fatalf("expected PROPFIND rejection log not to contain %q, got %q", forbidden, got)
+		}
+	}
+}
+
 func TestWebDAVPropfindExplicitPropGroupsUnknownProperties(t *testing.T) {
 	app, _, cleanup := newWebDAVLookupTestApp(t)
 	defer cleanup()
