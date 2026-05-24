@@ -344,7 +344,7 @@ func parseWebDAVPropfind(body []byte) (webDAVPropfindRequest, error) {
 			if depth == 2 {
 				switch t.Name.Local {
 				case "allprop":
-					if req.Mode != "" && req.Mode != webDAVPropfindAllProp {
+					if req.Mode == webDAVPropfindPropName {
 						return req, fmt.Errorf("multiple propfind modes")
 					}
 					req.Mode = webDAVPropfindAllProp
@@ -358,13 +358,13 @@ func parseWebDAVPropfind(body []byte) (webDAVPropfindRequest, error) {
 						inInclude = true
 						continue
 					}
-					if req.Mode != "" {
+					if req.Mode == webDAVPropfindPropName {
 						return req, fmt.Errorf("multiple propfind modes")
 					}
 					req.Mode = webDAVPropfindProp
 					inProp = true
 				case "include":
-					if req.Mode != "" && req.Mode != webDAVPropfindAllProp {
+					if req.Mode == webDAVPropfindPropName {
 						return req, fmt.Errorf("include requires allprop")
 					}
 					req.Mode = webDAVPropfindAllProp
