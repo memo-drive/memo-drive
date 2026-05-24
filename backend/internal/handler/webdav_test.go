@@ -735,6 +735,44 @@ func TestWebDAVPropfindAllpropIncludesQuotaProperties(t *testing.T) {
 	}
 }
 
+func TestWebDAVPropfindAllpropIncludeReturnsSupportedProperties(t *testing.T) {
+	app, _, cleanup := newWebDAVLookupTestApp(t)
+	defer cleanup()
+
+	body := `<?xml version="1.0" encoding="utf-8"?>
+<D:propfind xmlns:D="DAV:">
+  <D:allprop/>
+  <D:include>
+    <D:quota-used-bytes/>
+    <D:quota-available-bytes/>
+  </D:include>
+</D:propfind>`
+	req := httptest.NewRequest("PROPFIND", "/dav/", strings.NewReader(body))
+	req.Header.Set("Depth", "0")
+	resp, err := app.Test(req)
+	if err != nil {
+		t.Fatalf("PROPFIND allprop include /dav/: %v", err)
+	}
+	defer resp.Body.Close()
+	responseBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read PROPFIND body: %v", err)
+	}
+	text := string(responseBody)
+	if resp.StatusCode != fiber.StatusMultiStatus {
+		t.Fatalf("expected allprop include PROPFIND to return 207, got %d with body %s", resp.StatusCode, text)
+	}
+	for _, want := range []string{
+		`<D:displayname></D:displayname>`,
+		`<D:quota-used-bytes>`,
+		`<D:quota-available-bytes>`,
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("expected allprop include XML to contain %q, got %s", want, text)
+		}
+	}
+}
+
 func TestWebDAVPropfindExplicitPropGroupsUnknownProperties(t *testing.T) {
 	app, _, cleanup := newWebDAVLookupTestApp(t)
 	defer cleanup()

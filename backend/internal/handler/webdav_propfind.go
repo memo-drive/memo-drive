@@ -309,6 +309,7 @@ func parseWebDAVPropfind(body []byte) (webDAVPropfindRequest, error) {
 	req := webDAVPropfindRequest{}
 	depth := 0
 	inProp := false
+	inInclude := false
 	for {
 		token, err := decoder.Token()
 		if errors.Is(err, io.EOF) {
@@ -344,17 +345,25 @@ func parseWebDAVPropfind(body []byte) (webDAVPropfindRequest, error) {
 					}
 					req.Mode = webDAVPropfindProp
 					inProp = true
+				case "include":
+					if req.Mode != webDAVPropfindAllProp {
+						return req, fmt.Errorf("include requires allprop")
+					}
+					inInclude = true
 				default:
 					return req, fmt.Errorf("unsupported propfind mode %s", t.Name.Local)
 				}
 				continue
 			}
-			if inProp && depth == 3 {
+			if (inProp || inInclude) && depth == 3 {
 				req.Props = append(req.Props, t.Name.Local)
 			}
 		case xml.EndElement:
 			if depth == 2 && inProp && t.Name.Local == "prop" {
 				inProp = false
+			}
+			if depth == 2 && inInclude && t.Name.Local == "include" {
+				inInclude = false
 			}
 			depth--
 		}
