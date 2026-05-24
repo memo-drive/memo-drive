@@ -10,6 +10,7 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/google/uuid"
@@ -129,7 +130,7 @@ func (s *WebDAVService) CreateFile(ctx context.Context, input WebDAVCreateFileIn
 	if err := os.MkdirAll(filepath.Dir(absPath), 0o755); err != nil {
 		return nil, err
 	}
-	if err := os.Rename(tempPath, absPath); err != nil {
+	if err := moveWebDAVUploadIntoPlace(tempPath, absPath); err != nil {
 		return nil, err
 	}
 	cleanupTemp = false
@@ -206,7 +207,7 @@ func (s *WebDAVService) overwriteFile(ctx context.Context, input WebDAVCreateFil
 	if err := os.MkdirAll(filepath.Dir(absPath), 0o755); err != nil {
 		return nil, err
 	}
-	if err := os.Rename(tempPath, absPath); err != nil {
+	if err := moveWebDAVUploadIntoPlace(tempPath, absPath); err != nil {
 		return nil, err
 	}
 	cleanupTemp = false
@@ -313,4 +314,52 @@ func (s *WebDAVService) buildStorageRel(fileID, destPath, fileName string) strin
 	base := strings.TrimSuffix(SafeName(fileName), ext)
 	name := fmt.Sprintf("%s-%s%s", base, fileID, ext)
 	return filepath.ToSlash(path.Join(strings.TrimPrefix(CleanVirtualPath(destPath), "/"), name))
+}
+
+func moveWebDAVUploadIntoPlace(tempPath, absPath string) error {
+	return moveWebDAVUploadIntoPlaceWithRename(tempPath, absPath, os.Rename)
+}
+
+func moveWebDAVUploadIntoPlaceWithRename(tempPath, absPath string, rename func(string, string) error) error {
+	if err := rename(tempPath, absPath); err == nil {
+		return nil
+	} else if !errors.Is(err, syscall.EXDEV) {
+		return err
+	}
+
+	temp, err := os.CreateTemp(filepath.Dir(absPath), "."+filepath.Base(absPath)+".*.tmp")
+	if err != nil {
+		return err
+	}
+	fallbackPath := temp.Name()
+	cleanupFallback := true
+	defer func() {
+		_ = temp.Close()
+		if cleanupFallback {
+			_ = os.Remove(fallbackPath)
+		}
+	}()
+
+	source, err := os.Open(tempPath)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(temp, source); err != nil {
+		_ = source.Close()
+		return err
+	}
+	if err := source.Close(); err != nil {
+		return err
+	}
+	if err := temp.Sync(); err != nil {
+		return err
+	}
+	if err := temp.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(fallbackPath, absPath); err != nil {
+		return err
+	}
+	cleanupFallback = false
+	return os.Remove(tempPath)
 }

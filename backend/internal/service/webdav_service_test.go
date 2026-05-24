@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -158,6 +159,50 @@ func TestWebDAVServiceCreatesAndResolvesUnicodePaths(t *testing.T) {
 	}
 	if string(body) != "你好，WebDAV" {
 		t.Fatalf("expected stored Unicode file content, got %q", body)
+	}
+}
+
+func TestMoveWebDAVUploadIntoPlaceFallsBackWhenRenameCrossesDevices(t *testing.T) {
+	root := t.TempDir()
+	tempPath := filepath.Join(root, "upload.tmp")
+	if err := os.WriteFile(tempPath, []byte("new content"), 0o644); err != nil {
+		t.Fatalf("write upload temp: %v", err)
+	}
+	destDir := filepath.Join(root, "files")
+	if err := os.MkdirAll(destDir, 0o755); err != nil {
+		t.Fatalf("create dest dir: %v", err)
+	}
+	absPath := filepath.Join(destDir, "target.txt")
+	if err := os.WriteFile(absPath, []byte("old content"), 0o644); err != nil {
+		t.Fatalf("write existing target: %v", err)
+	}
+
+	rename := func(oldPath, newPath string) error {
+		if oldPath == tempPath && newPath == absPath {
+			return &os.LinkError{Op: "rename", Old: oldPath, New: newPath, Err: syscall.EXDEV}
+		}
+		return os.Rename(oldPath, newPath)
+	}
+	if err := moveWebDAVUploadIntoPlaceWithRename(tempPath, absPath, rename); err != nil {
+		t.Fatalf("move WebDAV upload with EXDEV fallback: %v", err)
+	}
+
+	body, err := os.ReadFile(absPath)
+	if err != nil {
+		t.Fatalf("read fallback target: %v", err)
+	}
+	if string(body) != "new content" {
+		t.Fatalf("expected fallback target content to be replaced, got %q", body)
+	}
+	if _, err := os.Stat(tempPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expected source temp to be removed after fallback, got %v", err)
+	}
+	entries, err := os.ReadDir(destDir)
+	if err != nil {
+		t.Fatalf("read dest dir: %v", err)
+	}
+	if len(entries) != 1 || entries[0].Name() != "target.txt" {
+		t.Fatalf("expected fallback temp file to be cleaned up, got %#v", entries)
 	}
 }
 

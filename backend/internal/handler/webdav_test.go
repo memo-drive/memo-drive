@@ -1552,6 +1552,60 @@ func TestWebDAVPutNewFileCreatesFile(t *testing.T) {
 	}
 }
 
+func TestWebDAVPutRootFileWithoutSlashAfterMountCreatesFileAndLogsCompat(t *testing.T) {
+	app, _, cleanup := newWebDAVLookupTestApp(t)
+	defer cleanup()
+
+	var logs bytes.Buffer
+	previousOutput := log.Writer()
+	previousFlags := log.Flags()
+	log.SetOutput(&logs)
+	log.SetFlags(0)
+	defer func() {
+		log.SetOutput(previousOutput)
+		log.SetFlags(previousFlags)
+	}()
+
+	req := httptest.NewRequest(http.MethodPut, "/davroot.md", strings.NewReader("root"))
+	req.Header.Set("Content-Type", "text/markdown")
+	resp, err := app.Test(req)
+	if err != nil {
+		t.Fatalf("PUT /davroot.md: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected mount-compat root PUT to return 201, got %d", resp.StatusCode)
+	}
+
+	getResp, err := app.Test(httptest.NewRequest(http.MethodGet, "/dav/root.md", nil))
+	if err != nil {
+		t.Fatalf("GET /dav/root.md: %v", err)
+	}
+	defer getResp.Body.Close()
+	body, err := io.ReadAll(getResp.Body)
+	if err != nil {
+		t.Fatalf("read mount-compat root file body: %v", err)
+	}
+	if getResp.StatusCode != http.StatusOK || string(body) != "root" {
+		t.Fatalf("expected mount-compat root file to be readable, got %d with body %q", getResp.StatusCode, body)
+	}
+
+	got := logs.String()
+	for _, want := range []string{
+		"event=request_begin",
+		"method=PUT",
+		`path="/davroot.md"`,
+		`path_compat="missing_slash_after_mount"`,
+		`virtual_path="/root.md"`,
+		"event=write_complete",
+		"status=201",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("expected mount-compat root PUT log to contain %s, got %q", want, got)
+		}
+	}
+}
+
 func TestWebDAVPutLogsStructuredWriteResultWithoutCredentials(t *testing.T) {
 	app, _, cleanup := newWebDAVLookupTestApp(t)
 	defer cleanup()
@@ -2155,6 +2209,45 @@ func TestWebDAVMkcolCreatesFolder(t *testing.T) {
 	}
 }
 
+func TestWebDAVMkcolTrailingSlashCreatesFolder(t *testing.T) {
+	app, _, cleanup := newWebDAVLookupTestApp(t)
+	defer cleanup()
+
+	resp, err := app.Test(httptest.NewRequest("MKCOL", "/dav/Notes/Aaaa/", nil))
+	if err != nil {
+		t.Fatalf("MKCOL /dav/Notes/Aaaa/: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected trailing-slash MKCOL to return 201, got %d", resp.StatusCode)
+	}
+
+	req := httptest.NewRequest("PROPFIND", "/dav/Notes/Aaaa/", nil)
+	req.Header.Set("Depth", "0")
+	propfindResp, err := app.Test(req)
+	if err != nil {
+		t.Fatalf("PROPFIND /dav/Notes/Aaaa/: %v", err)
+	}
+	defer propfindResp.Body.Close()
+	body, err := io.ReadAll(propfindResp.Body)
+	if err != nil {
+		t.Fatalf("read trailing-slash folder PROPFIND body: %v", err)
+	}
+	text := string(body)
+	if propfindResp.StatusCode != fiber.StatusMultiStatus {
+		t.Fatalf("expected trailing-slash folder PROPFIND to return 207, got %d with body %s", propfindResp.StatusCode, text)
+	}
+	for _, want := range []string{
+		`<D:href>/dav/Notes/Aaaa/</D:href>`,
+		`<D:displayname>Aaaa</D:displayname>`,
+		`<D:resourcetype><D:collection></D:collection></D:resourcetype>`,
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("expected trailing-slash folder PROPFIND XML to contain %q, got %s", want, text)
+		}
+	}
+}
+
 func TestWebDAVMkcolMissingParentReturnsConflict(t *testing.T) {
 	app, _, cleanup := newWebDAVLookupTestApp(t)
 	defer cleanup()
@@ -2626,6 +2719,24 @@ func TestWebDAVMoveAcceptsHttpsDestinationBehindReverseProxy(t *testing.T) {
 	}
 }
 
+func TestWebDAVMoveAcceptsHttpsDestinationWhenTLSIsTerminatedOnDefaultPort(t *testing.T) {
+	app, _, cleanup := newWebDAVLookupTestApp(t)
+	defer cleanup()
+
+	req := httptest.NewRequest("MOVE", "/dav/Notes/readme.md", nil)
+	req.Host = "memodrive.tail6f3b17.ts.net:443"
+	req.Header.Set("X-Forwarded-Proto", "http")
+	req.Header.Set("Destination", "https://memodrive.tail6f3b17.ts.net:443/dav/Notes/renamed.md")
+	resp, err := app.Test(req)
+	if err != nil {
+		t.Fatalf("MOVE behind TLS-terminated proxy: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected WebDAV MOVE behind TLS-terminated proxy to return 201, got %d", resp.StatusCode)
+	}
+}
+
 func TestWebDAVMoveAllowsCaseOnlyRename(t *testing.T) {
 	app, _, cleanup := newWebDAVLookupTestApp(t)
 	defer cleanup()
@@ -2747,6 +2858,24 @@ func TestWebDAVCopyFileCreatesNewFileAndKeepsSource(t *testing.T) {
 	}
 	if copyFile.ID == "readme" {
 		t.Fatalf("expected copied file to have a new File ID, got source ID %q", copyFile.ID)
+	}
+}
+
+func TestWebDAVCopyAcceptsHttpsDestinationWhenTLSIsTerminatedOnDefaultPort(t *testing.T) {
+	app, _, cleanup := newWebDAVLookupTestApp(t)
+	defer cleanup()
+
+	req := httptest.NewRequest("COPY", "/dav/Notes/readme.md", nil)
+	req.Host = "memodrive.tail6f3b17.ts.net:443"
+	req.Header.Set("X-Forwarded-Proto", "http")
+	req.Header.Set("Destination", "https://memodrive.tail6f3b17.ts.net:443/dav/Notes/copy.md")
+	resp, err := app.Test(req)
+	if err != nil {
+		t.Fatalf("COPY behind TLS-terminated proxy: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected WebDAV COPY behind TLS-terminated proxy to return 201, got %d", resp.StatusCode)
 	}
 }
 

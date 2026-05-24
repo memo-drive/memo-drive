@@ -73,7 +73,7 @@ func RegisterWebDAV(router fiber.Router, cfg *config.Config, services ...*servic
 	}
 	authFailures := newWebDAVAuthFailureLimiter()
 	handler := func(c *fiber.Ctx) error {
-		if !webDAVPath(c.Path()) {
+		if !webDAVPath(c.Path()) && !webDAVMissingSlashMountPathAllowed(c.Method(), c.Path()) {
 			return c.Next()
 		}
 		if !webDAVAuthorized(c, cfg.Auth) {
@@ -194,11 +194,27 @@ func RegisterWebDAV(router fiber.Router, cfg *config.Config, services ...*servic
 		logWebDAVRequestRejected(c, virtualPath, fiber.StatusNotImplemented, "not_implemented", nil)
 		return c.SendStatus(fiber.StatusNotImplemented)
 	}
-	router.Use("/dav", handler)
+	router.Use(handler)
 }
 
 func webDAVPath(path string) bool {
 	return path == "/dav" || strings.HasPrefix(path, "/dav/")
+}
+
+func webDAVMissingSlashMountPath(path string) bool {
+	return strings.HasPrefix(path, "/dav") && path != "/dav" && !strings.HasPrefix(path, "/dav/")
+}
+
+func webDAVMissingSlashMountPathAllowed(method, path string) bool {
+	if !webDAVMissingSlashMountPath(path) {
+		return false
+	}
+	switch method {
+	case fiber.MethodPut, "MKCOL", "MOVE", "COPY", fiber.MethodDelete:
+		return true
+	default:
+		return false
+	}
 }
 
 func webDAVVirtualPath(c *fiber.Ctx) (string, bool) {
@@ -216,10 +232,14 @@ func webDAVVirtualPathFromRawPath(rawPath string) (string, bool) {
 	if rawPath == "/dav" || rawPath == "/dav/" {
 		return "/", true
 	}
-	if !strings.HasPrefix(rawPath, "/dav/") {
+	rawVirtual := ""
+	if strings.HasPrefix(rawPath, "/dav/") {
+		rawVirtual = strings.TrimPrefix(rawPath, "/dav")
+	} else if webDAVMissingSlashMountPath(rawPath) {
+		rawVirtual = "/" + strings.TrimPrefix(rawPath, "/dav")
+	} else {
 		return "", false
 	}
-	rawVirtual := strings.TrimPrefix(rawPath, "/dav")
 	lowerRawVirtual := strings.ToLower(rawVirtual)
 	if strings.Contains(lowerRawVirtual, "%2f") || strings.Contains(lowerRawVirtual, "%5c") {
 		return "", false
@@ -234,6 +254,7 @@ func webDAVVirtualPathFromRawPath(rawPath string) (string, bool) {
 	if !strings.HasPrefix(decoded, "/") || strings.Contains(decoded, "\x00") || strings.Contains(decoded, "\\") || strings.Contains(decoded, "//") {
 		return "", false
 	}
+	decoded = strings.TrimSuffix(decoded, "/")
 	segments := strings.Split(strings.TrimPrefix(decoded, "/"), "/")
 	for i, segment := range segments {
 		if !webDAVValidPathSegment(segment) {

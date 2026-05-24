@@ -57,10 +57,11 @@ func logWebDAVRequestBegin(c *fiber.Ctx, virtualPath string) {
 	if !webDAVShouldLogRequestBegin(c.Method()) {
 		return
 	}
-	log.Printf("level=info component=webdav event=request_begin method=%s virtual_path=%q path=%q protocol=%q forwarded_proto=%q host=%q depth=%q content_length=%d content_type=%q has_content_range=%t has_destination=%t destination=%q overwrite=%q has_if=%t has_if_match=%t has_if_none_match=%t user_agent=%q",
+	log.Printf("level=info component=webdav event=request_begin method=%s virtual_path=%q path=%q path_compat=%q protocol=%q forwarded_proto=%q host=%q depth=%q content_length=%d content_type=%q has_content_range=%t has_destination=%t destination=%q overwrite=%q has_if=%t has_if_match=%t has_if_none_match=%t user_agent=%q",
 		c.Method(),
 		cleanWebDAVLogPath(virtualPath),
 		c.Path(),
+		webDAVPathCompatReason(c.Path()),
 		c.Protocol(),
 		c.Get("X-Forwarded-Proto"),
 		c.Hostname(),
@@ -83,10 +84,11 @@ func logWebDAVRequestRejected(c *fiber.Ctx, virtualPath string, status int, reas
 	if err != nil {
 		errText = err.Error()
 	}
-	log.Printf("level=warn component=webdav event=request_rejected method=%s virtual_path=%q path=%q protocol=%q forwarded_proto=%q host=%q status=%d reason=%q has_destination=%t destination=%q has_if=%t has_if_match=%t has_if_none_match=%t err=%q",
+	log.Printf("level=warn component=webdav event=request_rejected method=%s virtual_path=%q path=%q path_compat=%q protocol=%q forwarded_proto=%q host=%q status=%d reason=%q has_destination=%t destination=%q has_if=%t has_if_match=%t has_if_none_match=%t err=%q",
 		c.Method(),
 		cleanWebDAVLogPath(virtualPath),
 		c.Path(),
+		webDAVPathCompatReason(c.Path()),
 		c.Protocol(),
 		c.Get("X-Forwarded-Proto"),
 		c.Hostname(),
@@ -99,6 +101,13 @@ func logWebDAVRequestRejected(c *fiber.Ctx, virtualPath string, status int, reas
 		strings.TrimSpace(c.Get("If-None-Match")) != "",
 		errText,
 	)
+}
+
+func webDAVPathCompatReason(path string) string {
+	if webDAVMissingSlashMountPath(path) {
+		return "missing_slash_after_mount"
+	}
+	return ""
 }
 
 func webDAVShouldLogRequestBegin(method string) bool {

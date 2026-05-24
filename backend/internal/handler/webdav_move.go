@@ -2,6 +2,7 @@ package handler
 
 import (
 	"errors"
+	"net"
 	"net/url"
 	"strings"
 
@@ -70,7 +71,7 @@ func webDAVDestinationPathWithReason(c *fiber.Ctx) (string, string, bool) {
 	if err != nil || destination.Scheme == "" || destination.Host == "" {
 		return "", "invalid_url", false
 	}
-	if !strings.EqualFold(destination.Scheme, c.Protocol()) {
+	if !webDAVDestinationSchemeAllowed(c, destination.Scheme, destination.Host) {
 		return "", "scheme_mismatch", false
 	}
 	if !strings.EqualFold(destination.Host, c.Hostname()) {
@@ -85,4 +86,35 @@ func webDAVDestinationPathWithReason(c *fiber.Ctx) (string, string, bool) {
 
 func webDAVOverwriteAllowed(c *fiber.Ctx) bool {
 	return !strings.EqualFold(strings.TrimSpace(c.Get("Overwrite")), "F")
+}
+
+func webDAVDestinationSchemeAllowed(c *fiber.Ctx, destinationScheme, destinationHost string) bool {
+	if strings.EqualFold(destinationScheme, c.Protocol()) {
+		return true
+	}
+	if strings.EqualFold(destinationScheme, webDAVFirstHeaderValue(c.Get("X-Forwarded-Proto"))) {
+		return true
+	}
+	if !strings.EqualFold(destinationScheme, "https") || !strings.EqualFold(c.Protocol(), "http") {
+		return false
+	}
+	if webDAVHostPort(destinationHost) == "443" && webDAVHostPort(c.Hostname()) == "443" {
+		return true
+	}
+	return false
+}
+
+func webDAVFirstHeaderValue(value string) string {
+	if before, _, ok := strings.Cut(value, ","); ok {
+		return strings.TrimSpace(before)
+	}
+	return strings.TrimSpace(value)
+}
+
+func webDAVHostPort(host string) string {
+	_, port, err := net.SplitHostPort(strings.TrimSpace(host))
+	if err != nil {
+		return ""
+	}
+	return port
 }
