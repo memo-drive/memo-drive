@@ -4,6 +4,7 @@ import {
   buildCategoryListRequest,
   buildPhotoTimelineRequest,
   categoryFileHref,
+  filterRecentVideosByMediaFilter,
   formatCategoryMonthLabel,
   isMobileCategory,
 } from "./mobileCategoryActions";
@@ -51,6 +52,25 @@ describe("mobileCategoryActions", () => {
     });
   });
 
+  it("filters recently watched videos by duration using existing media filter buckets", () => {
+    const recent = [
+      makeFile({ id: "short", name: "short.mp4", metadata: makeMetadata({ duration: 59.5 }) }),
+      makeFile({ id: "medium", name: "medium.mp4", metadata: makeMetadata({ duration: 600 }) }),
+      makeFile({ id: "long", name: "long.mp4", metadata: makeMetadata({ duration: 601 }) }),
+      makeFile({ id: "unknown", name: "unknown.mp4", metadata: makeMetadata({}) }),
+    ];
+
+    expect(filterRecentVideosByMediaFilter(recent, "lt_1m").map((file) => file.id)).toEqual(["short"]);
+    expect(filterRecentVideosByMediaFilter(recent, "1_10m").map((file) => file.id)).toEqual(["medium"]);
+    expect(filterRecentVideosByMediaFilter(recent, "gt_10m").map((file) => file.id)).toEqual(["long"]);
+    expect(filterRecentVideosByMediaFilter(recent, "all").map((file) => file.id)).toEqual([
+      "short",
+      "medium",
+      "long",
+      "unknown",
+    ]);
+  });
+
   it("links media categories to media preview while documents keep the category return target", () => {
     const photo = makeFile({ id: "photo-1", name: "旅行.jpg", path: "/Camera", mime_type: "image/jpeg" });
     const doc = makeFile({ id: "doc-1", name: "笔记.pdf", path: "/Docs", mime_type: "application/pdf" });
@@ -84,5 +104,13 @@ function makeFile(overrides: Partial<DriveFile> = {}): DriveFile {
     created_at: "2026-05-10T00:00:00Z",
     updated_at: "2026-05-10T00:00:00Z",
     ...overrides,
+  };
+}
+
+function makeMetadata(meta: Record<string, unknown>): DriveFile["metadata"] {
+  return {
+    file_id: "file-1",
+    meta_json: JSON.stringify(meta),
+    extracted_at: "2026-05-10T00:00:00Z",
   };
 }

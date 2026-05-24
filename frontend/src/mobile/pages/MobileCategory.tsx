@@ -33,6 +33,7 @@ import {
 import {
   buildCategoryListRequest,
   buildPhotoTimelineRequest,
+  filterRecentVideosByMediaFilter,
   isMobileCategory,
   type MobileCategoryKey,
 } from "./mobileCategoryActions";
@@ -369,8 +370,9 @@ function MobileCategoryController({ category }: { category: MobileCategoryKey })
     }
   }
 
+  const filteredRecentVideos = filterRecentVideosByMediaFilter(recentVideos, videoFilter);
   const visibleFiles =
-    category === "videos" && videoMode === "recent" ? recentVideos : files;
+    category === "videos" && videoMode === "recent" ? filteredRecentVideos : files;
   const selectableFiles =
     category === "photos" && photoMode === "timeline" ? timelineFiles : visibleFiles;
   const selectedCount = selection.selectedIds.length;

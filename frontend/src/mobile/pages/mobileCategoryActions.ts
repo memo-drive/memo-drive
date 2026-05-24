@@ -67,6 +67,21 @@ export function buildPhotoTimelineRequest(
   return request;
 }
 
+export function filterRecentVideosByMediaFilter(
+  files: DriveFile[],
+  filter: FileQueryMediaFilter | string,
+): DriveFile[] {
+  if (!filter || filter === "all") return files;
+  return files.filter((file) => {
+    const duration = mediaDuration(file);
+    if (typeof duration !== "number") return false;
+    if (filter === "lt_1m") return duration < 60;
+    if (filter === "1_10m") return duration >= 60 && duration <= 600;
+    if (filter === "gt_10m") return duration > 600;
+    return true;
+  });
+}
+
 export function categoryFileHref(category: MobileCategoryKey, file: DriveFile): string {
   if (category === "photos" || category === "videos" || category === "audio") {
     return `/m/media/${category}/${encodeURIComponent(file.id)}?returnTo=${encodeURIComponent(`/m/category/${category}`)}`;
@@ -77,4 +92,22 @@ export function categoryFileHref(category: MobileCategoryKey, file: DriveFile): 
 
 export function formatCategoryMonthLabel(month: PhotoMonthIndexItem): string {
   return `${month.year}年${month.month}月`;
+}
+
+function mediaDuration(file: DriveFile): number | undefined {
+  const raw = file.metadata?.meta_json;
+  if (!raw) return undefined;
+  try {
+    const parsed = JSON.parse(raw) as { duration?: unknown };
+    if (typeof parsed.duration === "number" && Number.isFinite(parsed.duration)) {
+      return parsed.duration;
+    }
+    if (typeof parsed.duration === "string") {
+      const value = Number.parseFloat(parsed.duration);
+      return Number.isFinite(value) ? value : undefined;
+    }
+  } catch {
+    return undefined;
+  }
+  return undefined;
 }
