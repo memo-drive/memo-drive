@@ -73,7 +73,7 @@ func RegisterWebDAV(router fiber.Router, cfg *config.Config, services ...*servic
 	}
 	authFailures := newWebDAVAuthFailureLimiter()
 	handler := func(c *fiber.Ctx) error {
-		if !webDAVPath(c.Path()) && !webDAVMissingSlashMountPathAllowed(c.Method(), c.Path()) {
+		if !webDAVPath(c.Path()) && !webDAVMissingSlashMountPathAllowed(c.Method(), c.Path()) && !webDAVRootMountPathAllowed(c.Method(), c.Path()) {
 			return c.Next()
 		}
 		if !webDAVAuthorized(c, cfg.Auth) {
@@ -209,8 +209,46 @@ func webDAVMissingSlashMountPathAllowed(method, path string) bool {
 	if !webDAVMissingSlashMountPath(path) {
 		return false
 	}
+	return webDAVWritePathCompatMethod(method)
+}
+
+func webDAVRootMountPath(path string) bool {
+	if path == "" || path == "/" || !strings.HasPrefix(path, "/") {
+		return false
+	}
+	if webDAVPath(path) || webDAVMissingSlashMountPath(path) {
+		return false
+	}
+	trimmed := strings.TrimSuffix(path, "/")
+	if trimmed == "" || trimmed == "/" || strings.Contains(strings.TrimPrefix(trimmed, "/"), "/") {
+		return false
+	}
+	return !webDAVReservedRootMountPath(trimmed)
+}
+
+func webDAVRootMountPathAllowed(method, path string) bool {
+	if !webDAVRootMountPath(path) {
+		return false
+	}
+	return webDAVWritePathCompatMethod(method)
+}
+
+func webDAVWritePathCompatMethod(method string) bool {
 	switch method {
 	case fiber.MethodPut, "MKCOL", "MOVE", "COPY", fiber.MethodDelete:
+		return true
+	default:
+		return false
+	}
+}
+
+func webDAVReservedRootMountPath(path string) bool {
+	segment := strings.TrimPrefix(strings.TrimSuffix(path, "/"), "/")
+	if decoded, err := url.PathUnescape(segment); err == nil {
+		segment = decoded
+	}
+	switch strings.ToLower(segment) {
+	case "api", "assets", "dav", "files", "favicon.ico", "index.html", "m", "trash":
 		return true
 	default:
 		return false
@@ -237,6 +275,8 @@ func webDAVVirtualPathFromRawPath(rawPath string) (string, bool) {
 		rawVirtual = strings.TrimPrefix(rawPath, "/dav")
 	} else if webDAVMissingSlashMountPath(rawPath) {
 		rawVirtual = "/" + strings.TrimPrefix(rawPath, "/dav")
+	} else if webDAVRootMountPath(rawPath) {
+		rawVirtual = rawPath
 	} else {
 		return "", false
 	}

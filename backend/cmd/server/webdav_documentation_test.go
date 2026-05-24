@@ -60,7 +60,9 @@ func TestWebDAVTailnetFrontendProxyRoutesDavToBackend(t *testing.T) {
 func assertWebDAVProxyConfig(t *testing.T, name, body string) {
 	t.Helper()
 	for _, want := range []string{
-		"location /dav",
+		"location ~ ^/dav(?:/|$)",
+		"error_page 418 = @webdav_root_compat",
+		"location @webdav_root_compat",
 		"proxy_pass http://backend:8080",
 		"client_max_body_size 0",
 		"proxy_request_buffering off",

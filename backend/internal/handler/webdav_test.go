@@ -1606,6 +1606,60 @@ func TestWebDAVPutRootFileWithoutSlashAfterMountCreatesFileAndLogsCompat(t *test
 	}
 }
 
+func TestWebDAVPutRootFileWithoutMountPrefixCreatesFileAndLogsCompat(t *testing.T) {
+	app, _, cleanup := newWebDAVLookupTestApp(t)
+	defer cleanup()
+
+	var logs bytes.Buffer
+	previousOutput := log.Writer()
+	previousFlags := log.Flags()
+	log.SetOutput(&logs)
+	log.SetFlags(0)
+	defer func() {
+		log.SetOutput(previousOutput)
+		log.SetFlags(previousFlags)
+	}()
+
+	req := httptest.NewRequest(http.MethodPut, "/root-direct.md", strings.NewReader("root direct"))
+	req.Header.Set("Content-Type", "text/markdown")
+	resp, err := app.Test(req)
+	if err != nil {
+		t.Fatalf("PUT /root-direct.md: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected root-compat PUT to return 201, got %d", resp.StatusCode)
+	}
+
+	getResp, err := app.Test(httptest.NewRequest(http.MethodGet, "/dav/root-direct.md", nil))
+	if err != nil {
+		t.Fatalf("GET /dav/root-direct.md: %v", err)
+	}
+	defer getResp.Body.Close()
+	body, err := io.ReadAll(getResp.Body)
+	if err != nil {
+		t.Fatalf("read root-compat file body: %v", err)
+	}
+	if getResp.StatusCode != http.StatusOK || string(body) != "root direct" {
+		t.Fatalf("expected root-compat file to be readable, got %d with body %q", getResp.StatusCode, body)
+	}
+
+	got := logs.String()
+	for _, want := range []string{
+		"event=request_begin",
+		"method=PUT",
+		`path="/root-direct.md"`,
+		`path_compat="missing_mount_prefix"`,
+		`virtual_path="/root-direct.md"`,
+		"event=write_complete",
+		"status=201",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("expected root-compat PUT log to contain %s, got %q", want, got)
+		}
+	}
+}
+
 func TestWebDAVPutLogsStructuredWriteResultWithoutCredentials(t *testing.T) {
 	app, _, cleanup := newWebDAVLookupTestApp(t)
 	defer cleanup()
@@ -2734,6 +2788,46 @@ func TestWebDAVMoveAcceptsHttpsDestinationWhenTLSIsTerminatedOnDefaultPort(t *te
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("expected WebDAV MOVE behind TLS-terminated proxy to return 201, got %d", resp.StatusCode)
+	}
+}
+
+func TestWebDAVMoveAcceptsRootDestinationWithoutMountPrefix(t *testing.T) {
+	app, _, cleanup := newWebDAVLookupTestApp(t)
+	defer cleanup()
+
+	req := httptest.NewRequest("MOVE", "/dav/Notes/readme.md", nil)
+	req.Host = "memodrive.tail6f3b17.ts.net:443"
+	req.Header.Set("X-Forwarded-Proto", "http")
+	req.Header.Set("Destination", "https://memodrive.tail6f3b17.ts.net:443/renamed-root.md")
+	resp, err := app.Test(req)
+	if err != nil {
+		t.Fatalf("MOVE to root without mount prefix: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected WebDAV MOVE to root without mount prefix to return 201, got %d", resp.StatusCode)
+	}
+
+	oldResp, err := app.Test(httptest.NewRequest("PROPFIND", "/dav/Notes/readme.md", nil))
+	if err != nil {
+		t.Fatalf("PROPFIND old path after root MOVE: %v", err)
+	}
+	defer oldResp.Body.Close()
+	if oldResp.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected old path to disappear after root MOVE, got %d", oldResp.StatusCode)
+	}
+
+	getResp, err := app.Test(httptest.NewRequest(http.MethodGet, "/dav/renamed-root.md", nil))
+	if err != nil {
+		t.Fatalf("GET root moved file: %v", err)
+	}
+	defer getResp.Body.Close()
+	body, err := io.ReadAll(getResp.Body)
+	if err != nil {
+		t.Fatalf("read root moved file: %v", err)
+	}
+	if getResp.StatusCode != http.StatusOK || string(body) != "readme" {
+		t.Fatalf("expected root moved file to be readable, got %d with body %q", getResp.StatusCode, body)
 	}
 }
 

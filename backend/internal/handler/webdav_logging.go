@@ -107,6 +107,9 @@ func webDAVPathCompatReason(path string) string {
 	if webDAVMissingSlashMountPath(path) {
 		return "missing_slash_after_mount"
 	}
+	if webDAVRootMountPath(path) {
+		return "missing_mount_prefix"
+	}
 	return ""
 }
 
