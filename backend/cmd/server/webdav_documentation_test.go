@@ -49,6 +49,16 @@ func TestWebDAVDocumentationCoversDeploymentAndClientSmoke(t *testing.T) {
 
 func TestWebDAVProductionProxyRoutesDavToBackend(t *testing.T) {
 	body := readRepoFile(t, repositoryRoot(t), "deploy", "nginx", "tls.conf")
+	assertWebDAVProxyConfig(t, "production edge nginx", body)
+}
+
+func TestWebDAVTailnetFrontendProxyRoutesDavToBackend(t *testing.T) {
+	body := readRepoFile(t, repositoryRoot(t), "frontend", "nginx.conf")
+	assertWebDAVProxyConfig(t, "tailnet frontend nginx", body)
+}
+
+func assertWebDAVProxyConfig(t *testing.T, name, body string) {
+	t.Helper()
 	for _, want := range []string{
 		"location /dav",
 		"proxy_pass http://backend:8080",
@@ -63,7 +73,7 @@ func TestWebDAVProductionProxyRoutesDavToBackend(t *testing.T) {
 		"proxy_set_header Authorization $http_authorization",
 	} {
 		if !strings.Contains(body, want) {
-			t.Fatalf("expected production nginx WebDAV proxy config to contain %q", want)
+			t.Fatalf("expected %s WebDAV proxy config to contain %q", name, want)
 		}
 	}
 }
