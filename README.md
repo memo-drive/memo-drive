@@ -288,6 +288,110 @@ Then open:
 
 > **Security note:** If `JWT_SECRET` is still the default value or `ADMIN_PASSWORD` is empty, the backend will log a warning on startup. Check the logs with `docker compose logs backend`.
 
+## WebDAV Access
+
+WebDAV is optional and disabled by default. Enable it explicitly:
+
+```env
+WEBDAV_ENABLED=true
+ADMIN_PASSWORD=your-strong-password
+```
+
+The endpoint is fixed at `/dav`. In local Docker/development, connect directly to the backend:
+
+```text
+http://localhost:8080/dav
+```
+
+In production with the edge nginx, use the same HTTPS domain:
+
+```text
+https://drive.example.com/dav
+```
+
+WebDAV uses Basic Auth with username `admin` and the same `ADMIN_PASSWORD`. If `ADMIN_PASSWORD` is empty, WebDAV follows the rest of MemoDrive and does not require auth, which is not recommended for production.
+
+Supported methods are:
+
+```text
+OPTIONS, PROPFIND, GET, HEAD, PUT, MKCOL, MOVE, COPY, DELETE
+```
+
+Reverse proxies must allow large request bodies, stream request bodies to the backend, route `/dav` to `backend:8080`, and preserve these headers:
+
+```text
+Destination, Depth, Overwrite, If, If-Match, If-None-Match, Authorization
+```
+
+The bundled production nginx config already includes this `/dav` route. For another proxy, also forward `Host` and `X-Forwarded-Proto`; HTTPS is strongly recommended because Basic Auth credentials are sent on every WebDAV request.
+
+### curl smoke
+
+Set these once:
+
+```bash
+export MEMODRIVE_URL=http://localhost:8080
+export MEMODRIVE_PASSWORD=your-strong-password
+```
+
+Run the bundled smoke script:
+
+```bash
+./deploy/scripts/webdav_smoke.sh
+```
+
+Equivalent manual curl checks:
+
+```bash
+curl -X PROPFIND -u admin:${MEMODRIVE_PASSWORD} \
+  "${MEMODRIVE_URL}/dav/" \
+  -H "Depth: 0" \
+  -H "Content-Type: application/xml" \
+  --data-binary '<?xml version="1.0"?><D:propfind xmlns:D="DAV:"><D:prop><D:displayname/><D:resourcetype/><D:quota-used-bytes/></D:prop></D:propfind>'
+
+printf 'hello webdav\n' > /tmp/memodrive-webdav.txt
+curl -T /tmp/memodrive-webdav.txt -u admin:${MEMODRIVE_PASSWORD} \
+  "${MEMODRIVE_URL}/dav/memodrive-webdav.txt"
+
+curl -u admin:${MEMODRIVE_PASSWORD} \
+  "${MEMODRIVE_URL}/dav/memodrive-webdav.txt"
+
+curl -X MOVE -u admin:${MEMODRIVE_PASSWORD} \
+  "${MEMODRIVE_URL}/dav/memodrive-webdav.txt" \
+  -H "Destination: ${MEMODRIVE_URL}/dav/memodrive-webdav-moved.txt"
+
+curl -X COPY -u admin:${MEMODRIVE_PASSWORD} \
+  "${MEMODRIVE_URL}/dav/memodrive-webdav-moved.txt" \
+  -H "Destination: ${MEMODRIVE_URL}/dav/memodrive-webdav-copy.txt"
+
+curl -X DELETE -u admin:${MEMODRIVE_PASSWORD} \
+  "${MEMODRIVE_URL}/dav/memodrive-webdav-copy.txt"
+```
+
+After a WebDAV upload, the File should appear in the normal App file list and enter the File Indexing Pipeline like other uploads. After WebDAV `DELETE`, the File should disappear from WebDAV and appear as a Trash Entry in the App.
+
+### rclone smoke
+
+Create a local WebDAV remote:
+
+```bash
+rclone config create memodrive webdav \
+  url "${MEMODRIVE_URL}/dav" \
+  vendor other \
+  user admin \
+  pass "$(rclone obscure "${MEMODRIVE_PASSWORD}")"
+```
+
+Then verify the core operations:
+
+```bash
+rclone ls memodrive:
+rclone copy /tmp/memodrive-webdav.txt memodrive:
+rclone cat memodrive:memodrive-webdav.txt
+rclone moveto memodrive:memodrive-webdav.txt memodrive:memodrive-webdav-rclone-moved.txt
+rclone deletefile memodrive:memodrive-webdav-rclone-moved.txt
+```
+
 ## Production HTTPS (TLS Termination at Reverse Proxy)
 
 For production, use the compose override so public traffic enters through the `edge` nginx with HTTPS:

@@ -81,6 +81,7 @@ func (s *FileService) Restore(ctx context.Context, id string) (*model.File, erro
 	}
 
 	if err := s.store.RestoreFile(ctx, id, fallbackPath, finalName); err != nil {
+		err = mapStorePathConflict(err)
 		log.Printf("level=error component=file event=restore_store_failed file_id=%s path=%q name=%q err=%q", id, fallbackPath, finalName, err)
 		return nil, err
 	}
@@ -310,6 +311,7 @@ func (s *FileService) restoreTrashedDescendants(ctx context.Context, rootID, old
 			return restored, err
 		}
 		if err := s.store.RestoreFile(ctx, child.ID, mappedPath, finalName); err != nil {
+			err = mapStorePathConflict(err)
 			log.Printf("level=error component=file event=restore_child_failed file_id=%s child_id=%s path=%q name=%q err=%q", rootID, child.ID, mappedPath, finalName, err)
 			return restored, err
 		}

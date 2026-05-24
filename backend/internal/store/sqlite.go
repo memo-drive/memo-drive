@@ -151,7 +151,49 @@ ALTER TABLE files ADD COLUMN last_viewed_at DATETIME;
 `); err != nil {
 		return err
 	}
+	if err := s.migrateActiveFilePathUnique(ctx); err != nil {
+		return err
+	}
 	return nil
+}
+
+func (s *Store) migrateActiveFilePathUnique(ctx context.Context) error {
+	const migrationID = "015_active_file_path_unique"
+	var exists int
+	err := s.db.QueryRowContext(ctx, `SELECT 1 FROM schema_migrations WHERE id = ?`, migrationID).Scan(&exists)
+	if err == nil {
+		return nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+
+	var pathValue string
+	var lowerName string
+	var ids string
+	err = s.db.QueryRowContext(ctx, `
+SELECT path, lower(name), group_concat(id, ',')
+FROM files
+WHERE deleted_at IS NULL
+GROUP BY path, lower(name)
+HAVING COUNT(*) > 1
+LIMIT 1`).Scan(&pathValue, &lowerName, &ids)
+	if err == nil {
+		return fmt.Errorf("migration %s duplicate active file path: path=%q lower_name=%q ids=%s", migrationID, pathValue, lowerName, ids)
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+
+	if _, err := s.db.ExecContext(ctx, `
+CREATE UNIQUE INDEX IF NOT EXISTS idx_files_active_path_lower_name
+ON files(path, lower(name))
+WHERE deleted_at IS NULL;
+`); err != nil {
+		return fmt.Errorf("migration %s create unique index: %w", migrationID, err)
+	}
+	_, err = s.db.ExecContext(ctx, `INSERT INTO schema_migrations(id) VALUES(?)`, migrationID)
+	return err
 }
 
 func (s *Store) migrateChunks(ctx context.Context) error {

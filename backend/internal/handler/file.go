@@ -122,7 +122,7 @@ func (h *FileHandler) createFolder(c *fiber.Ctx) error {
 	}
 	folder, err := h.files.CreateFolder(c.Context(), body.Path, body.Name)
 	if err != nil {
-		return err
+		return mapStoreError(err)
 	}
 	return c.Status(fiber.StatusCreated).JSON(folder)
 }

@@ -287,6 +287,110 @@ make docker-up
 
 > **安全提示：** 若 `JWT_SECRET` 仍为默认值或 `ADMIN_PASSWORD` 为空，后端启动时会输出警告日志，可用 `docker compose logs backend` 查看。
 
+## WebDAV 访问
+
+WebDAV 是可选入口，默认关闭。需要显式开启：
+
+```env
+WEBDAV_ENABLED=true
+ADMIN_PASSWORD=your-strong-password
+```
+
+WebDAV 入口固定为 `/dav`。本地 Docker 或开发环境建议直接连接后端：
+
+```text
+http://localhost:8080/dav
+```
+
+生产环境使用 edge nginx 时，使用同一个 HTTPS 域名：
+
+```text
+https://drive.example.com/dav
+```
+
+WebDAV 使用 Basic Auth，用户名固定为 `admin`，密码复用 `ADMIN_PASSWORD`。如果 `ADMIN_PASSWORD` 为空，WebDAV 会和 MemoDrive 其它入口一样免鉴权；生产环境不建议这样做。
+
+支持的方法为：
+
+```text
+OPTIONS, PROPFIND, GET, HEAD, PUT, MKCOL, MOVE, COPY, DELETE
+```
+
+反向代理需要允许大请求体，把请求体流式转发到后端，把 `/dav` 路由到 `backend:8080`，并保留这些头：
+
+```text
+Destination, Depth, Overwrite, If, If-Match, If-None-Match, Authorization
+```
+
+仓库内置的生产 nginx 配置已包含 `/dav` 路由。如果使用其它反向代理，也要转发 `Host` 和 `X-Forwarded-Proto`；由于 Basic Auth 会随每个 WebDAV 请求发送，生产环境强烈建议只通过 HTTPS 暴露。
+
+### curl 冒烟
+
+先设置：
+
+```bash
+export MEMODRIVE_URL=http://localhost:8080
+export MEMODRIVE_PASSWORD=your-strong-password
+```
+
+运行内置冒烟脚本：
+
+```bash
+./deploy/scripts/webdav_smoke.sh
+```
+
+也可以手动执行等价 curl：
+
+```bash
+curl -X PROPFIND -u admin:${MEMODRIVE_PASSWORD} \
+  "${MEMODRIVE_URL}/dav/" \
+  -H "Depth: 0" \
+  -H "Content-Type: application/xml" \
+  --data-binary '<?xml version="1.0"?><D:propfind xmlns:D="DAV:"><D:prop><D:displayname/><D:resourcetype/><D:quota-used-bytes/></D:prop></D:propfind>'
+
+printf 'hello webdav\n' > /tmp/memodrive-webdav.txt
+curl -T /tmp/memodrive-webdav.txt -u admin:${MEMODRIVE_PASSWORD} \
+  "${MEMODRIVE_URL}/dav/memodrive-webdav.txt"
+
+curl -u admin:${MEMODRIVE_PASSWORD} \
+  "${MEMODRIVE_URL}/dav/memodrive-webdav.txt"
+
+curl -X MOVE -u admin:${MEMODRIVE_PASSWORD} \
+  "${MEMODRIVE_URL}/dav/memodrive-webdav.txt" \
+  -H "Destination: ${MEMODRIVE_URL}/dav/memodrive-webdav-moved.txt"
+
+curl -X COPY -u admin:${MEMODRIVE_PASSWORD} \
+  "${MEMODRIVE_URL}/dav/memodrive-webdav-moved.txt" \
+  -H "Destination: ${MEMODRIVE_URL}/dav/memodrive-webdav-copy.txt"
+
+curl -X DELETE -u admin:${MEMODRIVE_PASSWORD} \
+  "${MEMODRIVE_URL}/dav/memodrive-webdav-copy.txt"
+```
+
+WebDAV 上传后的 File 应能在 App 文件列表中看到，并像普通上传一样进入 File Indexing Pipeline。通过 WebDAV `DELETE` 删除后，File 会从 WebDAV 视图消失，并作为 Trash Entry 出现在 App 回收站中。
+
+### rclone 冒烟
+
+创建本地 WebDAV remote：
+
+```bash
+rclone config create memodrive webdav \
+  url "${MEMODRIVE_URL}/dav" \
+  vendor other \
+  user admin \
+  pass "$(rclone obscure "${MEMODRIVE_PASSWORD}")"
+```
+
+再验证核心操作：
+
+```bash
+rclone ls memodrive:
+rclone copy /tmp/memodrive-webdav.txt memodrive:
+rclone cat memodrive:memodrive-webdav.txt
+rclone moveto memodrive:memodrive-webdav.txt memodrive:memodrive-webdav-rclone-moved.txt
+rclone deletefile memodrive:memodrive-webdav-rclone-moved.txt
+```
+
 ## 生产环境 HTTPS（反向代理终止 TLS）
 
 生产环境建议使用 compose 覆盖配置，让公网流量通过 `edge` nginx 以 HTTPS 入口访问：

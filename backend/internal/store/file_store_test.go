@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -80,6 +81,20 @@ func TestExistingDatabaseMigratesLastViewedAt(t *testing.T) {
 	}
 	if stored.LastViewedAt == nil || !stored.LastViewedAt.Equal(viewedAt) {
 		t.Fatalf("expected last_viewed_at %s, got %#v", viewedAt.Format(time.RFC3339Nano), stored.LastViewedAt)
+	}
+}
+
+func TestExistingDatabaseWithDuplicateActivePathFailsMigration(t *testing.T) {
+	dbPath := seedLegacyFileDatabaseWithDuplicateActivePath(t)
+	db, err := Open(context.Background(), &config.Config{Storage: config.StorageConfig{DBPath: dbPath}})
+	if db != nil {
+		_ = db.Close()
+	}
+	if err == nil {
+		t.Fatal("expected duplicate active path migration to fail")
+	}
+	if !strings.Contains(err.Error(), "duplicate active file path") || !strings.Contains(err.Error(), "ids=readme-upper,readme-lower") {
+		t.Fatalf("expected explicit duplicate active path error, got %v", err)
 	}
 }
 
@@ -326,6 +341,243 @@ func TestExistsAtPath(t *testing.T) {
 	}
 }
 
+func TestCreateFileRejectsCaseInsensitiveActivePathDuplicate(t *testing.T) {
+	db := newSearchTestStore(t)
+	if err := db.CreateFile(context.Background(), &model.File{
+		ID:          "readme-upper",
+		Name:        "Readme.md",
+		Path:        "/Notes",
+		StoragePath: "Notes/Readme.md",
+		Status:      model.FileStatusReady,
+	}); err != nil {
+		t.Fatalf("create original file: %v", err)
+	}
+
+	err := db.CreateFile(context.Background(), &model.File{
+		ID:          "readme-lower",
+		Name:        "readme.md",
+		Path:        "/Notes",
+		StoragePath: "Notes/readme.md",
+		Status:      model.FileStatusReady,
+	})
+	if err == nil {
+		t.Fatal("expected case-insensitive active path duplicate to be rejected")
+	}
+}
+
+func TestGetActiveByPathFindsUnicodePathAndCanonicalName(t *testing.T) {
+	db := newSearchTestStore(t)
+	if err := db.CreateFile(context.Background(), &model.File{
+		ID:          "unicode",
+		Name:        "Readme📄.MD",
+		Path:        "/文档",
+		StoragePath: "文档/Readme📄.MD",
+		Size:        12,
+		MimeType:    "text/markdown",
+		Status:      model.FileStatusReady,
+	}); err != nil {
+		t.Fatalf("create Unicode path file: %v", err)
+	}
+
+	file, err := db.GetActiveByPath(context.Background(), "/文档", "readme📄.md")
+	if err != nil {
+		t.Fatalf("GetActiveByPath returned error: %v", err)
+	}
+	if file.ID != "unicode" || file.Name != "Readme📄.MD" || file.Path != "/文档" {
+		t.Fatalf("expected canonical Unicode file, got %#v", file)
+	}
+}
+
+func TestUpdateFileLocationRejectsCaseInsensitiveActivePathDuplicate(t *testing.T) {
+	db := newSearchTestStore(t)
+	if err := db.CreateFile(context.Background(), &model.File{
+		ID:          "existing",
+		Name:        "Readme.md",
+		Path:        "/Notes",
+		StoragePath: "Notes/Readme.md",
+		Status:      model.FileStatusReady,
+	}); err != nil {
+		t.Fatalf("create existing file: %v", err)
+	}
+	moved := &model.File{
+		ID:          "moved",
+		Name:        "README.md",
+		Path:        "/Archive",
+		StoragePath: "Archive/README.md",
+		Status:      model.FileStatusReady,
+	}
+	if err := db.CreateFile(context.Background(), moved); err != nil {
+		t.Fatalf("create moved file: %v", err)
+	}
+
+	moved.Path = "/Notes"
+	moved.StoragePath = "Notes/README.md"
+	err := db.UpdateFileLocation(context.Background(), moved)
+	if !errors.Is(err, ErrPathConflict) {
+		t.Fatalf("expected ErrPathConflict, got %v", err)
+	}
+	stored, err := db.GetFile(context.Background(), moved.ID)
+	if err != nil {
+		t.Fatalf("get moved file after rejected location update: %v", err)
+	}
+	if stored.Path != "/Archive" || stored.StoragePath != "Archive/README.md" {
+		t.Fatalf("expected rejected location update to leave file untouched, got %#v", stored)
+	}
+}
+
+func TestRestoreFileRejectsCaseInsensitiveActivePathDuplicate(t *testing.T) {
+	db := newSearchTestStore(t)
+	if err := db.CreateFile(context.Background(), &model.File{
+		ID:          "active",
+		Name:        "Readme.md",
+		Path:        "/Notes",
+		StoragePath: "Notes/Readme.md",
+		Status:      model.FileStatusReady,
+	}); err != nil {
+		t.Fatalf("create active file: %v", err)
+	}
+	trashed := &model.File{
+		ID:          "trashed",
+		Name:        "old.md",
+		Path:        "/Notes",
+		StoragePath: "Notes/old.md",
+		Status:      model.FileStatusReady,
+	}
+	if err := db.CreateFile(context.Background(), trashed); err != nil {
+		t.Fatalf("create trashed file: %v", err)
+	}
+	if err := db.SoftDeleteFile(context.Background(), trashed.ID, trashed.ID); err != nil {
+		t.Fatalf("soft delete file: %v", err)
+	}
+
+	err := db.RestoreFile(context.Background(), trashed.ID, "/Notes", "README.md")
+	if !errors.Is(err, ErrPathConflict) {
+		t.Fatalf("expected ErrPathConflict, got %v", err)
+	}
+	if _, err := db.GetFile(context.Background(), trashed.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected file to remain in trash after rejected restore, got %v", err)
+	}
+}
+
+func TestCreateFileConcurrentSamePathLeavesOneActiveFile(t *testing.T) {
+	db := newSearchTestStore(t)
+	const writers = 8
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	results := make(chan error, writers)
+
+	for i := 0; i < writers; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			<-start
+			results <- db.CreateFile(context.Background(), &model.File{
+				ID:          fmt.Sprintf("race-%02d", i),
+				Name:        "Race.md",
+				Path:        "/Notes",
+				StoragePath: fmt.Sprintf("Notes/race-%02d.md", i),
+				Status:      model.FileStatusReady,
+			})
+		}(i)
+	}
+	close(start)
+	wg.Wait()
+	close(results)
+
+	successes := 0
+	conflicts := 0
+	for err := range results {
+		switch {
+		case err == nil:
+			successes++
+		case errors.Is(err, ErrPathConflict):
+			conflicts++
+		default:
+			t.Fatalf("expected nil or ErrPathConflict, got %v", err)
+		}
+	}
+	if successes != 1 || conflicts != writers-1 {
+		t.Fatalf("expected one concurrent create success and %d conflicts, got successes=%d conflicts=%d", writers-1, successes, conflicts)
+	}
+	files, err := db.ListFiles(context.Background(), "/Notes", "")
+	if err != nil {
+		t.Fatalf("ListFiles returned error: %v", err)
+	}
+	if len(files) != 1 || !strings.EqualFold(files[0].Name, "Race.md") {
+		t.Fatalf("expected exactly one active Race.md after concurrent creates, got %#v", files)
+	}
+}
+
+func TestFileETagStateIsStableUntilContentUpdate(t *testing.T) {
+	db := newSearchTestStore(t)
+	if err := db.CreateFile(context.Background(), &model.File{
+		ID:          "etag-file",
+		Name:        "etag.md",
+		Path:        "/Notes",
+		StoragePath: "Notes/etag.md",
+		Size:        5,
+		MimeType:    "text/markdown",
+		Status:      model.FileStatusReady,
+		ChunkCount:  2,
+	}); err != nil {
+		t.Fatalf("create ETag file: %v", err)
+	}
+
+	first, err := db.GetFile(context.Background(), "etag-file")
+	if err != nil {
+		t.Fatalf("get first ETag file: %v", err)
+	}
+	second, err := db.GetFile(context.Background(), "etag-file")
+	if err != nil {
+		t.Fatalf("get second ETag file: %v", err)
+	}
+	if webDAVTestETagState(first) != webDAVTestETagState(second) {
+		t.Fatalf("expected same File state to have stable ETag input, first=%s second=%s", webDAVTestETagState(first), webDAVTestETagState(second))
+	}
+
+	time.Sleep(time.Millisecond)
+	if err := db.UpdateFileContent(context.Background(), "etag-file", 9, "text/markdown", model.FileStatusUploaded, 0); err != nil {
+		t.Fatalf("update content: %v", err)
+	}
+	after, err := db.GetFile(context.Background(), "etag-file")
+	if err != nil {
+		t.Fatalf("get updated ETag file: %v", err)
+	}
+	if after.ID != first.ID {
+		t.Fatalf("expected overwrite to keep File ID, before=%q after=%q", first.ID, after.ID)
+	}
+	if webDAVTestETagState(after) == webDAVTestETagState(first) {
+		t.Fatalf("expected content update to change ETag input, still got %s", webDAVTestETagState(after))
+	}
+}
+
+func TestTrashedFileDoesNotBlockSameNameActiveFile(t *testing.T) {
+	db := newSearchTestStore(t)
+	file := &model.File{
+		ID:          "archived",
+		Name:        "Readme.md",
+		Path:        "/Notes",
+		StoragePath: "Notes/Readme.md",
+		Status:      model.FileStatusReady,
+	}
+	if err := db.CreateFile(context.Background(), file); err != nil {
+		t.Fatalf("create original file: %v", err)
+	}
+	if err := db.SoftDeleteFile(context.Background(), file.ID, file.ID); err != nil {
+		t.Fatalf("soft delete original file: %v", err)
+	}
+
+	if err := db.CreateFile(context.Background(), &model.File{
+		ID:          "replacement",
+		Name:        "readme.md",
+		Path:        "/Notes",
+		StoragePath: "Notes/replacement.md",
+		Status:      model.FileStatusReady,
+	}); err != nil {
+		t.Fatalf("expected trashed file not to block replacement active file: %v", err)
+	}
+}
+
 func TestTrashStoreLifecycle(t *testing.T) {
 	db := newSearchTestStore(t)
 	file := &model.File{
@@ -449,6 +701,10 @@ func TestSoftDeletedFilesAreExcludedFromSearchAndConflicts(t *testing.T) {
 	}
 }
 
+func webDAVTestETagState(file *model.File) string {
+	return fmt.Sprintf(`"%s-%d-%d"`, file.ID, file.UpdatedAt.UnixNano(), file.Size)
+}
+
 func newSearchTestStore(t *testing.T) *Store {
 	t.Helper()
 	root := t.TempDir()
@@ -545,6 +801,58 @@ INSERT INTO files (id, name, path, storage_path, size, mime_type, is_dir, status
 VALUES ('legacy-file', 'legacy.pdf', '/', 'legacy.pdf', 256, 'application/pdf', 0, 'ready', 0, '2026-05-18 10:00:00', '2026-05-18 10:00:00');
 `); err != nil {
 		t.Fatalf("seed legacy db: %v", err)
+	}
+	return dbPath
+}
+
+func seedLegacyFileDatabaseWithDuplicateActivePath(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	dbPath := filepath.Join(root, "db", "memodrive.db")
+	if err := os.MkdirAll(filepath.Dir(dbPath), 0o755); err != nil {
+		t.Fatalf("mkdir db dir: %v", err)
+	}
+	db, err := sql.Open("sqlite3", dbPath)
+	if err != nil {
+		t.Fatalf("open legacy db: %v", err)
+	}
+	defer db.Close()
+	if _, err := db.ExecContext(context.Background(), `
+CREATE TABLE files (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    path TEXT NOT NULL,
+    storage_path TEXT NOT NULL,
+    size INTEGER,
+    mime_type TEXT,
+    is_dir BOOLEAN DEFAULT FALSE,
+    parent_id TEXT,
+    status TEXT DEFAULT 'uploaded',
+    chunk_count INTEGER DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    last_viewed_at DATETIME,
+    deleted_at DATETIME,
+    original_path TEXT,
+    original_name TEXT,
+    trash_root_id TEXT
+);
+CREATE TABLE schema_migrations (
+    id TEXT PRIMARY KEY,
+    applied_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+INSERT INTO schema_migrations(id) VALUES
+    ('010_trash_columns'),
+    ('011_trash_root_id'),
+    ('012_conversation_columns'),
+    ('013_chunks_fts'),
+    ('014_last_viewed_at');
+INSERT INTO files (id, name, path, storage_path, size, mime_type, is_dir, status, chunk_count, created_at, updated_at)
+VALUES
+    ('readme-upper', 'Readme.md', '/Notes', 'Notes/Readme.md', 1, 'text/markdown', 0, 'ready', 0, '2026-05-18 10:00:00', '2026-05-18 10:00:00'),
+    ('readme-lower', 'readme.md', '/Notes', 'Notes/readme.md', 1, 'text/markdown', 0, 'ready', 0, '2026-05-18 10:00:00', '2026-05-18 10:00:00');
+`); err != nil {
+		t.Fatalf("seed legacy duplicate db: %v", err)
 	}
 	return dbPath
 }

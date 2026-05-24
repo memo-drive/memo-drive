@@ -759,6 +759,33 @@ func TestRenameMoveMapsConflictTo409(t *testing.T) {
 	}
 }
 
+func TestCreateFolderMapsCaseInsensitiveConflictTo409(t *testing.T) {
+	app, cleanup := newFileRenameTestApp(t)
+	defer cleanup()
+
+	req := httptest.NewRequest(http.MethodPost, "/folders", strings.NewReader(`{"path":"/","name":"Notes"}`))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := app.Test(req)
+	if err != nil {
+		t.Fatalf("create folder: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected first folder create to return 201, got %d", resp.StatusCode)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/folders", strings.NewReader(`{"path":"/","name":"notes"}`))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err = app.Test(req)
+	if err != nil {
+		t.Fatalf("create duplicate folder: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("expected case-insensitive folder conflict to map to 409, got %d", resp.StatusCode)
+	}
+}
+
 func TestStorageUsageEndpointReturnsUsage(t *testing.T) {
 	app, cleanup := newStorageUsageTestApp(t)
 	defer cleanup()

@@ -115,6 +115,68 @@ func TestRenameMoveRejectsTargetConflict(t *testing.T) {
 	}
 }
 
+func TestRenameMoveRejectsCaseInsensitiveTargetConflict(t *testing.T) {
+	service, db, root := newFileServiceTestHarness(t)
+	createServiceTestFile(t, db, root, &model.File{
+		ID:          "src",
+		Name:        "foo.txt",
+		Path:        "/A",
+		StoragePath: "A/foo.txt",
+		Size:        3,
+		MimeType:    "text/plain",
+		Status:      model.FileStatusReady,
+	}, "src")
+	createServiceTestFile(t, db, root, &model.File{
+		ID:          "dst",
+		Name:        "FOO.txt",
+		Path:        "/B",
+		StoragePath: "B/FOO.txt",
+		Size:        3,
+		MimeType:    "text/plain",
+		Status:      model.FileStatusReady,
+	}, "dst")
+
+	_, err := service.RenameMove(context.Background(), "src", "", "/B")
+	if !errors.Is(err, ErrPathConflict) {
+		t.Fatalf("expected ErrPathConflict, got %v", err)
+	}
+}
+
+func TestCreateFolderRejectsCaseInsensitiveTargetConflict(t *testing.T) {
+	service, db, root := newFileServiceTestHarness(t)
+	createServiceTestFile(t, db, root, &model.File{
+		ID:          "notes",
+		Name:        "Notes",
+		Path:        "/",
+		StoragePath: "Notes",
+		IsDir:       true,
+		Status:      model.FileStatusReady,
+	}, "")
+
+	_, err := service.CreateFolder(context.Background(), "/", "notes")
+	if !errors.Is(err, ErrPathConflict) {
+		t.Fatalf("expected ErrPathConflict, got %v", err)
+	}
+}
+
+func TestRegisterUploadedFileRejectsCaseInsensitiveTargetConflict(t *testing.T) {
+	service, db, root := newFileServiceTestHarness(t)
+	createServiceTestFile(t, db, root, &model.File{
+		ID:          "existing",
+		Name:        "Readme.md",
+		Path:        "/Notes",
+		StoragePath: "Notes/existing.md",
+		Size:        3,
+		MimeType:    "text/markdown",
+		Status:      model.FileStatusReady,
+	}, "old")
+
+	_, err := service.RegisterUploadedFile(context.Background(), "readme.md", "/Notes", "Notes/new.md", "text/markdown", 3, 1)
+	if !errors.Is(err, ErrPathConflict) {
+		t.Fatalf("expected ErrPathConflict, got %v", err)
+	}
+}
+
 func TestRenameMoveRejectsDirectoryIntoItself(t *testing.T) {
 	service, db, root := newFileServiceTestHarness(t)
 	createServiceTestFile(t, db, root, &model.File{

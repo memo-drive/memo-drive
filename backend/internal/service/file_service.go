@@ -172,6 +172,7 @@ func (s *FileService) CreateFolder(ctx context.Context, dirPath, name string) (*
 		Status:      model.FileStatusReady,
 	}
 	if err := s.store.CreateFile(ctx, file); err != nil {
+		err = mapStorePathConflict(err)
 		log.Printf("level=error component=file event=create_folder_store_failed file_id=%s path=%q name=%q err=%q", file.ID, dirPath, name, err)
 		return nil, err
 	}
@@ -332,6 +333,7 @@ func (s *FileService) RenameMove(ctx context.Context, id, newName, newPath strin
 	file.Path = newPath
 	file.StoragePath = filepath.ToSlash(newRel)
 	if err := s.store.UpdateFileLocation(ctx, file); err != nil {
+		err = mapStorePathConflict(err)
 		log.Printf("level=error component=file event=rename_move_store_failed file_id=%s err=%q", id, err)
 		return nil, err
 	}
@@ -376,12 +378,20 @@ func (s *FileService) RegisterUploadedFile(ctx context.Context, name, destPath, 
 		ChunkCount:  chunkCount,
 	}
 	if err := s.store.CreateFile(ctx, file); err != nil {
+		err = mapStorePathConflict(err)
 		log.Printf("level=error component=file event=register_uploaded_failed file_id=%s name=%q path=%q storage_path=%q err=%q", file.ID, file.Name, file.Path, file.StoragePath, err)
 		return nil, err
 	}
 	log.Printf("level=info component=file event=register_uploaded_complete file_id=%s name=%q path=%q storage_path=%q size=%d mime_type=%q upload_chunks=%d duration_ms=%d",
 		file.ID, file.Name, file.Path, file.StoragePath, file.Size, file.MimeType, file.ChunkCount, time.Since(started).Milliseconds())
 	return file, nil
+}
+
+func mapStorePathConflict(err error) error {
+	if errors.Is(err, store.ErrPathConflict) {
+		return fmt.Errorf("%w: %v", ErrPathConflict, err)
+	}
+	return err
 }
 
 func (s *FileService) BuildStorageRel(fileID, destPath, fileName string) string {

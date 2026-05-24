@@ -171,6 +171,25 @@ func TestUploadCompleteStoresMOVAsVideoQuickTimeWithoutChangingOriginalFile(t *t
 	}
 }
 
+func TestUploadSaveChunkRejectsBytesBeyondExpectedChunkSize(t *testing.T) {
+	uploads, _, _ := newUploadServiceTestHarness(t)
+	session, err := uploads.Init(context.Background(), InitUploadInput{
+		FileName: "large.bin",
+		FileSize: 8,
+		DestPath: "/",
+	})
+	if err != nil {
+		t.Fatalf("init upload: %v", err)
+	}
+
+	if _, err := uploads.SaveChunk(context.Background(), session.ID, 0, []byte("123456")); err == nil {
+		t.Fatal("expected oversized upload chunk to be rejected")
+	}
+	if _, err := os.Stat(uploads.chunkPath(session.ID, 0)); err == nil {
+		t.Fatal("expected oversized upload chunk not to be written")
+	}
+}
+
 func newUploadServiceTestHarness(t *testing.T) (*UploadService, *store.Store, *config.Config) {
 	t.Helper()
 	root := t.TempDir()

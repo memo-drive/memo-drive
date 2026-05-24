@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mattn/go-sqlite3"
 	"github.com/memodrive/backend/internal/model"
 )
 
@@ -18,6 +19,7 @@ import (
 var (
 	ErrNotFound      = errors.New("not found")
 	ErrInvalidCursor = errors.New("invalid cursor")
+	ErrPathConflict  = errors.New("path conflict")
 )
 
 const (
@@ -106,7 +108,7 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		file.CreatedAt,
 		file.UpdatedAt,
 	)
-	return err
+	return normalizeFilePathConflict(err)
 }
 
 func (s *Store) ListFiles(ctx context.Context, dirPath, sort string) ([]model.File, error) {
@@ -523,6 +525,44 @@ LIMIT 1`, dirPath, name).Scan(&exists); err != nil {
 	return true, nil
 }
 
+func (s *Store) GetActiveByPath(ctx context.Context, dirPath, name string) (*model.File, error) {
+	dirPath = cleanFileSearchPath(dirPath)
+	if dirPath == "" {
+		dirPath = "/"
+	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return nil, ErrNotFound
+	}
+	rows, err := s.db.QueryContext(ctx, fmt.Sprintf(`
+SELECT %s
+FROM files
+WHERE path = ? AND name = ? COLLATE NOCASE AND deleted_at IS NULL
+ORDER BY name COLLATE NOCASE ASC, id ASC
+LIMIT 2`, fileColumns), dirPath, name)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	if !rows.Next() {
+		if err := rows.Err(); err != nil {
+			return nil, err
+		}
+		return nil, ErrNotFound
+	}
+	file, err := scanFile(rows)
+	if err != nil {
+		return nil, err
+	}
+	if rows.Next() {
+		return nil, ErrPathConflict
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return &file, nil
+}
+
 func (s *Store) GetFile(ctx context.Context, id string) (*model.File, error) {
 	row := s.db.QueryRowContext(ctx, fmt.Sprintf(`
 SELECT %s
@@ -598,6 +638,25 @@ func (s *Store) UpdateFileChunkCount(ctx context.Context, id string, chunkCount 
 	return affected(result, err)
 }
 
+func (s *Store) UpdateFileContent(ctx context.Context, id string, size int64, mimeType, status string, chunkCount int) error {
+	result, err := s.db.ExecContext(ctx, `
+UPDATE files
+SET size = ?,
+    mime_type = ?,
+    status = ?,
+    chunk_count = ?,
+    updated_at = ?
+WHERE id = ? AND is_dir = 0 AND deleted_at IS NULL`,
+		size,
+		mimeType,
+		status,
+		chunkCount,
+		time.Now().UTC(),
+		id,
+	)
+	return affected(result, err)
+}
+
 func (s *Store) MarkFileViewed(ctx context.Context, id string) (*model.File, error) {
 	now := time.Now().UTC()
 	result, err := s.db.ExecContext(ctx, `
@@ -622,7 +681,7 @@ WHERE id = ?`,
 		file.UpdatedAt,
 		file.ID,
 	)
-	return affected(result, err)
+	return affected(result, normalizeFilePathConflict(err))
 }
 
 func (s *Store) UpdateFilePath(ctx context.Context, id, newPath, newStoragePath string) error {
@@ -630,7 +689,7 @@ func (s *Store) UpdateFilePath(ctx context.Context, id, newPath, newStoragePath 
 UPDATE files
 SET path = ?, storage_path = ?, updated_at = ?
 WHERE id = ?`, newPath, newStoragePath, time.Now().UTC(), id)
-	return affected(result, err)
+	return affected(result, normalizeFilePathConflict(err))
 }
 
 func (s *Store) SoftDeleteFile(ctx context.Context, id, trashRootID string) error {
@@ -664,7 +723,7 @@ SET deleted_at = NULL,
     trash_root_id = NULL,
     updated_at = ?
 WHERE id = ? AND deleted_at IS NOT NULL`, fallbackPath, fallbackName, now, id)
-	return affected(result, err)
+	return affected(result, normalizeFilePathConflict(err))
 }
 
 func (s *Store) ListTrashed(ctx context.Context, limit int) ([]model.File, error) {
@@ -772,6 +831,11 @@ WHERE file_id = ?`, fileID)
 		meta.ThumbnailPath = &thumb.String
 	}
 	return &meta, nil
+}
+
+func (s *Store) DeleteMetadataByFileID(ctx context.Context, fileID string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM file_metadata WHERE file_id = ?`, fileID)
+	return err
 }
 
 func (s *Store) CreateTask(ctx context.Context, task *model.Task) error {
@@ -1796,4 +1860,17 @@ func affected(result sql.Result, err error) error {
 		return ErrNotFound
 	}
 	return nil
+}
+
+func normalizeFilePathConflict(err error) error {
+	if err == nil {
+		return nil
+	}
+	var sqliteErr sqlite3.Error
+	if errors.As(err, &sqliteErr) &&
+		sqliteErr.Code == sqlite3.ErrConstraint &&
+		(sqliteErr.ExtendedCode == sqlite3.ErrConstraintUnique || strings.Contains(err.Error(), "idx_files_active_path_lower_name")) {
+		return ErrPathConflict
+	}
+	return err
 }

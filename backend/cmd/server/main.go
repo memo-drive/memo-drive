@@ -61,6 +61,7 @@ func main() {
 
 	fileService := service.NewFileService(cfg, db, chromaClient)
 	pipelineService := service.NewPipelineService(cfg, db, llmProvider, chromaClient, ocrRunner, transcriber)
+	webDAVService := service.NewWebDAVService(cfg, db, pipelineService)
 	uploadService := service.NewUploadService(cfg, db, fileService, pipelineService)
 	searchService := service.NewSearchService(cfg, db, llmProvider, chromaClient)
 	ragService := service.NewRAGService(cfg, llmProvider, searchService)
@@ -73,14 +74,12 @@ func main() {
 		}
 	}
 
-	app := fiber.New(fiber.Config{
-		AppName:      "MemoDrive",
-		ErrorHandler: errorHandler,
-		BodyLimit:    int(cfg.Storage.ChunkSize + 1024*1024),
-	})
+	app := fiber.New(httpConfig(cfg))
 	app.Use(recover.New())
-	app.Use(logger.New())
+	app.Use(logger.New(httpLoggerConfig()))
 	app.Use(appmw.CORS())
+	app.Use("/api", appmw.BodyLimit(bufferedUploadBodyLimit(cfg)))
+	handler.RegisterWebDAV(app, cfg, webDAVService)
 
 	api := app.Group("/api")
 	handler.RegisterHealth(api)
@@ -124,6 +123,28 @@ func main() {
 		log.Printf("level=warn component=pipeline event=shutdown_incomplete err=%q", err)
 	} else {
 		log.Printf("level=info component=pipeline event=shutdown_complete")
+	}
+}
+
+func httpConfig(cfg *config.Config) fiber.Config {
+	return fiber.Config{
+		AppName:           "MemoDrive",
+		ErrorHandler:      errorHandler,
+		BodyLimit:         int(bufferedUploadBodyLimit(cfg)),
+		StreamRequestBody: true,
+		RequestMethods:    handler.WebDAVRequestMethods(fiber.DefaultMethods),
+	}
+}
+
+func bufferedUploadBodyLimit(cfg *config.Config) int64 {
+	return cfg.Storage.ChunkSize + 1024*1024
+}
+
+func httpLoggerConfig() logger.Config {
+	return logger.Config{
+		Next: func(c *fiber.Ctx) bool {
+			return handler.IsWebDAVPath(c.Path()) && c.Method() == "PROPFIND"
+		},
 	}
 }
 
@@ -174,6 +195,9 @@ func errorHandler(c *fiber.Ctx, err error) error {
 		log.Printf("level=error component=http event=request_failed method=%s path=%s status=%d err=%q", c.Method(), c.Path(), code, err)
 	} else if code >= fiber.StatusBadRequest {
 		log.Printf("level=warn component=http event=request_rejected method=%s path=%s status=%d err=%q", c.Method(), c.Path(), code, err)
+	}
+	if handler.IsWebDAVPath(c.Path()) {
+		return c.SendStatus(code)
 	}
 	return c.Status(code).JSON(fiber.Map{
 		"error": message,

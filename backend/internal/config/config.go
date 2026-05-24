@@ -19,6 +19,7 @@ type Config struct {
 	Server     ServerConfig
 	Storage    StorageConfig
 	Auth       AuthConfig
+	WebDAV     WebDAVConfig
 	Pipeline   PipelineConfig
 	LLM        LLMConfig
 	RAG        RAGConfig
@@ -51,6 +52,11 @@ type AuthConfig struct {
 	Password  string
 	JWTSecret string
 	TokenTTL  time.Duration
+}
+
+// WebDAVConfig controls the optional WebDAV endpoint.
+type WebDAVConfig struct {
+	Enabled bool
 }
 
 // PipelineConfig controls the document processing pipeline: text splitting, embedding, and indexing.
@@ -168,6 +174,9 @@ func Load() (*Config, error) {
 			Password:  envString("ADMIN_PASSWORD", ""),
 			JWTSecret: envString("JWT_SECRET", defaultJWTSecret),
 			TokenTTL:  time.Duration(envInt64("TOKEN_TTL_SECONDS", int64(7*24*time.Hour/time.Second))) * time.Second,
+		},
+		WebDAV: WebDAVConfig{
+			Enabled: envBool("WEBDAV_ENABLED", false),
 		},
 		Pipeline: PipelineConfig{
 			Workers:         envInt("PIPELINE_WORKERS", 4),
