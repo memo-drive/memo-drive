@@ -47,7 +47,7 @@ func (h *FileHandler) Register(router fiber.Router) {
 }
 
 func (h *FileHandler) list(c *fiber.Ctx) error {
-	files, err := h.files.List(c.Context(), c.Query("path", "/"), c.Query("sort", "name"))
+	files, err := h.files.List(c.Context(), c.Query("path", "/"), c.Query("sort", "created_at"))
 	if err != nil {
 		return err
 	}

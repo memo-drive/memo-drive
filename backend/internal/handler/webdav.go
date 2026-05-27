@@ -20,6 +20,7 @@ const webDAVRealm = `Basic realm="MemoDrive WebDAV"`
 const webDAVAllowedMethods = "OPTIONS, PROPFIND, GET, HEAD, PUT, MKCOL, MOVE, COPY, DELETE"
 const webDAVVirtualPathLocal = "webdav.virtual_path"
 const webDAVResourceLocal = "webdav.resource"
+const webDAVAuthFailureLocal = "webdav.auth_failure"
 const webDAVAuthFailureLimit = 5
 
 const webDAVAuthFailureWindow = time.Minute
@@ -76,7 +77,9 @@ func RegisterWebDAV(router fiber.Router, cfg *config.Config, services ...*servic
 		if !webDAVPath(c.Path()) && !webDAVMissingSlashMountPathAllowed(c.Method(), c.Path()) && !webDAVRootMountPathAllowed(c.Method(), c.Path()) {
 			return c.Next()
 		}
-		if !webDAVAuthorized(c, cfg.Auth) {
+		if ok, authFailure := webDAVAuthorized(c, cfg.Auth); !ok {
+			c.Locals(webDAVAuthFailureLocal, authFailure)
+			webDAVCloseUnauthorizedBodyRequest(c)
 			if !authFailures.allow(c.IP()) {
 				c.Set("Retry-After", strconv.Itoa(int(webDAVAuthFailureWindow/time.Second)))
 				logWebDAVRequestRejected(c, "", fiber.StatusTooManyRequests, "auth_rate_limited", nil)
@@ -349,23 +352,43 @@ func webDAVMethodRequiresExistingResource(method string) bool {
 	}
 }
 
-func webDAVAuthorized(c *fiber.Ctx, cfg config.AuthConfig) bool {
+func webDAVAuthorized(c *fiber.Ctx, cfg config.AuthConfig) (bool, string) {
 	if cfg.Password == "" {
-		return true
+		return true, ""
 	}
-	header := c.Get("Authorization")
-	if !strings.HasPrefix(header, "Basic ") {
-		return false
+	header := strings.TrimSpace(c.Get("Authorization"))
+	if header == "" {
+		return false, "missing"
 	}
-	decoded, err := base64.StdEncoding.DecodeString(strings.TrimSpace(strings.TrimPrefix(header, "Basic ")))
+	parts := strings.Fields(header)
+	if len(parts) == 0 {
+		return false, "missing"
+	}
+	if !strings.EqualFold(parts[0], "Basic") {
+		return false, "unsupported_scheme"
+	}
+	if len(parts) != 2 {
+		return false, "malformed_basic"
+	}
+	decoded, err := base64.StdEncoding.DecodeString(parts[1])
 	if err != nil {
-		return false
+		return false, "malformed_basic"
 	}
 	username, password, ok := strings.Cut(string(decoded), ":")
 	if !ok {
-		return false
+		return false, "malformed_basic"
 	}
-	return username == "admin" && password == cfg.Password
+	if username != "admin" || password != cfg.Password {
+		return false, "invalid_credentials"
+	}
+	return true, ""
+}
+
+func webDAVCloseUnauthorizedBodyRequest(c *fiber.Ctx) {
+	if c.Request().Header.ContentLength() == 0 && c.Context().Request.BodyStream() == nil {
+		return
+	}
+	c.Context().SetConnectionClose()
 }
 
 type webDAVAuthFailureLimiter struct {

@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -227,6 +228,53 @@ func TestRecentFilesEndpointReturnsViewedFilesByLastViewedAt(t *testing.T) {
 	}
 	if len(body.Files) != 1 || body.Files[0].ID != "file-2" || body.Files[0].LastViewedAt == nil {
 		t.Fatalf("expected newest viewed file only, got %#v", body.Files)
+	}
+}
+
+func TestFileListEndpointDefaultsToNewestUploadsFirst(t *testing.T) {
+	app, db, cleanup := newEmptyFileHandlerTestApp(t)
+	defer cleanup()
+	createHandlerTestFile(t, db, t.TempDir(), &model.File{
+		ID:          "old-upload",
+		Name:        "a-old.txt",
+		Path:        "/",
+		StoragePath: "a-old.txt",
+		Size:        3,
+		MimeType:    "text/plain",
+		Status:      model.FileStatusReady,
+	}, "old")
+	time.Sleep(time.Millisecond)
+	createHandlerTestFile(t, db, t.TempDir(), &model.File{
+		ID:          "new-upload",
+		Name:        "z-new.txt",
+		Path:        "/",
+		StoragePath: "z-new.txt",
+		Size:        3,
+		MimeType:    "text/plain",
+		Status:      model.FileStatusReady,
+	}, "new")
+
+	resp, err := app.Test(httptest.NewRequest(http.MethodGet, "/files", nil))
+	if err != nil {
+		t.Fatalf("GET /files: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	var body struct {
+		Files []model.File `json:"files"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	got := []string{}
+	for _, file := range body.Files {
+		got = append(got, file.ID)
+	}
+	want := []string{"new-upload", "old-upload"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("expected newest uploads first %v, got %v", want, got)
 	}
 }
 

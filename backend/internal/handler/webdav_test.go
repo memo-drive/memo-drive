@@ -122,6 +122,88 @@ func TestWebDAVRejectsInvalidBasicAuthCredentials(t *testing.T) {
 	}
 }
 
+func TestWebDAVAuthFailureLogClassifiesCauseWithoutCredentials(t *testing.T) {
+	app := fiber.New()
+	RegisterWebDAV(app, &config.Config{
+		Auth:   config.AuthConfig{Password: "secret"},
+		WebDAV: config.WebDAVConfig{Enabled: true},
+	})
+
+	var logs bytes.Buffer
+	previousOutput := log.Writer()
+	previousFlags := log.Flags()
+	log.SetOutput(&logs)
+	log.SetFlags(0)
+	defer func() {
+		log.SetOutput(previousOutput)
+		log.SetFlags(previousFlags)
+	}()
+
+	tests := []struct {
+		name       string
+		authHeader string
+	}{
+		{name: "missing"},
+		{name: "unsupported scheme", authHeader: "Bearer secret-token"},
+		{name: "malformed basic", authHeader: "Basic not-base64"},
+		{name: "invalid credentials", authHeader: "Basic " + base64.StdEncoding.EncodeToString([]byte("admin:wrong"))},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/dav", nil)
+			if tc.authHeader != "" {
+				req.Header.Set("Authorization", tc.authHeader)
+			}
+			resp, err := app.Test(req)
+			if err != nil {
+				t.Fatalf("GET /dav: %v", err)
+			}
+			defer resp.Body.Close()
+			if resp.StatusCode != http.StatusUnauthorized {
+				t.Fatalf("expected auth failure to return 401, got %d", resp.StatusCode)
+			}
+		})
+	}
+
+	got := logs.String()
+	for _, want := range []string{
+		`auth_failure="missing"`,
+		`auth_failure="unsupported_scheme"`,
+		`auth_failure="malformed_basic"`,
+		`auth_failure="invalid_credentials"`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("expected auth failure log to contain %s, got %q", want, got)
+		}
+	}
+	for _, forbidden := range []string{"secret", "wrong", "Authorization"} {
+		if strings.Contains(got, forbidden) {
+			t.Fatalf("expected auth failure log not to contain %q, got %q", forbidden, got)
+		}
+	}
+}
+
+func TestWebDAVUnauthorizedPutWithBodyClosesConnection(t *testing.T) {
+	app := fiber.New()
+	RegisterWebDAV(app, &config.Config{
+		Auth:   config.AuthConfig{Password: "secret"},
+		WebDAV: config.WebDAVConfig{Enabled: true},
+	})
+
+	req := httptest.NewRequest(http.MethodPut, "/dav/Notes/large.mov", strings.NewReader("payload"))
+	resp, err := app.Test(req)
+	if err != nil {
+		t.Fatalf("PUT /dav/Notes/large.mov: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected missing auth on PUT to return 401, got %d", resp.StatusCode)
+	}
+	if got := resp.Header.Get("Connection"); !strings.EqualFold(got, "close") && !resp.Close {
+		t.Fatalf("expected unauthorized PUT with body to close the connection, got Connection %q Close %t", got, resp.Close)
+	}
+}
+
 func TestWebDAVRateLimitsRepeatedBasicAuthFailures(t *testing.T) {
 	app := fiber.New()
 	RegisterWebDAV(app, &config.Config{
@@ -181,6 +263,17 @@ func TestWebDAVAcceptsAdminBasicAuthCredentials(t *testing.T) {
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusNotFound {
 		t.Fatalf("expected valid WebDAV credentials to reach handler, got %d", resp.StatusCode)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/dav", nil)
+	req.Header.Set("Authorization", "basic "+base64.StdEncoding.EncodeToString([]byte("admin:secret")))
+	resp, err = app.Test(req)
+	if err != nil {
+		t.Fatalf("request /dav with lowercase basic scheme: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusNotFound {
+		t.Fatalf("expected lowercase Basic auth scheme to reach handler, got %d", resp.StatusCode)
 	}
 }
 
@@ -673,6 +766,49 @@ func TestWebDAVPropfindDepthOneReturnsFolderAndDirectChildren(t *testing.T) {
 		if !strings.Contains(text, want) {
 			t.Fatalf("expected PROPFIND XML to contain %q, got %s", want, text)
 		}
+	}
+}
+
+func TestWebDAVPropfindDepthOneDefaultsToNewestUploadsFirst(t *testing.T) {
+	app, db, storageRoot, cleanup := newWebDAVLookupTestAppWithMaxFileSize(t, 1024*1024)
+	defer cleanup()
+	createHandlerTestFile(t, db, storageRoot, &model.File{
+		ID:          "old-upload",
+		Name:        "a-old.txt",
+		Path:        "/Notes",
+		StoragePath: "Notes/a-old.txt",
+		Size:        3,
+		MimeType:    "text/plain",
+		Status:      model.FileStatusReady,
+	}, "old")
+	time.Sleep(time.Millisecond)
+	createHandlerTestFile(t, db, storageRoot, &model.File{
+		ID:          "new-upload",
+		Name:        "z-new.txt",
+		Path:        "/Notes",
+		StoragePath: "Notes/z-new.txt",
+		Size:        3,
+		MimeType:    "text/plain",
+		Status:      model.FileStatusReady,
+	}, "new")
+
+	req := httptest.NewRequest("PROPFIND", "/dav/Notes", nil)
+	req.Header.Set("Depth", "1")
+	resp, err := app.Test(req)
+	if err != nil {
+		t.Fatalf("PROPFIND /dav/Notes: %v", err)
+	}
+	text := readWebDAVIntegrationBody(t, resp)
+	if resp.StatusCode != fiber.StatusMultiStatus {
+		t.Fatalf("expected PROPFIND to return 207, got %d with body %s", resp.StatusCode, text)
+	}
+	newIndex := strings.Index(text, "<D:href>/dav/Notes/z-new.txt</D:href>")
+	oldIndex := strings.Index(text, "<D:href>/dav/Notes/a-old.txt</D:href>")
+	if newIndex < 0 || oldIndex < 0 {
+		t.Fatalf("expected PROPFIND body to contain both uploaded files, got %s", text)
+	}
+	if newIndex > oldIndex {
+		t.Fatalf("expected newest upload href before older upload href, got %s", text)
 	}
 }
 

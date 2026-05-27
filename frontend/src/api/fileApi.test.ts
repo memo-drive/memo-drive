@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   batchDeleteFiles,
   batchMoveFiles,
+  listFiles,
   listPhotoMonths,
   listRecentlyViewedFiles,
   markFileViewed,
@@ -28,6 +29,18 @@ describe("mobile home media file API", () => {
   });
 
   it("wraps category, recent, timeline, view, and batch endpoints with typed payloads", async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ files: [] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    await listFiles("/Docs");
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/files?path=%2FDocs&sort=created_at",
+      expect.any(Object),
+    );
+
     await queryFiles({ category: "photos", query: "trip", limit: 30 });
     expect(fetchMock).toHaveBeenLastCalledWith(
       "/api/files/query",

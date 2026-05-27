@@ -11,7 +11,7 @@ import type {
   StorageUsage,
 } from "../types";
 
-export async function listFiles(path: string, sort = "name") {
+export async function listFiles(path: string, sort = "created_at") {
   return httpClient.get<{ files: DriveFile[] }>(
     `/files?path=${encodeURIComponent(path)}&sort=${encodeURIComponent(sort)}`,
   );

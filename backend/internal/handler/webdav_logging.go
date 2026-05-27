@@ -84,7 +84,7 @@ func logWebDAVRequestRejected(c *fiber.Ctx, virtualPath string, status int, reas
 	if err != nil {
 		errText = err.Error()
 	}
-	log.Printf("level=warn component=webdav event=request_rejected method=%s virtual_path=%q path=%q path_compat=%q protocol=%q forwarded_proto=%q host=%q status=%d reason=%q has_destination=%t destination=%q has_if=%t has_if_match=%t has_if_none_match=%t err=%q",
+	log.Printf("level=warn component=webdav event=request_rejected method=%s virtual_path=%q path=%q path_compat=%q protocol=%q forwarded_proto=%q host=%q status=%d reason=%q auth_failure=%q has_destination=%t destination=%q has_if=%t has_if_match=%t has_if_none_match=%t err=%q",
 		c.Method(),
 		cleanWebDAVLogPath(virtualPath),
 		c.Path(),
@@ -94,6 +94,7 @@ func logWebDAVRequestRejected(c *fiber.Ctx, virtualPath string, status int, reas
 		c.Hostname(),
 		status,
 		reason,
+		webDAVAuthFailureLogValue(c),
 		strings.TrimSpace(c.Get("Destination")) != "",
 		webDAVDestinationLogValue(c),
 		strings.TrimSpace(c.Get("If")) != "",
@@ -101,6 +102,11 @@ func logWebDAVRequestRejected(c *fiber.Ctx, virtualPath string, status int, reas
 		strings.TrimSpace(c.Get("If-None-Match")) != "",
 		errText,
 	)
+}
+
+func webDAVAuthFailureLogValue(c *fiber.Ctx) string {
+	value, _ := c.Locals(webDAVAuthFailureLocal).(string)
+	return value
 }
 
 func webDAVPathCompatReason(path string) string {

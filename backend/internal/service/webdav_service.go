@@ -85,7 +85,7 @@ func (s *WebDAVService) ListChildren(ctx context.Context, virtualPath string) ([
 	if !resource.IsDir() {
 		return nil, store.ErrNotFound
 	}
-	return s.store.ListFiles(ctx, resource.VirtualPath, "")
+	return s.store.ListFiles(ctx, resource.VirtualPath, "created_at")
 }
 
 func (s *WebDAVService) DownloadPath(resource *WebDAVResource) (*model.File, string, error) {
