@@ -1,8 +1,11 @@
+import { readFileSync } from "node:fs";
 import { renderToString } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import "../../i18n";
 import type { DriveFile } from "../../types";
 import { CodePreviewDocument } from "./CodeViewer";
+
+const stylesText = readFileSync(new URL("./FilePreview.module.css", import.meta.url), "utf8");
 
 describe("CodeViewer document preview", () => {
   it("renders markdown content without a non-functional preview toolbar", () => {
@@ -21,6 +24,10 @@ describe("CodeViewer document preview", () => {
 
     expect(html).toContain("hello");
     expect(html).not.toContain("自动识别");
+  });
+
+  it("preserves soft line breaks in rendered markdown text blocks", () => {
+    expect(stylesText).toMatch(/\.markdownBody\s+:where\([^)]*\)\s+\{[^}]*white-space:\s*pre-wrap;/s);
   });
 });
 

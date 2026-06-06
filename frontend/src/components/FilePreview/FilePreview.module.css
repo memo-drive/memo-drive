@@ -444,6 +444,10 @@
   line-height: 1.75;
 }
 
+.markdownBody :where(p, li, blockquote, dd) {
+  white-space: pre-wrap;
+}
+
 .markdownBody pre {
   overflow: auto;
   border-radius: 10px;
