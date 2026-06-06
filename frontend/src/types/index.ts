@@ -19,6 +19,16 @@ export interface DriveFile {
   metadata?: FileMetadata;
 }
 
+export interface MarkdownContentResponse {
+  file: DriveFile;
+  content: string;
+  updated_at: string;
+}
+
+export interface CreateMarkdownResponse {
+  file: DriveFile;
+}
+
 export interface StorageUsage {
   used_bytes: number;
   total_bytes: number;

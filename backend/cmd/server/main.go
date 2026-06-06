@@ -61,6 +61,7 @@ func main() {
 
 	fileService := service.NewFileService(cfg, db, chromaClient)
 	pipelineService := service.NewPipelineService(cfg, db, llmProvider, chromaClient, ocrRunner, transcriber)
+	fileService.SetPipeline(pipelineService)
 	webDAVService := service.NewWebDAVService(cfg, db, pipelineService)
 	uploadService := service.NewUploadService(cfg, db, fileService, pipelineService)
 	searchService := service.NewSearchService(cfg, db, llmProvider, chromaClient)

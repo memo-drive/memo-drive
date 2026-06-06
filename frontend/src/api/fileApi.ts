@@ -1,13 +1,15 @@
 import { getToken, httpClient } from "./HttpClient";
 import type {
-  BatchFileResult,
-  DriveFile,
-  FileQueryRequest,
-  FileQueryResponse,
-  FileSearchResponse,
-  MediaMeta,
-  PhotoMonthIndexResponse,
-  PhotoTimelineRequest,
+	BatchFileResult,
+	CreateMarkdownResponse,
+	DriveFile,
+	FileQueryRequest,
+	FileQueryResponse,
+	FileSearchResponse,
+	MarkdownContentResponse,
+	MediaMeta,
+	PhotoMonthIndexResponse,
+	PhotoTimelineRequest,
   StorageUsage,
 } from "../types";
 
@@ -25,6 +27,10 @@ export async function createFolder(path: string, name: string) {
   return httpClient.post<DriveFile>("/folders", { path, name });
 }
 
+export async function createMarkdownFile(path: string, name: string) {
+  return httpClient.post<CreateMarkdownResponse>("/files/markdown", { path, name });
+}
+
 export async function renameFile(id: string, name: string) {
   return httpClient.put<DriveFile>(`/files/${id}`, { name });
 }
@@ -35,6 +41,17 @@ export async function moveFile(id: string, path: string) {
 
 export async function getFile(id: string) {
   return httpClient.get<DriveFile>(`/files/${id}`);
+}
+
+export async function getMarkdownContent(id: string) {
+  return httpClient.get<MarkdownContentResponse>(`/files/${id}/content`);
+}
+
+export async function saveMarkdownContent(id: string, content: string, baseUpdatedAt: string) {
+  return httpClient.put<MarkdownContentResponse>(`/files/${id}/content`, {
+    content,
+    base_updated_at: baseUpdatedAt,
+  });
 }
 
 export async function markFileViewed(id: string) {

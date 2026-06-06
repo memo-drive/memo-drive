@@ -10,6 +10,11 @@ export interface DriveFolderDraft {
   draftName: string;
 }
 
+export interface DriveMarkdownDraft {
+  open: boolean;
+  draftName: string;
+}
+
 export interface DriveMoveDraft {
   target: DriveFile;
 }
@@ -128,6 +133,36 @@ export function canSubmitDriveFolder(draftName: string): boolean {
 }
 
 export function completeDriveFolderCreate(): DriveFolderDraft {
+  return {
+    open: false,
+    draftName: "",
+  };
+}
+
+export function startDriveMarkdownCreate(): DriveMarkdownDraft {
+  return {
+    open: true,
+    draftName: "",
+  };
+}
+
+export function driveMarkdownPayloadName(draftName: string): string {
+  return draftName.trim();
+}
+
+export function canSubmitDriveMarkdown(draftName: string): boolean {
+  const trimmed = driveMarkdownPayloadName(draftName);
+  return Boolean(trimmed) && !trimmed.includes("/");
+}
+
+export function driveMarkdownErrorKey(draftName: string): string | null {
+  if (driveMarkdownPayloadName(draftName).includes("/")) {
+    return "drive.nameNoSlash";
+  }
+  return null;
+}
+
+export function completeDriveMarkdownCreate(): DriveMarkdownDraft {
   return {
     open: false,
     draftName: "",

@@ -31,6 +31,7 @@ type FileService struct {
 	cfg      *config.Config
 	store    *store.Store
 	vectorDB vectordb.VectorStore
+	pipeline *PipelineService
 }
 
 type BatchResult struct {
@@ -42,6 +43,10 @@ type BatchResult struct {
 // NewFileService creates a new FileService.
 func NewFileService(cfg *config.Config, store *store.Store, vectorDB vectordb.VectorStore) *FileService {
 	return &FileService{cfg: cfg, store: store, vectorDB: vectorDB}
+}
+
+func (s *FileService) SetPipeline(pipeline *PipelineService) {
+	s.pipeline = pipeline
 }
 
 func (s *FileService) List(ctx context.Context, dirPath, sort string) ([]model.File, error) {

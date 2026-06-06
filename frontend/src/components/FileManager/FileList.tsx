@@ -2,6 +2,7 @@ import { useTranslation } from "react-i18next";
 import type { DriveFile } from "../../types";
 import { Popover } from "../base";
 import { LazyThumbnail, VirtualList } from "../Virtualized";
+import { isMarkdownFile } from "../FilePreview/textTypes";
 import {
 	filePresentation,
 	fileSizeLabel,
@@ -17,9 +18,14 @@ interface Props {
 	onOpenFolder: (file: DriveFile) => void;
 	onSelect: (file: DriveFile) => void;
 	onDelete: (file: DriveFile) => void;
+	onEdit?: (file: DriveFile) => void;
 	onRename: (file: DriveFile) => void;
 	onMove: (file: DriveFile) => void;
 	onDownload: (file: DriveFile) => void;
+}
+
+export function canEditMarkdownFile(file: DriveFile): boolean {
+	return !file.is_dir && isMarkdownFile(file);
 }
 
 export function FileList({
@@ -30,6 +36,7 @@ export function FileList({
 	onOpenFolder,
 	onSelect,
 	onDelete,
+	onEdit,
 	onRename,
 	onMove,
 	onDownload,
@@ -84,6 +91,7 @@ export function FileList({
 							fileListBusy={busy}
 							onDelete={onDelete}
 							onDownload={onDownload}
+							onEdit={onEdit}
 							onMove={onMove}
 							onOpenFolder={onOpenFolder}
 							onRename={onRename}
@@ -112,6 +120,7 @@ interface FileRowProps {
 	onOpenFolder: (file: DriveFile) => void;
 	onSelect: (file: DriveFile) => void;
 	onDelete: (file: DriveFile) => void;
+	onEdit?: (file: DriveFile) => void;
 	onRename: (file: DriveFile) => void;
 	onMove: (file: DriveFile) => void;
 	onDownload: (file: DriveFile) => void;
@@ -126,6 +135,7 @@ function FileRow({
 	fileListBusy,
 	onDelete,
 	onDownload,
+	onEdit,
 	onMove,
 	onOpenFolder,
 	onRename,
@@ -191,6 +201,20 @@ function FileRow({
 					placement="bottom-end"
 					content={
 						<div className={styles.popoverMenu}>
+							{canEditMarkdownFile(file) && onEdit ? (
+								<button
+									className={styles.menuItem}
+									onClick={(e: any) => {
+										e.stopPropagation();
+										onEdit(file);
+									}}
+								>
+									<span className="material-symbols-outlined text-[18px]">
+										edit_note
+									</span>{" "}
+									{t("common.edit")}
+								</button>
+							) : null}
 							<button
 								className={styles.menuItem}
 								onClick={(e: any) => {

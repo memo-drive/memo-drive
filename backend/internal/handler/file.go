@@ -33,10 +33,13 @@ func (h *FileHandler) Register(router fiber.Router) {
 	router.Get("/files/recent", h.recent)
 	router.Get("/files/photos/months", h.photoMonths)
 	router.Post("/files/photos/timeline", h.photoTimeline)
+	router.Post("/files/markdown", h.createMarkdown)
 	router.Post("/files/batch/move", h.batchMove)
 	router.Post("/files/batch/delete", h.batchDelete)
 	router.Get("/files/:id", h.get)
 	router.Post("/files/:id/view", h.markViewed)
+	router.Get("/files/:id/content", h.content)
+	router.Put("/files/:id/content", h.updateContent)
 	router.Get("/files/:id/download", h.download)
 	router.Head("/files/:id/download", h.download)
 	router.Get("/files/:id/thumbnail", h.thumbnail)
@@ -127,12 +130,50 @@ func (h *FileHandler) createFolder(c *fiber.Ctx) error {
 	return c.Status(fiber.StatusCreated).JSON(folder)
 }
 
+func (h *FileHandler) createMarkdown(c *fiber.Ctx) error {
+	var body struct {
+		Path string `json:"path"`
+		Name string `json:"name"`
+	}
+	if err := c.BodyParser(&body); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "invalid markdown payload")
+	}
+	file, err := h.files.CreateMarkdownFile(c.Context(), body.Path, body.Name)
+	if err != nil {
+		return markdownContentError(err)
+	}
+	return c.Status(fiber.StatusCreated).JSON(fiber.Map{"file": file})
+}
+
 func (h *FileHandler) get(c *fiber.Ctx) error {
 	file, err := h.files.Get(c.Context(), c.Params("id"))
 	if err != nil {
 		return mapStoreError(err)
 	}
 	return c.JSON(file)
+}
+
+func (h *FileHandler) content(c *fiber.Ctx) error {
+	content, err := h.files.MarkdownContent(c.Context(), c.Params("id"))
+	if err != nil {
+		return markdownContentError(err)
+	}
+	return c.JSON(content)
+}
+
+func (h *FileHandler) updateContent(c *fiber.Ctx) error {
+	var body struct {
+		Content       string `json:"content"`
+		BaseUpdatedAt string `json:"base_updated_at"`
+	}
+	if err := c.BodyParser(&body); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "invalid markdown content payload")
+	}
+	content, err := h.files.UpdateMarkdownContent(c.Context(), c.Params("id"), body.Content, body.BaseUpdatedAt)
+	if err != nil {
+		return markdownContentError(err)
+	}
+	return c.JSON(content)
 }
 
 func (h *FileHandler) metadata(c *fiber.Ctx) error {
@@ -411,4 +452,17 @@ func mapStoreError(err error) error {
 		return fiber.NewError(fiber.StatusServiceUnavailable, err.Error())
 	}
 	return err
+}
+
+func markdownContentError(err error) error {
+	if errors.Is(err, service.ErrMarkdownConflict) {
+		return fiber.NewError(fiber.StatusConflict, err.Error())
+	}
+	if errors.Is(err, service.ErrFileTooLarge) {
+		return fiber.NewError(fiber.StatusRequestEntityTooLarge, err.Error())
+	}
+	if errors.Is(err, service.ErrUnsupportedResource) {
+		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+	}
+	return mapStoreError(err)
 }

@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useNavigate } from "react-router-dom";
 import {
+	createMarkdownFile,
 	createFolder,
 	deleteFile,
 	downloadUrl,
@@ -23,11 +25,15 @@ import {
 	buildDrivePreviewTitle,
 	buildDriveSearchRequest,
 	canSubmitDriveFolder,
+	canSubmitDriveMarkdown,
 	canSubmitDriveRename,
 	completeDriveFolderCreate,
+	completeDriveMarkdownCreate,
 	completeDriveMove,
 	confirmDriveDelete,
 	driveFolderPayloadName,
+	driveMarkdownErrorKey,
+	driveMarkdownPayloadName,
 	driveParentPath,
 	driveRenameErrorKey,
 	driveRenamePayloadName,
@@ -38,6 +44,7 @@ import {
 	startDriveFolderEntry,
 	startDriveDelete,
 	startDriveFolderCreate,
+	startDriveMarkdownCreate,
 	startDriveMove,
 	startDriveRename,
 	type DriveCrumb,
@@ -49,6 +56,7 @@ const MAX_CRUMB_LEVELS = 3;
 
 export function DrivePage() {
 	const { t } = useTranslation();
+	const navigate = useNavigate();
 	const {
 		currentPath,
 		files,
@@ -65,6 +73,9 @@ export function DrivePage() {
 	const [includeSemantic, setIncludeSemantic] = useState(false);
 	const [folderModalOpen, setFolderModalOpen] = useState(false);
 	const [folderName, setFolderName] = useState("");
+	const [markdownModalOpen, setMarkdownModalOpen] = useState(false);
+	const [markdownName, setMarkdownName] = useState("");
+	const [creatingMarkdown, setCreatingMarkdown] = useState(false);
 	const [creating, setCreating] = useState(false);
 	const [previewFile, setPreviewFile] = useState<DriveFile | null>(null);
 	const [fileToDelete, setFileToDelete] = useState<DriveFile | null>(null);
@@ -147,6 +158,12 @@ export function DrivePage() {
 		setFolderModalOpen(draft.open);
 	}
 
+	function openCreateMarkdown() {
+		const draft = startDriveMarkdownCreate();
+		setMarkdownName(draft.draftName);
+		setMarkdownModalOpen(draft.open);
+	}
+
 	async function handleCreateFolder() {
 		if (!canSubmitDriveFolder(folderName)) return;
 		const name = driveFolderPayloadName(folderName);
@@ -159,6 +176,24 @@ export function DrivePage() {
 			await refresh();
 		} finally {
 			setCreating(false);
+		}
+	}
+
+	async function handleCreateMarkdown() {
+		if (!canSubmitDriveMarkdown(markdownName)) return;
+		const name = driveMarkdownPayloadName(markdownName);
+		setCreatingMarkdown(true);
+		try {
+			const result = await createMarkdownFile(currentPath, name);
+			const next = completeDriveMarkdownCreate();
+			setMarkdownModalOpen(next.open);
+			setMarkdownName(next.draftName);
+			await refresh();
+			navigate(`/files/${result.file.id}/edit`);
+		} catch (err) {
+			message.error(err instanceof Error ? err.message : t("drive.createMarkdownFailed"));
+		} finally {
+			setCreatingMarkdown(false);
 		}
 	}
 
@@ -175,6 +210,11 @@ export function DrivePage() {
 	function onDownload(file: DriveFile) {
 		if (file.is_dir) return;
 		window.open(downloadUrl(file.id), "_self");
+	}
+
+	function onEdit(file: DriveFile) {
+		if (file.is_dir) return;
+		navigate(`/files/${file.id}/edit`);
 	}
 
 	async function handleDeleteConfirm() {
@@ -214,6 +254,7 @@ export function DrivePage() {
 	}
 
 	const renameErrorKey = driveRenameErrorKey(newName);
+	const markdownErrorKey = driveMarkdownErrorKey(markdownName);
 
 	function navigateToPath(path: string) {
 		enteringPathRef.current = null;
@@ -370,6 +411,12 @@ export function DrivePage() {
 						</span>
 						{t("drive.newFolder")}
 					</Button>
+					<Button onClick={openCreateMarkdown} variant="secondary">
+						<span className="material-symbols-outlined text-[14px]">
+							note_add
+						</span>
+						{t("drive.newMarkdown")}
+					</Button>
 					<input
 						ref={fileInputRef}
 						type="file"
@@ -402,6 +449,7 @@ export function DrivePage() {
 								onOpenFolder={openFolder}
 								onSelect={handleFileClick}
 								onDelete={onDelete}
+								onEdit={onEdit}
 								onRename={onRename}
 								onMove={(file) => setMoveTarget(startDriveMove(file).target)}
 								onDownload={onDownload}
@@ -461,6 +509,54 @@ export function DrivePage() {
 						placeholder={t("drive.folderNamePlaceholder")}
 						autoFocus
 					/>
+				</div>
+			</Modal>
+
+			<Modal
+				open={markdownModalOpen}
+				onClose={() => setMarkdownModalOpen(false)}
+				title={t("drive.newMarkdown")}
+				footer={
+					<>
+						<Button
+							variant="secondary"
+							onClick={() => setMarkdownModalOpen(false)}
+						>
+							{t("common.cancel")}
+						</Button>
+						<Button
+							variant="primary"
+							onClick={handleCreateMarkdown}
+							disabled={!canSubmitDriveMarkdown(markdownName) || creatingMarkdown}
+							loading={creatingMarkdown}
+						>
+							{t("common.create")}
+						</Button>
+					</>
+				}
+			>
+				<div className="flex flex-col gap-2">
+					<label className="text-sm font-medium text-warm-gray-500">
+						{t("drive.markdownName")}
+					</label>
+					<input
+						type="text"
+						className="w-full h-10 px-3 border rounded-lg text-sm outline-none transition-colors"
+						style={{
+							border: "1px solid rgba(0,0,0,0.1)",
+							fontFamily: "inherit",
+						}}
+						value={markdownName}
+						onChange={(e: any) => setMarkdownName(e.target.value)}
+						onKeyDown={(e: any) => {
+							if (e.key === "Enter") void handleCreateMarkdown();
+						}}
+						placeholder={t("drive.markdownNamePlaceholder")}
+						autoFocus
+					/>
+					{markdownErrorKey ? (
+						<p className="text-xs text-red-600">{t(markdownErrorKey)}</p>
+					) : null}
 				</div>
 			</Modal>
 

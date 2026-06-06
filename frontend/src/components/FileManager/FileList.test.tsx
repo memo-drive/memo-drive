@@ -2,7 +2,7 @@ import { renderToString } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import type { DriveFile } from "../../types";
 import "../../i18n";
-import { FileList } from "./FileList";
+import { canEditMarkdownFile, FileList } from "./FileList";
 
 describe("FileList", () => {
   it("renders image files with their generated thumbnail", () => {
@@ -181,6 +181,13 @@ describe("FileList", () => {
 
     expect(html).not.toContain('src="/api/files/video-1/thumbnail"');
     expect(html).toContain("video_library");
+  });
+
+  it("allows the edit menu action only for markdown files", () => {
+    expect(canEditMarkdownFile(makeFile({ name: "note.md", mime_type: "text/markdown" }))).toBe(true);
+    expect(canEditMarkdownFile(makeFile({ name: "note.markdown", mime_type: "text/plain" }))).toBe(true);
+    expect(canEditMarkdownFile(makeFile({ name: "memo.pdf", mime_type: "application/pdf" }))).toBe(false);
+    expect(canEditMarkdownFile(makeFile({ name: "Notes", is_dir: true, mime_type: "" }))).toBe(false);
   });
 });
 
