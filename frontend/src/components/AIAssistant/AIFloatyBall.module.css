@@ -88,6 +88,76 @@
   animation: panelIn 0.25s ease-out;
 }
 
+.resizeHandle {
+  position: absolute;
+  z-index: 2;
+  touch-action: none;
+}
+
+.resizeTop,
+.resizeBottom {
+  left: 16px;
+  right: 16px;
+  height: 12px;
+  cursor: ns-resize;
+}
+
+.resizeTop {
+  top: -6px;
+}
+
+.resizeBottom {
+  bottom: -6px;
+}
+
+.resizeLeft,
+.resizeRight {
+  top: 16px;
+  bottom: 16px;
+  width: 12px;
+  cursor: ew-resize;
+}
+
+.resizeLeft {
+  left: -6px;
+}
+
+.resizeRight {
+  right: -6px;
+}
+
+.resizeTopLeft,
+.resizeTopRight,
+.resizeBottomRight,
+.resizeBottomLeft {
+  width: 18px;
+  height: 18px;
+}
+
+.resizeTopLeft {
+  top: -7px;
+  left: -7px;
+  cursor: nwse-resize;
+}
+
+.resizeTopRight {
+  top: -7px;
+  right: -7px;
+  cursor: nesw-resize;
+}
+
+.resizeBottomRight {
+  right: -7px;
+  bottom: -7px;
+  cursor: nwse-resize;
+}
+
+.resizeBottomLeft {
+  bottom: -7px;
+  left: -7px;
+  cursor: nesw-resize;
+}
+
 @keyframes panelIn {
   from {
     opacity: 0;

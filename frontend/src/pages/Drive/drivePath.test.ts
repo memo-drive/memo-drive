@@ -4,6 +4,7 @@ import {
   buildDriveCrumbs,
   driveFolderPath,
   driveParentPath,
+  startDriveFolderEntry,
 } from "../../workflows/driveWorkflow";
 
 describe("drivePath", () => {
@@ -25,6 +26,20 @@ describe("drivePath", () => {
   it("builds a folder path from its current listing location", () => {
     expect(driveFolderPath(makeFolder({ path: "/" }))).toBe("/Invoices");
     expect(driveFolderPath(makeFolder({ path: "/Work" }))).toBe("/Work/Invoices");
+  });
+
+  it("debounces folder entry while a folder is already loading", () => {
+    const folder = makeFolder({
+      id: "folder-1",
+      name: "Invoices",
+      path: "/Work",
+    });
+
+    expect(startDriveFolderEntry(folder, null)).toEqual({
+      enteringFolderId: "folder-1",
+      nextPath: "/Work/Invoices",
+    });
+    expect(startDriveFolderEntry(folder, "folder-1")).toBeNull();
   });
 });
 

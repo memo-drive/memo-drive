@@ -1,0 +1,6 @@
+services:
+  frontend:
+    # Tailscale Serve uses this loopback-only frontend upstream for Tailnet HTTPS.
+    # Keep cloud firewall/security-group rules blocking app-internal service ports.
+    ports: !override
+      - "127.0.0.1:${TAILSCALE_FRONTEND_PORT:-3000}:80"

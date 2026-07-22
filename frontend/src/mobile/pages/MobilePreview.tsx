@@ -2,13 +2,13 @@ import { useEffect, useState } from "react";
 import { useLocation, useParams } from "react-router-dom";
 import { downloadUrl, getFile } from "../../api/fileApi";
 import type { DriveFile } from "../../types";
-import { mobilePathFromSearch } from "../utils/mobilePath";
+import { mobilePreviewReturnHref } from "../utils/mobilePath";
 import { MobilePreviewView } from "./MobilePreviewView";
 
 export function MobilePreviewPage() {
   const { fileId } = useParams();
   const location = useLocation();
-  const returnPath = mobilePathFromSearch(location.search);
+  const returnHref = mobilePreviewReturnHref(location.search);
   const [file, setFile] = useState<DriveFile | undefined>();
   const [loading, setLoading] = useState(Boolean(fileId));
   const [error, setError] = useState("");
@@ -42,7 +42,7 @@ export function MobilePreviewPage() {
   return (
     <MobilePreviewView
       file={file}
-      returnPath={returnPath}
+      returnHref={returnHref}
       downloadHref={file ? downloadUrl(file.id) : undefined}
       loading={loading}
       error={error}

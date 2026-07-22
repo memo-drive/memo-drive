@@ -5,6 +5,7 @@ import {
 } from "../utils/uploadProgress";
 
 export type TransferStatus =
+  | "preparing"
   | "uploading"
   | "paused"
   | "processing"
@@ -15,7 +16,7 @@ export type TransferStatus =
 
 export type ActiveTransferStatus = Extract<
   TransferStatus,
-  "uploading" | "paused" | "processing"
+  "preparing" | "uploading" | "paused" | "processing"
 >;
 
 export interface TransferTask {
@@ -50,7 +51,10 @@ interface TransferStatusSnapshot {
   status?: TransferStatus;
 }
 
+export const LOCAL_UPLOAD_TASK_PREFIX = "local-upload:";
+
 const TRANSFER_STATUS_LABEL_KEYS: Record<TransferStatus, string> = {
+  preparing: "transfer.status.preparing",
   uploading: "transfer.status.uploading",
   paused: "transfer.status.paused",
   processing: "transfer.status.processing",
@@ -63,11 +67,20 @@ const TRANSFER_STATUS_LABEL_KEYS: Record<TransferStatus, string> = {
 export function isActiveTransferStatus(
   status: string,
 ): status is ActiveTransferStatus {
-  return status === "uploading" || status === "paused" || status === "processing";
+  return (
+    status === "preparing" ||
+    status === "uploading" ||
+    status === "paused" ||
+    status === "processing"
+  );
 }
 
 export function transferStatusLabelKey(status: TransferStatus): string {
   return TRANSFER_STATUS_LABEL_KEYS[status];
+}
+
+export function isLocalTransferTaskID(id: string): boolean {
+  return id.startsWith(LOCAL_UPLOAD_TASK_PREFIX);
 }
 
 export function transferStatusFromSession(
@@ -130,5 +143,29 @@ export function transferTaskFromSession(
     updatedAt: existing?.updatedAt ?? Date.now(),
     expiresAt: session.expires_at,
     file: existing?.file,
+  };
+}
+
+export function preparingTransferTaskFromFile(
+  file: File,
+  destPath: string,
+  now = Date.now(),
+): TransferTask {
+  return {
+    id: `${LOCAL_UPLOAD_TASK_PREFIX}${now}:${file.name}:${file.size}`,
+    fileName: file.name,
+    fileSize: file.size,
+    destPath,
+    direction: "upload",
+    status: "preparing",
+    percent: 0,
+    uploadedChunks: [],
+    uploadedBytes: 0,
+    totalChunks: 1,
+    chunkSize: Math.max(1, file.size),
+    speed: 0,
+    createdAt: now,
+    updatedAt: now,
+    file,
   };
 }

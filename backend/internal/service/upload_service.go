@@ -199,6 +199,15 @@ func (s *UploadService) SaveChunk(ctx context.Context, id string, chunkIndex int
 		log.Printf("level=warn component=upload event=save_chunk_invalid_index upload_id=%s chunk_index=%d file_size=%d chunk_size=%d", id, chunkIndex, session.FileSize, session.ChunkSize)
 		return nil, errors.New("invalid chunk index")
 	}
+	expectedChunkSize := session.ChunkSize
+	if remaining := session.FileSize - int64(chunkIndex)*session.ChunkSize; remaining < expectedChunkSize {
+		expectedChunkSize = remaining
+	}
+	if int64(len(body)) > expectedChunkSize {
+		log.Printf("level=warn component=upload event=save_chunk_too_large upload_id=%s chunk_index=%d bytes=%d expected_max=%d file_size=%d chunk_size=%d",
+			id, chunkIndex, len(body), expectedChunkSize, session.FileSize, session.ChunkSize)
+		return nil, errors.New("chunk exceeds expected size")
+	}
 
 	if err := os.MkdirAll(s.sessionDir(id), 0o755); err != nil {
 		log.Printf("level=error component=upload event=save_chunk_mkdir_failed upload_id=%s chunk_index=%d err=%q", id, chunkIndex, err)

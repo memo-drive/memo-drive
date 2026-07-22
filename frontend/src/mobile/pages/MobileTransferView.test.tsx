@@ -53,6 +53,33 @@ describe("MobileTransferView", () => {
     expect(html).toContain("清除全部");
   });
 
+  it("renders preparing uploads as visible active transfer items", () => {
+    const html = renderToString(
+      <MobileTransferView
+        tasks={[
+          makeTask({
+            id: "local-upload:1:IMG_8196.jpeg:5",
+            fileName: "IMG_8196.jpeg",
+            status: "preparing",
+            percent: 0,
+            uploadedBytes: 0,
+            uploadedChunks: [],
+          }),
+        ]}
+        onPause={() => undefined}
+        onCancel={() => undefined}
+        onRemove={() => undefined}
+      />,
+    );
+
+    expect(html).toContain("IMG_8196.jpeg");
+    expect(html).toContain("准备上传");
+    expect(html).toContain("0%");
+    expect(html).not.toContain("暂停");
+    expect(html).not.toContain("取消");
+    expect(html).not.toContain("移除");
+  });
+
   it("shows only total file size after an upload is completed", () => {
     const html = renderToString(
       <MobileTransferView

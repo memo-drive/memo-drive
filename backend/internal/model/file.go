@@ -19,6 +19,7 @@ type File struct {
 	ChunkCount   int           `json:"chunk_count"`
 	CreatedAt    time.Time     `json:"created_at"`
 	UpdatedAt    time.Time     `json:"updated_at"`
+	LastViewedAt *time.Time    `json:"last_viewed_at,omitempty"`
 	DeletedAt    *time.Time    `json:"deleted_at,omitempty"`
 	OriginalPath *string       `json:"original_path,omitempty"`
 	OriginalName *string       `json:"original_name,omitempty"`

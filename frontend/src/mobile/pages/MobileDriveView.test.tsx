@@ -21,8 +21,45 @@ describe("MobileDriveView", () => {
 
     expect(html).toContain("AI");
     expect(html).toContain("Memo.pdf");
-    expect(html).toContain("href=\"/m?path=%2FDocs%2FAI\"");
+    expect(html).toContain("href=\"/m/files?path=%2FDocs%2FAI\"");
     expect(html).toContain("href=\"/m/preview/file-1?path=%2FDocs\"");
+  });
+
+  it("virtualizes large mobile Files lists without mounting every card", () => {
+    const files = Array.from({ length: 120 }, (_, index) =>
+      makeFile({ id: `file-${index}`, name: `Memo-${index}.pdf` }),
+    );
+    const html = renderToString(
+      <MemoryRouter>
+        <MobileDriveView currentPath="/Docs" files={files} />
+      </MemoryRouter>,
+    );
+
+    expect(html).toContain("data-virtual-list=\"true\"");
+    expect(html).toContain("data-virtual-count=\"120\"");
+    expect(html).toContain("Memo-0.pdf");
+    expect(html).not.toContain("Memo-119.pdf");
+  });
+
+  it("shows an entering state for the folder currently loading", () => {
+    const html = renderToString(
+      <MemoryRouter>
+        <MobileDriveView
+          currentPath="/Docs"
+          files={[
+            makeFile({ id: "folder-1", name: "AI", is_dir: true }),
+            makeFile({ id: "folder-2", name: "Notes", is_dir: true }),
+          ]}
+          loading
+          enteringFolderId="folder-1"
+        />
+      </MemoryRouter>,
+    );
+
+    expect(html).toContain("进入中");
+    expect(html).toContain("aria-disabled=\"true\"");
+    expect(html).toContain("data-mobile-file-list-busy=\"true\"");
+    expect(html).toContain("正在加载");
   });
 
   it("renders a single File action sheet without sharing actions", () => {
@@ -36,6 +73,7 @@ describe("MobileDriveView", () => {
           actionDownloadHref="/download/file-1"
           onOpenActions={() => undefined}
           onCloseActions={() => undefined}
+          onMove={() => undefined}
           onRename={() => undefined}
           onDelete={() => undefined}
         />
@@ -46,6 +84,7 @@ describe("MobileDriveView", () => {
     expect(html).toContain("Memo.pdf");
     expect(html).toContain("href=\"/download/file-1\"");
     expect(html).toContain("下载");
+    expect(html).toContain("移动到");
     expect(html).toContain("重命名");
     expect(html).toContain("移到回收站");
     expect(html).not.toContain("分享");
@@ -193,6 +232,39 @@ describe("MobileDriveView", () => {
     expect(html).toContain("value=\"Memo-renamed.pdf\"");
     expect(html).toContain("名称不能包含 /");
     expect(html).toContain("保存");
+  });
+
+  it("renders multi-select chrome and hides regular file actions while selecting", () => {
+    const html = renderToString(
+      <MemoryRouter>
+        <MobileDriveView
+          currentPath="/Docs"
+          files={[
+            makeFile({ id: "file-1", name: "Memo.pdf" }),
+            makeFile({ id: "file-2", name: "Notes.pdf" }),
+          ]}
+          selectionActive
+          selectedIds={["file-1"]}
+          selectedCount={1}
+          allSelected={false}
+          onCancelSelection={() => undefined}
+          onSelectAll={() => undefined}
+          onBatchMove={() => undefined}
+          onBatchDelete={() => undefined}
+          onToggleSelection={() => undefined}
+          onLongPressFile={() => undefined}
+        />
+      </MemoryRouter>,
+    );
+
+    expect(html).toContain("已选 1 项");
+    expect(html).toContain("全选");
+    expect(html).toContain("data-mobile-batch-bar=\"true\"");
+    expect(html).toContain("data-mobile-selectable=\"true\"");
+    expect(html).toContain("aria-selected=\"true\"");
+    expect(html).not.toContain("语义搜索");
+    expect(html).not.toContain("新建文件夹");
+    expect(html).not.toContain("more_vert");
   });
 });
 

@@ -3,24 +3,35 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/mattn/go-sqlite3"
 	"github.com/memodrive/backend/internal/model"
 )
 
 // ErrNotFound is returned when a requested record does not exist.
-var ErrNotFound = errors.New("not found")
+var (
+	ErrNotFound      = errors.New("not found")
+	ErrInvalidCursor = errors.New("invalid cursor")
+	ErrPathConflict  = errors.New("path conflict")
+)
 
 const (
 	defaultFileSearchLimit = 50
 	maxFileSearchLimit     = 500
+	defaultFileQueryLimit  = 50
+	maxFileQueryLimit      = 200
+	defaultRecentFileLimit = 10
+	maxRecentFileLimit     = 100
 	metadataSnippetRadius  = 80
-	fileColumns            = "id, name, path, storage_path, size, mime_type, is_dir, parent_id, status, chunk_count, created_at, updated_at, deleted_at, original_path, original_name, trash_root_id"
-	fileColumnsWithAlias   = "f.id, f.name, f.path, f.storage_path, f.size, f.mime_type, f.is_dir, f.parent_id, f.status, f.chunk_count, f.created_at, f.updated_at, f.deleted_at, f.original_path, f.original_name, f.trash_root_id"
+	fileColumns            = "id, name, path, storage_path, size, mime_type, is_dir, parent_id, status, chunk_count, created_at, updated_at, last_viewed_at, deleted_at, original_path, original_name, trash_root_id"
+	fileColumnsWithAlias   = "f.id, f.name, f.path, f.storage_path, f.size, f.mime_type, f.is_dir, f.parent_id, f.status, f.chunk_count, f.created_at, f.updated_at, f.last_viewed_at, f.deleted_at, f.original_path, f.original_name, f.trash_root_id"
 )
 
 // FileSearchFilter holds optional criteria for filtering file queries.
@@ -32,6 +43,39 @@ type FileSearchFilter struct {
 	DateFrom   *time.Time
 	DateTo     *time.Time
 	Limit      int
+}
+
+// FileQueryFilter holds the normalized query surface for category and large-list APIs.
+type FileQueryFilter struct {
+	Category        string
+	Keyword         string
+	Sort            string
+	Cursor          string
+	Limit           int
+	MediaFilter     string
+	DocumentSubtype string
+}
+
+// PhotoTimelineFilter queries photos within a month using effective taken time.
+type PhotoTimelineFilter struct {
+	Year    int
+	Month   int
+	Keyword string
+	Sort    string
+	Cursor  string
+	Limit   int
+}
+
+type PhotoMonth struct {
+	Year  int
+	Month int
+	Count int
+}
+
+type fileQueryCursor struct {
+	Sort  string `json:"sort"`
+	Value string `json:"value"`
+	ID    string `json:"id"`
 }
 
 func (f FileSearchFilter) HasStructuredFilters() bool {
@@ -64,7 +108,7 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		file.CreatedAt,
 		file.UpdatedAt,
 	)
-	return err
+	return normalizeFilePathConflict(err)
 }
 
 func (s *Store) ListFiles(ctx context.Context, dirPath, sort string) ([]model.File, error) {
@@ -84,6 +128,193 @@ FROM files
 WHERE path = ?
   AND deleted_at IS NULL
 ORDER BY %s`, fileColumns, orderBy), dirPath)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var files []model.File
+	for rows.Next() {
+		file, err := scanFile(rows)
+		if err != nil {
+			return nil, err
+		}
+		files = append(files, file)
+	}
+	return files, rows.Err()
+}
+
+func (s *Store) QueryFiles(ctx context.Context, filter FileQueryFilter) ([]model.File, string, bool, error) {
+	filter = normalizeFileQueryFilter(filter)
+	clauses := []string{"deleted_at IS NULL", "is_dir = 0"}
+	args := make([]any, 0)
+	if categoryClause := fileQueryCategoryClause(filter.Category); categoryClause != "" {
+		clauses = append(clauses, categoryClause)
+	}
+	if mediaClause := fileQueryMediaFilterClause(filter.Category, filter.MediaFilter); mediaClause != "" {
+		clauses = append(clauses, mediaClause)
+	}
+	if documentClause := fileQueryDocumentSubtypeClause(filter.Category, filter.DocumentSubtype); documentClause != "" {
+		clauses = append(clauses, documentClause)
+	}
+	if filter.Keyword != "" {
+		clauses = append(clauses, "name LIKE '%' || ? || '%' COLLATE NOCASE")
+		args = append(args, filter.Keyword)
+	}
+	if filter.Cursor != "" {
+		cursorClause, cursorArgs, err := fileQueryCursorClause(filter.Sort, filter.Cursor)
+		if err != nil {
+			return nil, "", false, err
+		}
+		clauses = append(clauses, cursorClause)
+		args = append(args, cursorArgs...)
+	}
+	args = append(args, filter.Limit+1)
+
+	rows, err := s.db.QueryContext(ctx, fmt.Sprintf(`
+SELECT %s
+FROM files
+WHERE %s
+ORDER BY %s
+LIMIT ?`, fileColumns, strings.Join(clauses, "\n  AND "), fileQueryOrderBy(filter.Sort)), args...)
+	if err != nil {
+		return nil, "", false, err
+	}
+	defer rows.Close()
+
+	files := make([]model.File, 0, filter.Limit)
+	for rows.Next() {
+		file, err := scanFile(rows)
+		if err != nil {
+			return nil, "", false, err
+		}
+		files = append(files, file)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, "", false, err
+	}
+	hasMore := len(files) > filter.Limit
+	nextCursor := ""
+	if hasMore {
+		files = files[:filter.Limit]
+		var err error
+		nextCursor, err = encodeFileQueryCursor(filter.Sort, files[len(files)-1])
+		if err != nil {
+			return nil, "", false, err
+		}
+	}
+	return files, nextCursor, hasMore, nil
+}
+
+func (s *Store) QueryPhotoTimeline(ctx context.Context, filter PhotoTimelineFilter) ([]model.File, string, bool, error) {
+	filter = normalizePhotoTimelineFilter(filter)
+	sortKey := photoTakenAtExpr()
+	clauses := []string{
+		"files.deleted_at IS NULL",
+		"files.is_dir = 0",
+		fileQueryCategoryClause("photos"),
+		fmt.Sprintf("strftime('%%Y', %s) = ?", sortKey),
+		fmt.Sprintf("strftime('%%m', %s) = ?", sortKey),
+	}
+	args := []any{fmt.Sprintf("%04d", filter.Year), fmt.Sprintf("%02d", filter.Month)}
+	if filter.Keyword != "" {
+		clauses = append(clauses, "files.name LIKE '%' || ? || '%' COLLATE NOCASE")
+		args = append(args, filter.Keyword)
+	}
+	if filter.Cursor != "" {
+		cursorClause, cursorArgs, err := photoTimelineCursorClause(filter.Sort, filter.Cursor, sortKey)
+		if err != nil {
+			return nil, "", false, err
+		}
+		clauses = append(clauses, cursorClause)
+		args = append(args, cursorArgs...)
+	}
+	args = append(args, filter.Limit+1)
+
+	rows, err := s.db.QueryContext(ctx, fmt.Sprintf(`
+SELECT %s, %s AS timeline_sort_key
+FROM files
+LEFT JOIN file_metadata fm ON fm.file_id = files.id
+WHERE %s
+ORDER BY timeline_sort_key DESC, files.id ASC
+LIMIT ?`, fileColumns, sortKey, strings.Join(clauses, "\n  AND ")), args...)
+	if err != nil {
+		return nil, "", false, err
+	}
+	defer rows.Close()
+
+	files := make([]model.File, 0, filter.Limit)
+	sortKeys := make([]string, 0, filter.Limit+1)
+	for rows.Next() {
+		file, sortKey, err := scanPhotoTimelineFile(rows)
+		if err != nil {
+			return nil, "", false, err
+		}
+		files = append(files, file)
+		sortKeys = append(sortKeys, sortKey)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, "", false, err
+	}
+	hasMore := len(files) > filter.Limit
+	nextCursor := ""
+	if hasMore {
+		files = files[:filter.Limit]
+		sortKeys = sortKeys[:filter.Limit]
+		var err error
+		nextCursor, err = encodePhotoTimelineCursor(filter.Sort, sortKeys[len(sortKeys)-1], files[len(files)-1].ID)
+		if err != nil {
+			return nil, "", false, err
+		}
+	}
+	return files, nextCursor, hasMore, nil
+}
+
+func (s *Store) ListPhotoMonths(ctx context.Context) ([]PhotoMonth, error) {
+	takenAt := fmt.Sprintf("strftime('%%Y-%%m', %s)", photoTakenAtExpr())
+	rows, err := s.db.QueryContext(ctx, fmt.Sprintf(`
+SELECT
+  CAST(substr(month_key, 1, 4) AS INTEGER) AS year,
+  CAST(substr(month_key, 6, 2) AS INTEGER) AS month,
+  COUNT(*) AS count
+FROM (
+  SELECT %s AS month_key
+  FROM files
+  LEFT JOIN file_metadata fm ON fm.file_id = files.id
+  WHERE files.deleted_at IS NULL
+    AND files.is_dir = 0
+    AND %s
+)
+WHERE month_key IS NOT NULL
+  AND length(month_key) >= 7
+GROUP BY year, month
+ORDER BY year DESC, month DESC`, takenAt, fileQueryCategoryClause("photos")))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var months []PhotoMonth
+	for rows.Next() {
+		var month PhotoMonth
+		if err := rows.Scan(&month.Year, &month.Month, &month.Count); err != nil {
+			return nil, err
+		}
+		months = append(months, month)
+	}
+	return months, rows.Err()
+}
+
+func (s *Store) ListRecentlyViewedFiles(ctx context.Context, limit int) ([]model.File, error) {
+	limit = normalizeRecentFileLimit(limit)
+	rows, err := s.db.QueryContext(ctx, fmt.Sprintf(`
+SELECT %s
+FROM files
+WHERE is_dir = 0
+  AND deleted_at IS NULL
+  AND last_viewed_at IS NOT NULL
+ORDER BY last_viewed_at DESC, id ASC
+LIMIT ?`, fileColumns), limit)
 	if err != nil {
 		return nil, err
 	}
@@ -294,6 +525,44 @@ LIMIT 1`, dirPath, name).Scan(&exists); err != nil {
 	return true, nil
 }
 
+func (s *Store) GetActiveByPath(ctx context.Context, dirPath, name string) (*model.File, error) {
+	dirPath = cleanFileSearchPath(dirPath)
+	if dirPath == "" {
+		dirPath = "/"
+	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return nil, ErrNotFound
+	}
+	rows, err := s.db.QueryContext(ctx, fmt.Sprintf(`
+SELECT %s
+FROM files
+WHERE path = ? AND name = ? COLLATE NOCASE AND deleted_at IS NULL
+ORDER BY name COLLATE NOCASE ASC, id ASC
+LIMIT 2`, fileColumns), dirPath, name)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	if !rows.Next() {
+		if err := rows.Err(); err != nil {
+			return nil, err
+		}
+		return nil, ErrNotFound
+	}
+	file, err := scanFile(rows)
+	if err != nil {
+		return nil, err
+	}
+	if rows.Next() {
+		return nil, ErrPathConflict
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return &file, nil
+}
+
 func (s *Store) GetFile(ctx context.Context, id string) (*model.File, error) {
 	row := s.db.QueryRowContext(ctx, fmt.Sprintf(`
 SELECT %s
@@ -369,6 +638,37 @@ func (s *Store) UpdateFileChunkCount(ctx context.Context, id string, chunkCount 
 	return affected(result, err)
 }
 
+func (s *Store) UpdateFileContent(ctx context.Context, id string, size int64, mimeType, status string, chunkCount int) error {
+	result, err := s.db.ExecContext(ctx, `
+UPDATE files
+SET size = ?,
+    mime_type = ?,
+    status = ?,
+    chunk_count = ?,
+    updated_at = ?
+WHERE id = ? AND is_dir = 0 AND deleted_at IS NULL`,
+		size,
+		mimeType,
+		status,
+		chunkCount,
+		time.Now().UTC(),
+		id,
+	)
+	return affected(result, err)
+}
+
+func (s *Store) MarkFileViewed(ctx context.Context, id string) (*model.File, error) {
+	now := time.Now().UTC()
+	result, err := s.db.ExecContext(ctx, `
+UPDATE files
+SET last_viewed_at = ?
+WHERE id = ? AND is_dir = 0 AND deleted_at IS NULL`, now, id)
+	if err := affected(result, err); err != nil {
+		return nil, err
+	}
+	return s.GetFile(ctx, id)
+}
+
 func (s *Store) UpdateFileLocation(ctx context.Context, file *model.File) error {
 	file.UpdatedAt = time.Now().UTC()
 	result, err := s.db.ExecContext(ctx, `
@@ -381,7 +681,7 @@ WHERE id = ?`,
 		file.UpdatedAt,
 		file.ID,
 	)
-	return affected(result, err)
+	return affected(result, normalizeFilePathConflict(err))
 }
 
 func (s *Store) UpdateFilePath(ctx context.Context, id, newPath, newStoragePath string) error {
@@ -389,7 +689,7 @@ func (s *Store) UpdateFilePath(ctx context.Context, id, newPath, newStoragePath 
 UPDATE files
 SET path = ?, storage_path = ?, updated_at = ?
 WHERE id = ?`, newPath, newStoragePath, time.Now().UTC(), id)
-	return affected(result, err)
+	return affected(result, normalizeFilePathConflict(err))
 }
 
 func (s *Store) SoftDeleteFile(ctx context.Context, id, trashRootID string) error {
@@ -423,7 +723,7 @@ SET deleted_at = NULL,
     trash_root_id = NULL,
     updated_at = ?
 WHERE id = ? AND deleted_at IS NOT NULL`, fallbackPath, fallbackName, now, id)
-	return affected(result, err)
+	return affected(result, normalizeFilePathConflict(err))
 }
 
 func (s *Store) ListTrashed(ctx context.Context, limit int) ([]model.File, error) {
@@ -531,6 +831,11 @@ WHERE file_id = ?`, fileID)
 		meta.ThumbnailPath = &thumb.String
 	}
 	return &meta, nil
+}
+
+func (s *Store) DeleteMetadataByFileID(ctx context.Context, fileID string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM file_metadata WHERE file_id = ?`, fileID)
+	return err
 }
 
 func (s *Store) CreateTask(ctx context.Context, task *model.Task) error {
@@ -799,6 +1104,7 @@ type fileScanner interface {
 func scanFile(scanner fileScanner) (model.File, error) {
 	var file model.File
 	var parent sql.NullString
+	var lastViewedAt sql.NullTime
 	var deletedAt sql.NullTime
 	var originalPath sql.NullString
 	var originalName sql.NullString
@@ -816,6 +1122,7 @@ func scanFile(scanner fileScanner) (model.File, error) {
 		&file.ChunkCount,
 		&file.CreatedAt,
 		&file.UpdatedAt,
+		&lastViewedAt,
 		&deletedAt,
 		&originalPath,
 		&originalName,
@@ -826,14 +1133,58 @@ func scanFile(scanner fileScanner) (model.File, error) {
 	if parent.Valid {
 		file.ParentID = &parent.String
 	}
+	applyLastViewedAt(&file, lastViewedAt)
 	applyTrashFields(&file, deletedAt, originalPath, originalName, trashRootID)
 	return file, nil
+}
+
+func scanPhotoTimelineFile(scanner fileScanner) (model.File, string, error) {
+	var file model.File
+	var parent sql.NullString
+	var lastViewedAt sql.NullTime
+	var deletedAt sql.NullTime
+	var originalPath sql.NullString
+	var originalName sql.NullString
+	var trashRootID sql.NullString
+	var sortKey sql.NullString
+	if err := scanner.Scan(
+		&file.ID,
+		&file.Name,
+		&file.Path,
+		&file.StoragePath,
+		&file.Size,
+		&file.MimeType,
+		&file.IsDir,
+		&parent,
+		&file.Status,
+		&file.ChunkCount,
+		&file.CreatedAt,
+		&file.UpdatedAt,
+		&lastViewedAt,
+		&deletedAt,
+		&originalPath,
+		&originalName,
+		&trashRootID,
+		&sortKey,
+	); err != nil {
+		return file, "", err
+	}
+	if parent.Valid {
+		file.ParentID = &parent.String
+	}
+	applyLastViewedAt(&file, lastViewedAt)
+	applyTrashFields(&file, deletedAt, originalPath, originalName, trashRootID)
+	if !sortKey.Valid || sortKey.String == "" {
+		return file, file.CreatedAt.UTC().Format("2006-01-02 15:04:05"), nil
+	}
+	return file, sortKey.String, nil
 }
 
 func scanMetadataHit(scanner fileScanner, keyword string) (MetadataHit, error) {
 	var hit MetadataHit
 	var metaJSON string
 	var parent sql.NullString
+	var lastViewedAt sql.NullTime
 	var deletedAt sql.NullTime
 	var originalPath sql.NullString
 	var originalName sql.NullString
@@ -851,6 +1202,7 @@ func scanMetadataHit(scanner fileScanner, keyword string) (MetadataHit, error) {
 		&hit.File.ChunkCount,
 		&hit.File.CreatedAt,
 		&hit.File.UpdatedAt,
+		&lastViewedAt,
 		&deletedAt,
 		&originalPath,
 		&originalName,
@@ -862,9 +1214,17 @@ func scanMetadataHit(scanner fileScanner, keyword string) (MetadataHit, error) {
 	if parent.Valid {
 		hit.File.ParentID = &parent.String
 	}
+	applyLastViewedAt(&hit.File, lastViewedAt)
 	applyTrashFields(&hit.File, deletedAt, originalPath, originalName, trashRootID)
 	hit.Snippet = makeMetadataSnippet(metaJSON, keyword)
 	return hit, nil
+}
+
+func applyLastViewedAt(file *model.File, lastViewedAt sql.NullTime) {
+	if lastViewedAt.Valid {
+		value := lastViewedAt.Time
+		file.LastViewedAt = &value
+	}
 }
 
 func applyTrashFields(file *model.File, deletedAt sql.NullTime, originalPath, originalName, trashRootID sql.NullString) {
@@ -920,6 +1280,408 @@ func normalizeFileSearchFilter(filter FileSearchFilter) FileSearchFilter {
 		filter.Limit = maxFileSearchLimit
 	}
 	return filter
+}
+
+func normalizeFileQueryFilter(filter FileQueryFilter) FileQueryFilter {
+	filter.Category = normalizeFileQueryCategory(filter.Category)
+	filter.Keyword = strings.TrimSpace(filter.Keyword)
+	filter.Sort = normalizeFileQuerySort(filter.Sort)
+	filter.Cursor = strings.TrimSpace(filter.Cursor)
+	filter.MediaFilter = normalizeFileQueryMediaFilter(filter.MediaFilter)
+	filter.DocumentSubtype = normalizeFileQueryDocumentSubtype(filter.DocumentSubtype)
+	if filter.Limit <= 0 {
+		filter.Limit = defaultFileQueryLimit
+	}
+	if filter.Limit > maxFileQueryLimit {
+		filter.Limit = maxFileQueryLimit
+	}
+	return filter
+}
+
+func normalizePhotoTimelineFilter(filter PhotoTimelineFilter) PhotoTimelineFilter {
+	filter.Keyword = strings.TrimSpace(filter.Keyword)
+	filter.Sort = normalizePhotoTimelineSort(filter.Sort)
+	filter.Cursor = strings.TrimSpace(filter.Cursor)
+	if filter.Limit <= 0 {
+		filter.Limit = defaultFileQueryLimit
+	}
+	if filter.Limit > maxFileQueryLimit {
+		filter.Limit = maxFileQueryLimit
+	}
+	return filter
+}
+
+func normalizeFileQueryCategory(value string) string {
+	switch strings.TrimSpace(strings.ToLower(value)) {
+	case "photo", "photos", "image", "images":
+		return "photos"
+	case "video", "videos":
+		return "videos"
+	case "document", "documents", "doc", "docs":
+		return "documents"
+	case "audio", "audios":
+		return "audio"
+	default:
+		return strings.TrimSpace(strings.ToLower(value))
+	}
+}
+
+func normalizeFileQuerySort(value string) string {
+	switch strings.TrimSpace(strings.ToLower(value)) {
+	case "name", "name_asc":
+		return "name"
+	case "size", "size_desc":
+		return "size"
+	case "updated_at", "updated_at_desc":
+		return "updated_at"
+	case "last_viewed_at", "last_viewed_at_desc":
+		return "last_viewed_at"
+	case "created_at", "created_at_desc", "":
+		return "created_at"
+	default:
+		return "created_at"
+	}
+}
+
+func normalizePhotoTimelineSort(value string) string {
+	switch strings.TrimSpace(strings.ToLower(value)) {
+	case "", "taken_at", "taken_at_desc", "captured_at", "captured_at_desc", "created_at", "created_at_desc":
+		return "taken_at"
+	default:
+		return "taken_at"
+	}
+}
+
+func normalizeFileQueryMediaFilter(value string) string {
+	switch strings.TrimSpace(strings.ToLower(value)) {
+	case "", "all":
+		return "all"
+	case "lt_1m", "under_1m", "less_than_1m", "short":
+		return "lt_1m"
+	case "1_10m", "1-10m", "one_to_ten", "medium":
+		return "1_10m"
+	case "gt_10m", "over_10m", "greater_than_10m", "long":
+		return "gt_10m"
+	default:
+		return strings.TrimSpace(strings.ToLower(value))
+	}
+}
+
+func normalizeFileQueryDocumentSubtype(value string) string {
+	switch strings.TrimSpace(strings.ToLower(value)) {
+	case "", "all":
+		return "all"
+	case "pdf":
+		return "pdf"
+	case "text", "word", "document", "doc":
+		return "text"
+	case "spreadsheet", "sheet", "excel", "table":
+		return "spreadsheet"
+	case "presentation", "slides", "ppt":
+		return "presentation"
+	case "txt", "plain", "markdown", "code":
+		return "txt"
+	case "other":
+		return "other"
+	default:
+		return strings.TrimSpace(strings.ToLower(value))
+	}
+}
+
+func fileQueryCategoryClause(category string) string {
+	switch category {
+	case "photos":
+		return fileQueryTypeClause([]string{"IFNULL(mime_type, '') LIKE 'image/%'"}, []string{
+			"jpg", "jpeg", "png", "gif", "webp", "bmp", "tif", "tiff", "heic", "heif", "avif",
+		})
+	case "videos":
+		return fileQueryTypeClause([]string{"IFNULL(mime_type, '') LIKE 'video/%'"}, []string{
+			"mp4", "mov", "m4v", "mkv", "avi", "webm", "flv", "wmv", "mpeg", "mpg", "3gp",
+		})
+	case "audio":
+		return fileQueryTypeClause([]string{"IFNULL(mime_type, '') LIKE 'audio/%'"}, []string{
+			"mp3", "m4a", "aac", "wav", "flac", "ogg", "opus", "wma", "aiff", "alac",
+		})
+	case "documents":
+		return fileQueryTypeClause([]string{
+			"IFNULL(mime_type, '') = 'application/pdf'",
+			"IFNULL(mime_type, '') LIKE 'text/%'",
+			"IFNULL(mime_type, '') = 'application/json'",
+			"IFNULL(mime_type, '') = 'application/csv'",
+			"IFNULL(mime_type, '') = 'application/rtf'",
+			"IFNULL(mime_type, '') = 'application/msword'",
+			"IFNULL(mime_type, '') LIKE 'application/vnd.ms-%'",
+			"IFNULL(mime_type, '') LIKE 'application/vnd.openxmlformats-officedocument.%'",
+		}, []string{
+			"pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "txt", "md", "markdown", "json", "csv", "rtf",
+			"log", "xml", "yaml", "yml",
+		})
+	default:
+		return ""
+	}
+}
+
+func fileQueryTypeClause(mimeClauses, extensions []string) string {
+	parts := append([]string{}, mimeClauses...)
+	for _, ext := range extensions {
+		parts = append(parts, fmt.Sprintf("LOWER(name) LIKE '%%.%s'", ext))
+	}
+	return "(" + strings.Join(parts, " OR ") + ")"
+}
+
+func photoTakenAtExpr() string {
+	return `CASE
+  WHEN json_valid(fm.meta_json)
+    AND json_extract(fm.meta_json, '$.taken_at') IS NOT NULL
+    AND TRIM(CAST(json_extract(fm.meta_json, '$.taken_at') AS TEXT)) != ''
+    AND datetime(CAST(json_extract(fm.meta_json, '$.taken_at') AS TEXT)) IS NOT NULL
+  THEN datetime(CAST(json_extract(fm.meta_json, '$.taken_at') AS TEXT))
+  ELSE datetime(files.created_at)
+END`
+}
+
+func fileQueryMediaFilterClause(category, filter string) string {
+	if category != "videos" || filter == "" || filter == "all" {
+		return ""
+	}
+	durationExpr := `(
+  SELECT CASE
+    WHEN json_valid(fm.meta_json) THEN CAST(json_extract(fm.meta_json, '$.duration') AS REAL)
+    ELSE NULL
+  END
+  FROM file_metadata fm
+  WHERE fm.file_id = files.id
+)`
+	switch filter {
+	case "lt_1m":
+		return fmt.Sprintf("%s IS NOT NULL AND %s < 60", durationExpr, durationExpr)
+	case "1_10m":
+		return fmt.Sprintf("%s >= 60 AND %s <= 600", durationExpr, durationExpr)
+	case "gt_10m":
+		return fmt.Sprintf("%s > 600", durationExpr)
+	default:
+		return ""
+	}
+}
+
+func fileQueryDocumentSubtypeClause(category, subtype string) string {
+	if category != "documents" || subtype == "" || subtype == "all" {
+		return ""
+	}
+	switch subtype {
+	case "pdf":
+		return fileQueryDocumentPDFClause()
+	case "text":
+		return fileQueryDocumentTextClause()
+	case "spreadsheet":
+		return fileQueryDocumentSpreadsheetClause()
+	case "presentation":
+		return fileQueryDocumentPresentationClause()
+	case "txt":
+		return fileQueryDocumentTXTClause()
+	case "other":
+		return fmt.Sprintf("NOT (%s OR %s OR %s OR %s OR %s)",
+			fileQueryDocumentPDFClause(),
+			fileQueryDocumentTextClause(),
+			fileQueryDocumentSpreadsheetClause(),
+			fileQueryDocumentPresentationClause(),
+			fileQueryDocumentTXTClause(),
+		)
+	default:
+		return ""
+	}
+}
+
+func fileQueryDocumentPDFClause() string {
+	return fileQueryTypeClause([]string{"IFNULL(mime_type, '') = 'application/pdf'"}, []string{"pdf"})
+}
+
+func fileQueryDocumentTextClause() string {
+	return fileQueryTypeClause([]string{
+		"IFNULL(mime_type, '') = 'application/msword'",
+		"IFNULL(mime_type, '') LIKE 'application/vnd.openxmlformats-officedocument.wordprocessingml.%'",
+	}, []string{"doc", "docx"})
+}
+
+func fileQueryDocumentSpreadsheetClause() string {
+	return fileQueryTypeClause([]string{
+		"IFNULL(mime_type, '') = 'application/csv'",
+		"IFNULL(mime_type, '') = 'text/csv'",
+		"IFNULL(mime_type, '') = 'application/vnd.ms-excel'",
+		"IFNULL(mime_type, '') LIKE 'application/vnd.openxmlformats-officedocument.spreadsheetml.%'",
+	}, []string{"xls", "xlsx", "csv"})
+}
+
+func fileQueryDocumentPresentationClause() string {
+	return fileQueryTypeClause([]string{
+		"IFNULL(mime_type, '') = 'application/vnd.ms-powerpoint'",
+		"IFNULL(mime_type, '') LIKE 'application/vnd.openxmlformats-officedocument.presentationml.%'",
+	}, []string{"ppt", "pptx"})
+}
+
+func fileQueryDocumentTXTClause() string {
+	return fmt.Sprintf("(%s AND NOT %s)", fileQueryTypeClause([]string{
+		"IFNULL(mime_type, '') LIKE 'text/%'",
+		"IFNULL(mime_type, '') = 'application/json'",
+	}, []string{"txt", "md", "markdown", "json", "log", "xml", "yaml", "yml", "go", "js", "ts", "tsx", "jsx", "css", "html"}), fileQueryDocumentSpreadsheetClause())
+}
+
+func fileQueryOrderBy(sort string) string {
+	switch normalizeFileQuerySort(sort) {
+	case "name":
+		return "name COLLATE NOCASE ASC, id ASC"
+	case "size":
+		return "size DESC, id ASC"
+	case "updated_at":
+		return "updated_at DESC, id ASC"
+	case "last_viewed_at":
+		return "COALESCE(last_viewed_at, created_at) DESC, id ASC"
+	case "created_at":
+		return "created_at DESC, id ASC"
+	default:
+		return "created_at DESC, id ASC"
+	}
+}
+
+func fileQueryCursorClause(sort, rawCursor string) (string, []any, error) {
+	cursor, err := decodeFileQueryCursor(rawCursor)
+	if err != nil {
+		return "", nil, err
+	}
+	sort = normalizeFileQuerySort(sort)
+	if cursor.Sort != sort {
+		return "", nil, fmt.Errorf("%w: sort %q does not match query sort %q", ErrInvalidCursor, cursor.Sort, sort)
+	}
+	switch sort {
+	case "name":
+		return "(name COLLATE NOCASE > ? OR (name = ? COLLATE NOCASE AND id > ?))", []any{cursor.Value, cursor.Value, cursor.ID}, nil
+	case "size":
+		size, err := strconv.ParseInt(cursor.Value, 10, 64)
+		if err != nil {
+			return "", nil, fmt.Errorf("%w: size: %v", ErrInvalidCursor, err)
+		}
+		return "(size < ? OR (size = ? AND id > ?))", []any{size, size, cursor.ID}, nil
+	case "updated_at":
+		value, err := time.Parse(time.RFC3339Nano, cursor.Value)
+		if err != nil {
+			return "", nil, fmt.Errorf("%w: updated_at: %v", ErrInvalidCursor, err)
+		}
+		return "(updated_at < ? OR (updated_at = ? AND id > ?))", []any{value, value, cursor.ID}, nil
+	case "last_viewed_at":
+		value, err := time.Parse(time.RFC3339Nano, cursor.Value)
+		if err != nil {
+			return "", nil, fmt.Errorf("%w: last_viewed_at: %v", ErrInvalidCursor, err)
+		}
+		return "(COALESCE(last_viewed_at, created_at) < ? OR (COALESCE(last_viewed_at, created_at) = ? AND id > ?))", []any{value, value, cursor.ID}, nil
+	case "created_at":
+		value, err := time.Parse(time.RFC3339Nano, cursor.Value)
+		if err != nil {
+			return "", nil, fmt.Errorf("%w: created_at: %v", ErrInvalidCursor, err)
+		}
+		return "(created_at < ? OR (created_at = ? AND id > ?))", []any{value, value, cursor.ID}, nil
+	default:
+		return "", nil, fmt.Errorf("%w: unsupported sort %q", ErrInvalidCursor, sort)
+	}
+}
+
+func photoTimelineCursorClause(sort, rawCursor, sortKey string) (string, []any, error) {
+	cursor, err := decodePhotoTimelineCursor(rawCursor)
+	if err != nil {
+		return "", nil, err
+	}
+	sort = normalizePhotoTimelineSort(sort)
+	if cursor.Sort != sort {
+		return "", nil, fmt.Errorf("%w: sort %q does not match query sort %q", ErrInvalidCursor, cursor.Sort, sort)
+	}
+	return fmt.Sprintf("(%s < ? OR (%s = ? AND files.id > ?))", sortKey, sortKey), []any{cursor.Value, cursor.Value, cursor.ID}, nil
+}
+
+func encodeFileQueryCursor(sort string, file model.File) (string, error) {
+	cursor := fileQueryCursor{
+		Sort:  normalizeFileQuerySort(sort),
+		Value: fileQueryCursorValue(sort, file),
+		ID:    file.ID,
+	}
+	payload, err := json.Marshal(cursor)
+	if err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(payload), nil
+}
+
+func encodePhotoTimelineCursor(sort, value, id string) (string, error) {
+	cursor := fileQueryCursor{
+		Sort:  normalizePhotoTimelineSort(sort),
+		Value: value,
+		ID:    id,
+	}
+	payload, err := json.Marshal(cursor)
+	if err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(payload), nil
+}
+
+func decodeFileQueryCursor(value string) (fileQueryCursor, error) {
+	payload, err := base64.RawURLEncoding.DecodeString(strings.TrimSpace(value))
+	if err != nil {
+		return fileQueryCursor{}, fmt.Errorf("%w: %v", ErrInvalidCursor, err)
+	}
+	var cursor fileQueryCursor
+	if err := json.Unmarshal(payload, &cursor); err != nil {
+		return fileQueryCursor{}, fmt.Errorf("%w: %v", ErrInvalidCursor, err)
+	}
+	cursor.Sort = normalizeFileQuerySort(cursor.Sort)
+	if cursor.ID == "" || cursor.Value == "" {
+		return fileQueryCursor{}, ErrInvalidCursor
+	}
+	return cursor, nil
+}
+
+func decodePhotoTimelineCursor(value string) (fileQueryCursor, error) {
+	payload, err := base64.RawURLEncoding.DecodeString(strings.TrimSpace(value))
+	if err != nil {
+		return fileQueryCursor{}, fmt.Errorf("%w: %v", ErrInvalidCursor, err)
+	}
+	var cursor fileQueryCursor
+	if err := json.Unmarshal(payload, &cursor); err != nil {
+		return fileQueryCursor{}, fmt.Errorf("%w: %v", ErrInvalidCursor, err)
+	}
+	cursor.Sort = normalizePhotoTimelineSort(cursor.Sort)
+	if cursor.ID == "" || cursor.Value == "" {
+		return fileQueryCursor{}, ErrInvalidCursor
+	}
+	return cursor, nil
+}
+
+func fileQueryCursorValue(sort string, file model.File) string {
+	switch normalizeFileQuerySort(sort) {
+	case "name":
+		return file.Name
+	case "size":
+		return strconv.FormatInt(file.Size, 10)
+	case "updated_at":
+		return file.UpdatedAt.UTC().Format(time.RFC3339Nano)
+	case "last_viewed_at":
+		if file.LastViewedAt != nil {
+			return file.LastViewedAt.UTC().Format(time.RFC3339Nano)
+		}
+		return file.CreatedAt.UTC().Format(time.RFC3339Nano)
+	case "created_at":
+		return file.CreatedAt.UTC().Format(time.RFC3339Nano)
+	default:
+		return file.CreatedAt.UTC().Format(time.RFC3339Nano)
+	}
+}
+
+func normalizeRecentFileLimit(limit int) int {
+	if limit <= 0 {
+		return defaultRecentFileLimit
+	}
+	if limit > maxRecentFileLimit {
+		return maxRecentFileLimit
+	}
+	return limit
 }
 
 func fileFilterClauses(filter FileSearchFilter, alias string) (string, []any) {
@@ -1098,4 +1860,17 @@ func affected(result sql.Result, err error) error {
 		return ErrNotFound
 	}
 	return nil
+}
+
+func normalizeFilePathConflict(err error) error {
+	if err == nil {
+		return nil
+	}
+	var sqliteErr sqlite3.Error
+	if errors.As(err, &sqliteErr) &&
+		sqliteErr.Code == sqlite3.ErrConstraint &&
+		(sqliteErr.ExtendedCode == sqlite3.ErrConstraintUnique || strings.Contains(err.Error(), "idx_files_active_path_lower_name")) {
+		return ErrPathConflict
+	}
+	return err
 }

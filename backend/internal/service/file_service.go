@@ -31,11 +31,22 @@ type FileService struct {
 	cfg      *config.Config
 	store    *store.Store
 	vectorDB vectordb.VectorStore
+	pipeline *PipelineService
+}
+
+type BatchResult struct {
+	Total     int `json:"total"`
+	Succeeded int `json:"succeeded"`
+	Failed    int `json:"failed"`
 }
 
 // NewFileService creates a new FileService.
 func NewFileService(cfg *config.Config, store *store.Store, vectorDB vectordb.VectorStore) *FileService {
 	return &FileService{cfg: cfg, store: store, vectorDB: vectorDB}
+}
+
+func (s *FileService) SetPipeline(pipeline *PipelineService) {
+	s.pipeline = pipeline
 }
 
 func (s *FileService) List(ctx context.Context, dirPath, sort string) ([]model.File, error) {
@@ -48,6 +59,78 @@ func (s *FileService) List(ctx context.Context, dirPath, sort string) ([]model.F
 	}
 	s.attachMetadata(ctx, files)
 	log.Printf("level=debug component=file event=list_complete path=%q sort=%q count=%d duration_ms=%d", cleanPath, sort, len(files), time.Since(started).Milliseconds())
+	return files, nil
+}
+
+func (s *FileService) Query(ctx context.Context, req FileQueryRequest) (*FileQueryResponse, error) {
+	items, nextCursor, hasMore, err := s.store.QueryFiles(ctx, store.FileQueryFilter{
+		Category:        req.Category,
+		Keyword:         req.Query,
+		Sort:            req.Sort,
+		Cursor:          req.Cursor,
+		Limit:           req.Limit,
+		MediaFilter:     req.MediaFilter,
+		DocumentSubtype: req.DocumentSubtype,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if items == nil {
+		items = []model.File{}
+	}
+	s.attachMetadata(ctx, items)
+	return &FileQueryResponse{
+		Items:      items,
+		NextCursor: nextCursor,
+		HasMore:    hasMore,
+	}, nil
+}
+
+func (s *FileService) PhotoMonths(ctx context.Context) (*PhotoMonthIndexResponse, error) {
+	months, err := s.store.ListPhotoMonths(ctx)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]PhotoMonthIndexItem, 0, len(months))
+	for _, month := range months {
+		items = append(items, PhotoMonthIndexItem{
+			Year:  month.Year,
+			Month: month.Month,
+			Count: month.Count,
+		})
+	}
+	return &PhotoMonthIndexResponse{Months: items}, nil
+}
+
+func (s *FileService) PhotoTimeline(ctx context.Context, req PhotoTimelineRequest) (*FileQueryResponse, error) {
+	items, nextCursor, hasMore, err := s.store.QueryPhotoTimeline(ctx, store.PhotoTimelineFilter{
+		Year:    req.Year,
+		Month:   req.Month,
+		Keyword: req.Query,
+		Sort:    req.Sort,
+		Cursor:  req.Cursor,
+		Limit:   req.Limit,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if items == nil {
+		items = []model.File{}
+	}
+	s.attachMetadata(ctx, items)
+	return &FileQueryResponse{
+		Items:      items,
+		NextCursor: nextCursor,
+		HasMore:    hasMore,
+	}, nil
+}
+
+func (s *FileService) RecentlyViewed(ctx context.Context, limit int) ([]model.File, error) {
+	files, err := s.store.ListRecentlyViewedFiles(ctx, limit)
+	if err != nil {
+		return nil, err
+	}
+	s.attachMetadata(ctx, files)
 	return files, nil
 }
 
@@ -94,6 +177,7 @@ func (s *FileService) CreateFolder(ctx context.Context, dirPath, name string) (*
 		Status:      model.FileStatusReady,
 	}
 	if err := s.store.CreateFile(ctx, file); err != nil {
+		err = mapStorePathConflict(err)
 		log.Printf("level=error component=file event=create_folder_store_failed file_id=%s path=%q name=%q err=%q", file.ID, dirPath, name, err)
 		return nil, err
 	}
@@ -145,6 +229,38 @@ func (s *FileService) Metadata(ctx context.Context, id string) (*model.FileMetad
 		return nil, err
 	}
 	return s.store.GetMetadata(ctx, id)
+}
+
+func (s *FileService) MarkViewed(ctx context.Context, id string) (*model.File, error) {
+	file, err := s.store.MarkFileViewed(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if meta, err := s.store.GetMetadata(ctx, id); err == nil {
+		file.Metadata = meta
+	}
+	return file, nil
+}
+
+func (s *FileService) BatchMove(ctx context.Context, ids []string, destPath string) BatchResult {
+	result := BatchResult{Total: len(ids)}
+	destPath = CleanVirtualPath(destPath)
+	for _, id := range ids {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			result.Failed++
+			log.Printf("level=warn component=file event=batch_move_item_failed reason=empty_id dest_path=%q", destPath)
+			continue
+		}
+		if _, err := s.RenameMove(ctx, id, "", destPath); err != nil {
+			result.Failed++
+			log.Printf("level=warn component=file event=batch_move_item_failed file_id=%s dest_path=%q err=%q", id, destPath, err)
+			continue
+		}
+		result.Succeeded++
+	}
+	log.Printf("level=info component=file event=batch_move_complete dest_path=%q total=%d succeeded=%d failed=%d", destPath, result.Total, result.Succeeded, result.Failed)
+	return result
 }
 
 func (s *FileService) RenameMove(ctx context.Context, id, newName, newPath string) (*model.File, error) {
@@ -222,6 +338,7 @@ func (s *FileService) RenameMove(ctx context.Context, id, newName, newPath strin
 	file.Path = newPath
 	file.StoragePath = filepath.ToSlash(newRel)
 	if err := s.store.UpdateFileLocation(ctx, file); err != nil {
+		err = mapStorePathConflict(err)
 		log.Printf("level=error component=file event=rename_move_store_failed file_id=%s err=%q", id, err)
 		return nil, err
 	}
@@ -266,12 +383,20 @@ func (s *FileService) RegisterUploadedFile(ctx context.Context, name, destPath, 
 		ChunkCount:  chunkCount,
 	}
 	if err := s.store.CreateFile(ctx, file); err != nil {
+		err = mapStorePathConflict(err)
 		log.Printf("level=error component=file event=register_uploaded_failed file_id=%s name=%q path=%q storage_path=%q err=%q", file.ID, file.Name, file.Path, file.StoragePath, err)
 		return nil, err
 	}
 	log.Printf("level=info component=file event=register_uploaded_complete file_id=%s name=%q path=%q storage_path=%q size=%d mime_type=%q upload_chunks=%d duration_ms=%d",
 		file.ID, file.Name, file.Path, file.StoragePath, file.Size, file.MimeType, file.ChunkCount, time.Since(started).Milliseconds())
 	return file, nil
+}
+
+func mapStorePathConflict(err error) error {
+	if errors.Is(err, store.ErrPathConflict) {
+		return fmt.Errorf("%w: %v", ErrPathConflict, err)
+	}
+	return err
 }
 
 func (s *FileService) BuildStorageRel(fileID, destPath, fileName string) string {

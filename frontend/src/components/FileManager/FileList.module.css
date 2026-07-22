@@ -1,34 +1,49 @@
 .tableWrapper {
   width: 100%;
+  height: 100%;
+  min-height: 0;
   overflow-x: auto;
+  overflow-y: hidden;
+  position: relative;
 }
 
 .table {
+  --desktop-file-list-columns: minmax(16rem, 1.6fr) minmax(12rem, 0.9fr) minmax(7rem, 0.5fr) 5rem;
+  display: flex;
+  width: 100%;
+  min-width: 720px;
+  height: 100%;
+  min-height: 0;
+  flex-direction: column;
   width: 100%;
   text-align: left;
-  border-collapse: separate;
-  border-spacing: 0;
 }
 
 .tableHeadRow {
+  display: grid;
+  grid-template-columns: var(--desktop-file-list-columns);
   background-color: rgba(250, 250, 250, 0.5); /* zinc-50/50 */
 }
 
 .tableHeadCell {
+  display: flex;
+  min-height: 3.125rem;
+  align-items: center;
   padding: 1rem 1.5rem;
   font-size: 0.75rem; /* 12px */
   font-weight: 600;
   color: #71717a; /* zinc-500 */
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  position: sticky;
-  top: 0;
-  z-index: 1;
   background: #fafafa;
   border-bottom: 1px solid #f4f4f5;
 }
 
 .tableHeadCellRight {
+  display: flex;
+  min-height: 3.125rem;
+  align-items: center;
+  justify-content: flex-end;
   padding: 1rem 1.5rem;
   font-size: 0.75rem;
   font-weight: 600;
@@ -36,19 +51,24 @@
   text-transform: uppercase;
   letter-spacing: 0.05em;
   text-align: right;
-  position: sticky;
-  top: 0;
-  z-index: 1;
   background: #fafafa;
   border-bottom: 1px solid #f4f4f5;
 }
 
-.tbody {
-  /* divide-y divide-zinc-100 equivalent */
+.virtualBody {
+  min-height: 0;
+}
+
+.virtualSlot {
+  min-width: 100%;
 }
 
 .tableRow {
-  transition: background-color 0.15s;
+  display: grid;
+  grid-template-columns: var(--desktop-file-list-columns);
+  min-height: 4.5rem;
+  align-items: stretch;
+  transition: background-color var(--transition-fast);
   cursor: pointer;
 }
 
@@ -56,16 +76,28 @@
   background-color: rgba(250, 250, 250, 0.8);
 }
 
+.tableRowDisabled {
+  cursor: wait;
+  opacity: 0.72;
+}
+
 .tableRowSelected {
   background-color: rgba(0, 117, 222, 0.07);
 }
 
 .tableCell {
+  display: flex;
+  min-width: 0;
+  align-items: center;
   padding: 1rem 1.5rem;
   border-bottom: 1px solid #f4f4f5;
 }
 
 .tableCellRight {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: flex-end;
   padding: 1rem 1.5rem;
   text-align: right;
   border-bottom: 1px solid #f4f4f5;
@@ -73,6 +105,7 @@
 
 .fileIconWrapper {
   display: flex;
+  min-width: 0;
   align-items: center;
   gap: 0.75rem;
 }
@@ -102,6 +135,30 @@
   color: #3b82f6; /* primary */
 }
 
+.loadingIcon {
+  width: 1.25rem;
+  height: 1.25rem;
+  color: var(--color-accent);
+  animation: spin 0.9s linear infinite;
+  transform-origin: center;
+}
+
+.busyOverlay {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  color: var(--color-accent-text);
+  background: var(--color-surface-glass);
+  font-size: 0.875rem;
+  font-weight: 700;
+  backdrop-filter: blur(2px);
+  pointer-events: all;
+}
+
 .thumbnail {
   width: 100%;
   height: 100%;
@@ -110,13 +167,19 @@
 }
 
 .fileName {
+  overflow: hidden;
   font-weight: 500;
   color: #18181b; /* zinc-900 */
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .fileDesc {
+  overflow: hidden;
   font-size: 0.75rem;
   color: #a1a1aa; /* zinc-400 */
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .metaText {
@@ -134,6 +197,11 @@
 .actionButton:hover {
   background-color: rgba(228, 228, 231, 0.5); /* zinc-200/50 */
   color: #52525b;
+}
+
+.actionButton:disabled {
+  cursor: wait;
+  opacity: 0.45;
 }
 
 .popoverMenu {
@@ -222,4 +290,10 @@
 
 .pageInfo {
   user-select: none;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }

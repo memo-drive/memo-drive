@@ -8,7 +8,6 @@ import remarkGfm from "remark-gfm";
 import { getDownloadText } from "../../api/fileApi";
 import type { DriveFile } from "../../types";
 import { PreviewShell } from "./PreviewShell";
-import { PreviewToolbar } from "./PreviewToolbar";
 import { PreviewError, PreviewLoading, PreviewUnsupported } from "./PreviewState";
 import { isMarkdownFile, languageForFile } from "./textTypes";
 import styles from "./FilePreview.module.css";
@@ -90,20 +89,6 @@ export function CodeViewer({ file }: { file: DriveFile }) {
     };
   }, [file.id, file.size, reloadKey]);
 
-  const prepared = useMemo(() => prepareContent(content, t("preview.textTruncated")), [content, t]);
-  const language = languageForFile(file);
-  const highlighted = useMemo(
-    () => highlightContent(prepared.text, language),
-    [language, prepared.text],
-  );
-  const lineNumbers = useMemo(
-    () =>
-      Array.from({ length: prepared.lineCount }, (_, index) => index + 1).join(
-        "\n",
-      ),
-    [prepared.lineCount],
-  );
-
   if (file.size > MAX_TEXT_BYTES) {
     return <PreviewUnsupported file={file} reason={t("preview.fileTooLarge")} />;
   }
@@ -118,22 +103,36 @@ export function CodeViewer({ file }: { file: DriveFile }) {
     );
   }
 
+  return <CodePreviewDocument file={file} content={content} />;
+}
+
+export function CodePreviewDocument({
+  file,
+  content,
+}: {
+  file: DriveFile;
+  content: string;
+}) {
+  const { t } = useTranslation();
+  const prepared = useMemo(() => prepareContent(content, t("preview.textTruncated")), [content, t]);
+  const language = languageForFile(file);
+  const highlighted = useMemo(
+    () => highlightContent(prepared.text, language),
+    [language, prepared.text],
+  );
+  const lineNumbers = useMemo(
+    () =>
+      Array.from({ length: prepared.lineCount }, (_, index) => index + 1).join(
+        "\n",
+      ),
+    [prepared.lineCount],
+  );
   const renderMarkdown = isMarkdownFile(file) && file.size < MARKDOWN_RENDER_BYTES;
 
   return (
     <PreviewShell
       className={styles.codeShell}
       mode="padded"
-      toolbar={
-        <PreviewToolbar>
-          <span className={styles.codeToolbarLabel}>
-            {renderMarkdown ? t("preview.markdownPreview") : language || t("preview.autoDetect")}
-          </span>
-          {prepared.truncated && (
-            <span className={styles.pageIndicator}>{t("preview.truncatedPreview")}</span>
-          )}
-        </PreviewToolbar>
-      }
     >
       {renderMarkdown ? (
         <article className={styles.markdownBody}>

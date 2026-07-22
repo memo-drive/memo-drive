@@ -43,7 +43,7 @@ function formatTime(timestamp: number): string {
 }
 
 function statusClass(status: TransferStatus): string {
-  if (status === "uploading" || status === "processing") return styles.statusRunning;
+  if (status === "preparing" || status === "uploading" || status === "processing") return styles.statusRunning;
   if (status === "done") return styles.statusSuccess;
   if (status === "paused") return styles.statusPaused;
   if (status === "cancelled" || status === "expired") return styles.statusMuted;

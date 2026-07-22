@@ -32,6 +32,7 @@ type SweepStats struct {
 	TasksFailed       int
 	FilesFailed       int
 	ThumbnailsRemoved int
+	WebDAVTempRemoved int
 	StorageMoved      int
 	TrashPurged       int
 }
@@ -78,6 +79,12 @@ func (r *Reconciler) PeriodicSweep(ctx context.Context) error {
 	} else {
 		stats.ThumbnailsRemoved = thumbs
 	}
+	webDAVTempRemoved, err := r.SweepWebDAVTemp(ctx)
+	if err != nil {
+		log.Printf("level=warn component=janitor event=webdav_temp_sweep_failed err=%q", err)
+	} else {
+		stats.WebDAVTempRemoved = webDAVTempRemoved
+	}
 	if r.cfg.Janitor.SweepStorageEnabled {
 		moved, err := r.SweepStorage(ctx)
 		if err != nil {
@@ -92,8 +99,8 @@ func (r *Reconciler) PeriodicSweep(ctx context.Context) error {
 	} else {
 		stats.TrashPurged = trashPurged
 	}
-	log.Printf("level=info component=janitor event=sweep_complete tasks_recovered=%d tasks_failed=%d files_failed=%d thumbnails_removed=%d storage_moved=%d trash_purged=%d duration_ms=%d",
-		stats.TasksRecovered, stats.TasksFailed, stats.FilesFailed, stats.ThumbnailsRemoved, stats.StorageMoved, stats.TrashPurged, time.Since(started).Milliseconds())
+	log.Printf("level=info component=janitor event=sweep_complete tasks_recovered=%d tasks_failed=%d files_failed=%d thumbnails_removed=%d webdav_temp_removed=%d storage_moved=%d trash_purged=%d duration_ms=%d",
+		stats.TasksRecovered, stats.TasksFailed, stats.FilesFailed, stats.ThumbnailsRemoved, stats.WebDAVTempRemoved, stats.StorageMoved, stats.TrashPurged, time.Since(started).Milliseconds())
 	return nil
 }
 
@@ -215,6 +222,50 @@ func (r *Reconciler) SweepThumbnails(ctx context.Context) (int, error) {
 		}
 		removed++
 		log.Printf("level=info component=janitor event=thumbnail_orphan_removed file=%q", path)
+	}
+	return removed, ctx.Err()
+}
+
+func (r *Reconciler) SweepWebDAVTemp(ctx context.Context) (int, error) {
+	if r.cfg == nil || r.cfg.Storage.TempDir == "" {
+		return 0, nil
+	}
+	ttl := r.cfg.Storage.UploadTTL
+	if ttl <= 0 {
+		ttl = time.Hour
+	}
+	tempDir := filepath.Join(r.cfg.Storage.TempDir, "webdav")
+	entries, err := os.ReadDir(tempDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return 0, nil
+		}
+		return 0, err
+	}
+	cutoff := time.Now().Add(-ttl)
+	removed := 0
+	for _, entry := range entries {
+		if removed >= maxJanitorRemovals || ctx.Err() != nil {
+			break
+		}
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".upload" {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			log.Printf("level=warn component=janitor event=webdav_temp_stat_failed file=%q err=%q", filepath.Join(tempDir, entry.Name()), err)
+			continue
+		}
+		if info.ModTime().After(cutoff) {
+			continue
+		}
+		path := filepath.Join(tempDir, entry.Name())
+		if err := os.Remove(path); err != nil {
+			log.Printf("level=warn component=janitor event=webdav_temp_remove_failed file=%q err=%q", path, err)
+			continue
+		}
+		removed++
+		log.Printf("level=info component=janitor event=webdav_temp_removed file=%q", path)
 	}
 	return removed, ctx.Err()
 }

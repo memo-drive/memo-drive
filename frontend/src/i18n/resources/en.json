@@ -15,7 +15,8 @@
     "close": "Close",
     "back": "Back",
     "retry": "Retry",
-    "ok": "OK"
+    "ok": "OK",
+    "edit": "Edit"
   },
   "auth": {
     "wakingUp": "MemoDrive is waking up...",
@@ -47,10 +48,85 @@
       "nav": "Mobile bottom navigation"
     },
     "nav": {
+      "home": "Home",
       "files": "Files",
       "ai": "AI",
       "transfer": "Transfer",
       "me": "Me"
+    },
+    "home": {
+      "title": "Mobile Home",
+      "searchPlaceholder": "Search all files",
+      "transfer": "Transfer list",
+      "categoriesLabel": "File category shortcuts",
+      "categories": {
+        "photos": "Photos",
+        "videos": "Videos",
+        "documents": "Documents",
+        "audio": "Audio"
+      },
+      "recent": "Recently Viewed",
+      "recentEmpty": "No recently viewed files yet",
+      "searchResults": "Search Results"
+    },
+    "category": {
+      "modeNav": "Category mode navigation",
+      "photos": {
+        "title": "Photos",
+        "searchPlaceholder": "Search photos",
+        "timeline": "Timeline",
+        "list": "List",
+        "empty": "No photos yet",
+        "count": "{{count}} photos",
+        "monthQuickNav": "Quick month navigation",
+        "jumpToMonth": "Jump to {{month}}"
+      },
+      "videos": {
+        "title": "Videos",
+        "searchPlaceholder": "Search videos",
+        "recent": "Recently Watched",
+        "recentEmpty": "No recently watched videos yet",
+        "all": "All Videos",
+        "lt1m": "Under 1 minute",
+        "oneToTen": "1-10 minutes",
+        "gt10m": "Over 10 minutes"
+      },
+      "documents": {
+        "title": "Documents",
+        "searchPlaceholder": "Search documents",
+        "all": "All Documents",
+        "pdf": "PDF",
+        "text": "Text",
+        "spreadsheet": "Spreadsheets",
+        "presentation": "Presentations",
+        "txt": "TXT",
+        "other": "Other"
+      },
+      "audio": {
+        "title": "Audio",
+        "searchPlaceholder": "Search audio",
+        "all": "All Audio"
+      },
+      "filters": {
+        "all": "All"
+      },
+      "sort": {
+        "updatedAt": "By time",
+        "name": "By name",
+        "size": "By size"
+      }
+    },
+    "selection": {
+      "selectedCount": "{{count}} selected",
+      "selectAll": "Select All",
+      "allSelected": "All Selected",
+      "batchActions": "Batch actions",
+      "batchMoveTitle": "Move {{count}} items",
+      "singleMoveTitle": "Move {{name}}",
+      "confirmBatchDelete": "Delete selected files",
+      "batchDeleteBody": "Move {{count}} selected items to trash?",
+      "batchSuccess": "Processed {{succeeded}} / {{total}} items",
+      "batchPartial": "Processed {{succeeded}} / {{total}} items, {{failed}} failed"
     },
     "files": {
       "title": "Mobile Files",
@@ -87,6 +163,14 @@
     "preview": {
       "title": "Mobile Preview",
       "subtitle": "View File content in a full-screen mobile page."
+    },
+    "media": {
+      "title": "Media Preview",
+      "more": "More",
+      "info": "Media Info",
+      "previous": "Previous item",
+      "next": "Next item",
+      "queueControls": "Media queue controls"
     }
   },
   "drive": {
@@ -97,9 +181,12 @@
     "searchPlaceholder": "Search files, content, or photo metadata",
     "semanticSearchHint": "Includes semantic search",
     "newFolder": "New Folder",
+    "newMarkdown": "New Markdown",
     "upload": "Upload",
     "folderName": "Folder name",
     "folderNamePlaceholder": "Enter folder name",
+    "markdownName": "Markdown file name",
+    "markdownNamePlaceholder": "Enter a file name, .md will be added",
     "newName": "New name",
     "newNamePlaceholder": "Enter new name",
     "nameNoSlash": "Name cannot contain /",
@@ -114,13 +201,43 @@
     "deleteFailed": "Failed to move to trash",
     "createSuccess": "Folder created",
     "createFailed": "Failed to create folder",
+    "createMarkdownFailed": "Failed to create Markdown",
     "renameFailed": "Failed to rename",
     "moveSuccess": "Moved successfully",
     "moveFailed": "Failed to move",
+    "filesAddedToTransfer": "{{count}} files added to transfer list. View progress in the Transfer page.",
     "filesAddedToTransfer_one": "{{count}} file added to transfer list. View progress in the Transfer page.",
     "filesAddedToTransfer_other": "{{count}} files added to transfer list. View progress in the Transfer page.",
     "searchFailed": "Search failed",
     "uploadFailed": "{{name}} upload failed"
+  },
+  "markdownEditor": {
+    "loading": "Loading Markdown...",
+    "loadFailed": "Failed to load Markdown",
+    "saveFailed": "Failed to save",
+    "savedIndexing": "Saved. Re-indexing now",
+    "saved": "Saved",
+    "unsaved": "Unsaved",
+    "edit": "Edit",
+    "draftFound": "A local draft was found for this file.",
+    "restoreDraft": "Restore draft",
+    "discardDraft": "Discard draft",
+    "conflictTitle": "File changed elsewhere",
+    "conflictBody": "The server version changed. Your current content was not overwritten.",
+    "reloadServer": "Reload server version",
+    "saveAs": "Save as",
+    "saveAsTitle": "Save as Markdown",
+    "savedAs": "Saved as new Markdown",
+    "fileName": "File name",
+    "leaveTitle": "Leave editor",
+    "leave": "Leave",
+    "reloadTitle": "Reload server version",
+    "leaveConfirm": "This Markdown has unsaved changes. Leave anyway?",
+    "reloadConfirm": "Reloading will discard your unsaved changes. Continue?",
+    "tooLarge": "Markdown content cannot exceed 1 MB",
+    "lines": "{{count}} lines",
+    "words": "{{count}} words",
+    "bytes": "{{count}} bytes"
   },
   "fileList": {
     "empty": "This folder is empty. Drag a file here and MemoDrive will start remembering things.",
@@ -128,6 +245,8 @@
     "modified": "Modified",
     "size": "Size",
     "actions": "Actions",
+    "enteringFolder": "Entering...",
+    "loadingFolder": "Loading...",
     "pagination": "Page {{current}} / {{total}} ({{count}} items)"
   },
   "moveDialog": {
@@ -178,6 +297,7 @@
     "etaMinutes": "~{{minutes}}min",
     "etaHours": "~{{hours}}h",
     "status": {
+      "preparing": "Preparing",
       "uploading": "Uploading",
       "paused": "Paused",
       "processing": "Processing",
@@ -306,6 +426,7 @@
     "title": "AI Assistant",
     "eyebrow": "AI Copilot",
     "openAssistant": "Open AI Assistant",
+    "resizePanel": "Drag to resize AI Assistant",
     "modeLabel": "AI Mode",
     "modeRag": "Q&A",
     "modeRagHint": "Answer questions based on indexed files",

@@ -5,9 +5,12 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/memodrive/backend/internal/config"
+	"github.com/memodrive/backend/internal/indexing"
 	"github.com/memodrive/backend/internal/model"
 	"github.com/memodrive/backend/internal/store"
 	"github.com/memodrive/backend/internal/vectordb"
@@ -112,6 +115,304 @@ func TestRenameMoveRejectsTargetConflict(t *testing.T) {
 	_, err := service.RenameMove(context.Background(), "src", "", "/B")
 	if !errors.Is(err, ErrPathConflict) {
 		t.Fatalf("expected ErrPathConflict, got %v", err)
+	}
+}
+
+func TestRenameMoveRejectsCaseInsensitiveTargetConflict(t *testing.T) {
+	service, db, root := newFileServiceTestHarness(t)
+	createServiceTestFile(t, db, root, &model.File{
+		ID:          "src",
+		Name:        "foo.txt",
+		Path:        "/A",
+		StoragePath: "A/foo.txt",
+		Size:        3,
+		MimeType:    "text/plain",
+		Status:      model.FileStatusReady,
+	}, "src")
+	createServiceTestFile(t, db, root, &model.File{
+		ID:          "dst",
+		Name:        "FOO.txt",
+		Path:        "/B",
+		StoragePath: "B/FOO.txt",
+		Size:        3,
+		MimeType:    "text/plain",
+		Status:      model.FileStatusReady,
+	}, "dst")
+
+	_, err := service.RenameMove(context.Background(), "src", "", "/B")
+	if !errors.Is(err, ErrPathConflict) {
+		t.Fatalf("expected ErrPathConflict, got %v", err)
+	}
+}
+
+func TestCreateFolderRejectsCaseInsensitiveTargetConflict(t *testing.T) {
+	service, db, root := newFileServiceTestHarness(t)
+	createServiceTestFile(t, db, root, &model.File{
+		ID:          "notes",
+		Name:        "Notes",
+		Path:        "/",
+		StoragePath: "Notes",
+		IsDir:       true,
+		Status:      model.FileStatusReady,
+	}, "")
+
+	_, err := service.CreateFolder(context.Background(), "/", "notes")
+	if !errors.Is(err, ErrPathConflict) {
+		t.Fatalf("expected ErrPathConflict, got %v", err)
+	}
+}
+
+func TestRegisterUploadedFileRejectsCaseInsensitiveTargetConflict(t *testing.T) {
+	service, db, root := newFileServiceTestHarness(t)
+	createServiceTestFile(t, db, root, &model.File{
+		ID:          "existing",
+		Name:        "Readme.md",
+		Path:        "/Notes",
+		StoragePath: "Notes/existing.md",
+		Size:        3,
+		MimeType:    "text/markdown",
+		Status:      model.FileStatusReady,
+	}, "old")
+
+	_, err := service.RegisterUploadedFile(context.Background(), "readme.md", "/Notes", "Notes/new.md", "text/markdown", 3, 1)
+	if !errors.Is(err, ErrPathConflict) {
+		t.Fatalf("expected ErrPathConflict, got %v", err)
+	}
+}
+
+func TestMarkdownContentReadsMarkdownFile(t *testing.T) {
+	service, db, root := newFileServiceTestHarness(t)
+	file := createServiceTestFile(t, db, root, &model.File{
+		ID:          "note",
+		Name:        "note.md",
+		Path:        "/",
+		StoragePath: "note.md",
+		Size:        8,
+		MimeType:    "text/markdown",
+		Status:      model.FileStatusReady,
+	}, "# Hello\n")
+
+	content, err := service.MarkdownContent(context.Background(), file.ID)
+	if err != nil {
+		t.Fatalf("MarkdownContent returned error: %v", err)
+	}
+	if content.Content != "# Hello\n" || content.File.ID != file.ID || content.UpdatedAt == "" {
+		t.Fatalf("unexpected markdown content response: %#v", content)
+	}
+}
+
+func TestMarkdownContentRejectsNonMarkdownFolderAndLargeFile(t *testing.T) {
+	service, db, root := newFileServiceTestHarness(t)
+	createServiceTestFile(t, db, root, &model.File{
+		ID:          "plain",
+		Name:        "plain.txt",
+		Path:        "/",
+		StoragePath: "plain.txt",
+		Size:        5,
+		MimeType:    "text/plain",
+		Status:      model.FileStatusReady,
+	}, "plain")
+	createServiceTestFile(t, db, root, &model.File{
+		ID:          "folder",
+		Name:        "Folder",
+		Path:        "/",
+		StoragePath: "Folder",
+		IsDir:       true,
+		Status:      model.FileStatusReady,
+	}, "")
+	createServiceTestFile(t, db, root, &model.File{
+		ID:          "large",
+		Name:        "large.md",
+		Path:        "/",
+		StoragePath: "large.md",
+		Size:        MarkdownContentMaxBytes + 1,
+		MimeType:    "text/markdown",
+		Status:      model.FileStatusReady,
+	}, "")
+
+	if _, err := service.MarkdownContent(context.Background(), "plain"); !errors.Is(err, ErrUnsupportedResource) {
+		t.Fatalf("expected non-markdown to return ErrUnsupportedResource, got %v", err)
+	}
+	if _, err := service.MarkdownContent(context.Background(), "folder"); !errors.Is(err, ErrUnsupportedResource) {
+		t.Fatalf("expected folder to return ErrUnsupportedResource, got %v", err)
+	}
+	if _, err := service.MarkdownContent(context.Background(), "large"); !errors.Is(err, ErrFileTooLarge) {
+		t.Fatalf("expected large markdown to return ErrFileTooLarge, got %v", err)
+	}
+	if _, err := service.MarkdownContent(context.Background(), "missing"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("expected missing markdown to return ErrNotFound, got %v", err)
+	}
+}
+
+func TestUpdateMarkdownContentDetectsConflictWithoutOverwriting(t *testing.T) {
+	service, db, root := newFileServiceTestHarness(t)
+	file := createServiceTestFile(t, db, root, &model.File{
+		ID:          "note",
+		Name:        "note.md",
+		Path:        "/",
+		StoragePath: "note.md",
+		Size:        4,
+		MimeType:    "text/markdown",
+		Status:      model.FileStatusReady,
+	}, "base")
+
+	_, err := service.UpdateMarkdownContent(context.Background(), file.ID, "new", time.Now().UTC().Format(time.RFC3339Nano))
+	if !errors.Is(err, ErrMarkdownConflict) {
+		t.Fatalf("expected ErrMarkdownConflict, got %v", err)
+	}
+	stored, err := os.ReadFile(filepath.Join(root, "note.md"))
+	if err != nil {
+		t.Fatalf("read stored markdown: %v", err)
+	}
+	if string(stored) != "base" {
+		t.Fatalf("expected conflict not to overwrite content, got %q", stored)
+	}
+}
+
+func TestUpdateMarkdownContentUpdatesFileAndCleansPreviousIndex(t *testing.T) {
+	service, db, root := newFileServiceTestHarness(t)
+	vectors := &recordingVectorStore{}
+	service.vectorDB = vectors
+	file := createServiceTestFile(t, db, root, &model.File{
+		ID:          "note",
+		Name:        "note.md",
+		Path:        "/",
+		StoragePath: "note.md",
+		Size:        4,
+		MimeType:    "text/markdown",
+		Status:      model.FileStatusReady,
+		ChunkCount:  2,
+	}, "base")
+	if err := db.UpsertChunks(context.Background(), []store.ChunkRow{
+		{ID: indexing.ChunkID(file.ID, 0), FileID: file.ID, FileName: file.Name, ChunkIndex: 0, Text: "old"},
+	}); err != nil {
+		t.Fatalf("upsert chunk: %v", err)
+	}
+	if err := db.UpsertMetadata(context.Background(), &model.FileMetadata{FileID: file.ID, MetaJSON: `{}`}); err != nil {
+		t.Fatalf("upsert metadata: %v", err)
+	}
+	baseContent, err := service.MarkdownContent(context.Background(), file.ID)
+	if err != nil {
+		t.Fatalf("read base markdown content: %v", err)
+	}
+
+	content, err := service.UpdateMarkdownContent(context.Background(), file.ID, "# New\n", baseContent.UpdatedAt)
+	if err != nil {
+		t.Fatalf("UpdateMarkdownContent returned error: %v", err)
+	}
+	if content.Content != "# New\n" || content.File.Size != int64(len("# New\n")) || content.File.MimeType != "text/markdown" || content.File.Status != model.FileStatusUploaded {
+		t.Fatalf("unexpected updated content response: %#v", content)
+	}
+	stored, err := os.ReadFile(filepath.Join(root, "note.md"))
+	if err != nil {
+		t.Fatalf("read stored markdown: %v", err)
+	}
+	if string(stored) != "# New\n" {
+		t.Fatalf("expected stored markdown to be updated, got %q", stored)
+	}
+	if _, err := db.GetChunkText(context.Background(), indexing.ChunkID(file.ID, 0)); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("expected old chunk to be removed, got %v", err)
+	}
+	if _, err := db.GetMetadata(context.Background(), file.ID); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("expected old metadata to be removed, got %v", err)
+	}
+	assertDeletedVectorIDs(t, vectors.deletedIDs, []string{indexing.ChunkID(file.ID, 0), indexing.ChunkID(file.ID, 1)})
+}
+
+func TestUpdateMarkdownContentRejectsOversizedContent(t *testing.T) {
+	service, db, root := newFileServiceTestHarness(t)
+	file := createServiceTestFile(t, db, root, &model.File{
+		ID:          "note",
+		Name:        "note.md",
+		Path:        "/",
+		StoragePath: "note.md",
+		Size:        4,
+		MimeType:    "text/markdown",
+		Status:      model.FileStatusReady,
+	}, "base")
+
+	baseContent, err := service.MarkdownContent(context.Background(), file.ID)
+	if err != nil {
+		t.Fatalf("read base markdown content: %v", err)
+	}
+	_, err = service.UpdateMarkdownContent(context.Background(), file.ID, strings.Repeat("x", MarkdownContentMaxBytes+1), baseContent.UpdatedAt)
+	if !errors.Is(err, ErrFileTooLarge) {
+		t.Fatalf("expected ErrFileTooLarge, got %v", err)
+	}
+}
+
+func TestUpdateMarkdownContentIgnoresPipelineStatusTimestampChanges(t *testing.T) {
+	service, db, root := newFileServiceTestHarness(t)
+	file := createServiceTestFile(t, db, root, &model.File{
+		ID:          "note",
+		Name:        "note.md",
+		Path:        "/",
+		StoragePath: "note.md",
+		Size:        4,
+		MimeType:    "text/markdown",
+		Status:      model.FileStatusUploaded,
+	}, "base")
+	baseContent, err := service.MarkdownContent(context.Background(), file.ID)
+	if err != nil {
+		t.Fatalf("read base markdown content: %v", err)
+	}
+	time.Sleep(time.Millisecond)
+	if err := db.UpdateFileStatus(context.Background(), file.ID, model.FileStatusReady); err != nil {
+		t.Fatalf("update file status: %v", err)
+	}
+
+	if _, err := service.UpdateMarkdownContent(context.Background(), file.ID, "changed", baseContent.UpdatedAt); err != nil {
+		t.Fatalf("UpdateMarkdownContent should ignore status-only updated_at changes: %v", err)
+	}
+}
+
+func TestCreateMarkdownFileCreatesBlankMarkdownAndAddsExtension(t *testing.T) {
+	service, db, root := newFileServiceTestHarness(t)
+	createServiceTestFile(t, db, root, &model.File{
+		ID:          "notes",
+		Name:        "Notes",
+		Path:        "/",
+		StoragePath: "Notes",
+		IsDir:       true,
+		Status:      model.FileStatusReady,
+	}, "")
+
+	file, err := service.CreateMarkdownFile(context.Background(), "/Notes", "Meeting")
+	if err != nil {
+		t.Fatalf("CreateMarkdownFile returned error: %v", err)
+	}
+	if file.Name != "Meeting.md" || file.Path != "/Notes" || file.MimeType != "text/markdown" || file.Size != 0 {
+		t.Fatalf("unexpected markdown file: %#v", file)
+	}
+	stored, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(file.StoragePath)))
+	if err != nil {
+		t.Fatalf("read stored markdown: %v", err)
+	}
+	if len(stored) != 0 {
+		t.Fatalf("expected blank markdown content, got %q", stored)
+	}
+}
+
+func TestCreateMarkdownFileRejectsInvalidInputs(t *testing.T) {
+	service, db, root := newFileServiceTestHarness(t)
+	createServiceTestFile(t, db, root, &model.File{
+		ID:          "existing",
+		Name:        "Readme.md",
+		Path:        "/",
+		StoragePath: "existing.md",
+		Size:        0,
+		MimeType:    "text/markdown",
+		Status:      model.FileStatusReady,
+	}, "")
+
+	if _, err := service.CreateMarkdownFile(context.Background(), "/", " "); err == nil {
+		t.Fatal("expected blank markdown name to be rejected")
+	}
+	if _, err := service.CreateMarkdownFile(context.Background(), "/", "readme"); !errors.Is(err, ErrPathConflict) {
+		t.Fatalf("expected path conflict, got %v", err)
+	}
+	if _, err := service.CreateMarkdownFile(context.Background(), "/Missing", "note"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("expected missing parent to be rejected, got %v", err)
 	}
 }
 

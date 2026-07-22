@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import styles from "./Popover.module.css";
 
 type Placement =
@@ -159,6 +160,30 @@ export function Popover({
   const arrowCls =
     actualSide === "top" ? styles.arrowTop : styles.arrowBottom;
 
+  const popoverNode = (
+    <div
+      ref={popoverRef}
+      className={`${styles.popover} ${styles.enter} ${className}`}
+      style={{ top: pos.top, left: pos.left }}
+      role="menu"
+      onClick={() => setOpenVal(false)}
+      onMouseEnter={
+        trigger === "hover" ? () => {} : undefined
+      }
+      onMouseLeave={
+        trigger === "hover"
+          ? () => setOpenVal(false)
+          : undefined
+      }
+    >
+      <span
+        className={`${styles.arrow} ${arrowCls}`}
+        style={{ left: pos.arrowLeft }}
+      />
+      {content}
+    </div>
+  );
+
   // Trigger events
   const triggerHandlers: Record<string, unknown> = {};
   if (trigger === "click") {
@@ -175,30 +200,9 @@ export function Popover({
         {children}
       </span>
 
-      {/* Popover content — sibling, not child */}
-      {open && (
-        <div
-          ref={popoverRef}
-          className={`${styles.popover} ${styles.enter} ${className}`}
-          style={{ top: pos.top, left: pos.left }}
-          role="menu"
-          onClick={() => setOpenVal(false)}
-          onMouseEnter={
-            trigger === "hover" ? () => {} : undefined
-          }
-          onMouseLeave={
-            trigger === "hover"
-              ? () => setOpenVal(false)
-              : undefined
-          }
-        >
-          <span
-            className={`${styles.arrow} ${arrowCls}`}
-            style={{ left: pos.arrowLeft }}
-          />
-          {content}
-        </div>
-      )}
+      {open && typeof document !== "undefined"
+        ? createPortal(popoverNode, document.body)
+        : null}
     </>
   );
 }

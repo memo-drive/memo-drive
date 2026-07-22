@@ -19,3 +19,6 @@ docs/
 .codex/
 .cursor/
 .claude/
+.github/
+.antigravitycli/
+.agents/

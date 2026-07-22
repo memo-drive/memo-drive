@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { UploadSession } from "../types";
 import {
+  preparingTransferTaskFromFile,
   isActiveTransferStatus,
+  isLocalTransferTaskID,
   transferTaskFromSession,
   transferStatusFromSession,
   transferStatusLabelKey,
@@ -65,6 +67,32 @@ describe("transferProjection", () => {
     });
 
     expect(transferTaskFromSession(makeSession("merging")).percent).toBe(95);
+  });
+
+  it("builds a visible preparing task before an Upload Session exists", () => {
+    const file = new File(["photo"], "IMG_8196.jpeg", { type: "image/jpeg" });
+
+    const task = preparingTransferTaskFromFile(file, "/Camera", 12345);
+
+    expect(task).toMatchObject({
+      id: "local-upload:12345:IMG_8196.jpeg:5",
+      fileName: "IMG_8196.jpeg",
+      fileSize: 5,
+      destPath: "/Camera",
+      direction: "upload",
+      status: "preparing",
+      percent: 0,
+      uploadedBytes: 0,
+      uploadedChunks: [],
+      totalChunks: 1,
+      speed: 0,
+      createdAt: 12345,
+      updatedAt: 12345,
+      file,
+    });
+    expect(isActiveTransferStatus(task.status)).toBe(true);
+    expect(transferStatusLabelKey(task.status)).toBe("transfer.status.preparing");
+    expect(isLocalTransferTaskID(task.id)).toBe(true);
   });
 });
 

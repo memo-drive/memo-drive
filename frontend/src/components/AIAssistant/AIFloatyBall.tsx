@@ -2,9 +2,26 @@ import { useEffect, useRef, useState, type PointerEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { useAIChat } from "../../hooks/useAIChat";
 import { AssistantPane } from "./AssistantPane";
+import {
+  FLOATING_PANEL_MIN_HEIGHT,
+  FLOATING_PANEL_MIN_WIDTH,
+  resizeFloatingPanelFrame,
+  type FloatingPanelFrame,
+  type FloatingPanelResizeEdge,
+} from "./floatingPanelResize";
 import styles from "./AIFloatyBall.module.css";
 
 const DRAG_THRESHOLD = 5;
+const RESIZE_HANDLES: { edge: FloatingPanelResizeEdge; className: string }[] = [
+  { edge: "top", className: styles.resizeTop },
+  { edge: "right", className: styles.resizeRight },
+  { edge: "bottom", className: styles.resizeBottom },
+  { edge: "left", className: styles.resizeLeft },
+  { edge: "top-left", className: styles.resizeTopLeft },
+  { edge: "top-right", className: styles.resizeTopRight },
+  { edge: "bottom-right", className: styles.resizeBottomRight },
+  { edge: "bottom-left", className: styles.resizeBottomLeft },
+];
 
 export function AIFloatyBall() {
   const { t } = useTranslation();
@@ -15,37 +32,54 @@ export function AIFloatyBall() {
     x: window.innerWidth - 80,
     y: window.innerHeight - 200,
   }));
-  const [panelPos, setPanelPos] = useState(() => ({
-    x: Math.max(window.innerWidth - 440, 20),
+  const [panelFrame, setPanelFrame] = useState<FloatingPanelFrame>(() => ({
+    x: Math.max(window.innerWidth - FLOATING_PANEL_MIN_WIDTH - 40, 20),
     y: 200,
+    width: FLOATING_PANEL_MIN_WIDTH,
+    height: FLOATING_PANEL_MIN_HEIGHT,
   }));
 
   const dragging = useRef(false);
   const dragStart = useRef({ x: 0, y: 0 });
-  const dragTarget = useRef<"ball" | "panel">("ball");
+  const resizeStart = useRef({ x: 0, y: 0 });
+  const resizeStartFrame = useRef<FloatingPanelFrame>(panelFrame);
+  const dragTarget = useRef<"ball" | "panel" | "resize">("ball");
+  const resizeEdge = useRef<FloatingPanelResizeEdge>("right");
   const moved = useRef(false);
   const posRef = useRef(pos);
-  const panelPosRef = useRef(panelPos);
+  const panelFrameRef = useRef(panelFrame);
   posRef.current = pos;
-  panelPosRef.current = panelPos;
+  panelFrameRef.current = panelFrame;
 
   function openPanel() {
     const ball = posRef.current;
-    const pw = 400;
-    const ph = 600;
+    const pw = panelFrameRef.current.width;
+    const ph = panelFrameRef.current.height;
     let px = ball.x - pw / 2 + 28;
     let py = ball.y - ph - 16;
     px = Math.max(12, Math.min(px, window.innerWidth - pw - 12));
     py = Math.max(12, Math.min(py, window.innerHeight - ph - 12));
-    setPanelPos({ x: px, y: py });
+    setPanelFrame((frame) => ({ ...frame, x: px, y: py }));
     setExpanded(true);
   }
 
-  function onPointerDown(event: PointerEvent, target: "ball" | "panel") {
+  function onPointerDown(
+    event: PointerEvent,
+    target: "ball" | "panel" | "resize",
+    edge?: FloatingPanelResizeEdge,
+  ) {
     event.stopPropagation();
+    if (target === "resize") {
+      event.preventDefault();
+    }
     (event.target as HTMLElement).setPointerCapture?.(event.pointerId);
     dragging.current = true;
     dragTarget.current = target;
+    if (edge) {
+      resizeEdge.current = edge;
+      resizeStart.current = { x: event.clientX, y: event.clientY };
+      resizeStartFrame.current = panelFrameRef.current;
+    }
     moved.current = false;
     dragStart.current = { x: event.clientX, y: event.clientY };
   }
@@ -65,14 +99,32 @@ export function AIFloatyBall() {
         x: Math.max(0, Math.min(cur.x + dx, window.innerWidth - 56)),
         y: Math.max(0, Math.min(cur.y + dy, window.innerHeight - 56)),
       });
-    } else {
-      const cur = panelPosRef.current;
-      setPanelPos({
-        x: Math.max(0, Math.min(cur.x + dx, window.innerWidth - 400)),
+      dragStart.current = { x: event.clientX, y: event.clientY };
+    } else if (dragTarget.current === "panel") {
+      const cur = panelFrameRef.current;
+      setPanelFrame({
+        ...cur,
+        x: Math.max(0, Math.min(cur.x + dx, window.innerWidth - cur.width)),
         y: Math.max(0, Math.min(cur.y + dy, window.innerHeight - 60)),
       });
+      dragStart.current = { x: event.clientX, y: event.clientY };
+    } else {
+      const start = resizeStart.current;
+      setPanelFrame(
+        resizeFloatingPanelFrame({
+          edge: resizeEdge.current,
+          startFrame: resizeStartFrame.current,
+          dragDelta: {
+            x: event.clientX - start.x,
+            y: event.clientY - start.y,
+          },
+          viewport: {
+            width: window.innerWidth,
+            height: window.innerHeight,
+          },
+        }),
+      );
     }
-    dragStart.current = { x: event.clientX, y: event.clientY };
   }
 
   function onPointerUp() {
@@ -112,7 +164,12 @@ export function AIFloatyBall() {
       {expanded && (
         <div
           className={styles.panel}
-          style={{ top: panelPos.y, left: panelPos.x }}
+          style={{
+            top: panelFrame.y,
+            left: panelFrame.x,
+            width: panelFrame.width,
+            height: panelFrame.height,
+          }}
         >
           <AssistantPane
             floating
@@ -124,6 +181,19 @@ export function AIFloatyBall() {
               onPointerUp,
             }}
           />
+          {RESIZE_HANDLES.map((handle) => (
+            <span
+              key={handle.edge}
+              className={`${styles.resizeHandle} ${handle.className}`}
+              onPointerDown={(event) =>
+                onPointerDown(event, "resize", handle.edge)
+              }
+              onPointerMove={onPointerMove}
+              onPointerUp={onPointerUp}
+              aria-label={t("ai.resizePanel")}
+              role="separator"
+            />
+          ))}
         </div>
       )}
     </>

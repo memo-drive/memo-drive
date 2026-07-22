@@ -18,9 +18,13 @@ MemoDrive 是一个私有的、单用户的智能云盘。通过结合个人网�
 - 文档解析与智能切片：支持 PDF、DOCX、Markdown、纯文本解析，并按章节/段落进行滑动窗口切片。
 - 大模型基础能力：支持 OpenAI 兼容接口与 Ollama Provider，并可根据 `OPENAI_API_KEY` 自动降级。
 - 向量库基础能力：支持 ChromaDB collection 管理、向量入库、检索与删除。
-- 现代化前端界面：基于 React 开发，桌面 Web 与移动 H5 拆成两套独立页面和样式，共享 API 客户端、hooks、stores、types、上传逻辑、AI 流式和预览渲染能力。
+- 现代化前端界面：基于 React 开发，桌面 Web 与移动 H5 拆成两套独立页面和样式，共享 API 客户端、hooks、stores、types、上传逻辑、AI 流式、虚拟化渲染 helper 和预览渲染能力。
 - 桌面 Web 路由：包含 Drive、智能搜索、传输、回收站和设置页。
-- 移动 H5 入口：`/m/*` 下提供移动文件页、全屏 AI、传输、我的、回收站、全屏预览、底部导航、URL 化文件夹路径、右下角上传 FAB、移动端轻提示输入/确认，以及默认关闭的可选语义搜索。
+- 移动 H5 首页：`/m` 提供顶部搜索、传输入口、照片/视频/文档/音频大分类快捷入口、最近查看 File 和根目录上传。
+- 移动文件页：`/m/files` 支持 URL 化文件夹路径、当前文件夹搜索、右下角上传 FAB、移动端轻提示输入/确认、单 File/Folder 移动、长按多选、批量移动和批量软删除。
+- 移动媒体分类页：`/m/category/*` 支持分类内搜索、照片时光轴/列表、视频时长筛选、文档子类型筛选、音频排序、cursor 分页、缩略图懒加载和虚拟列表/网格。
+- 移动媒体专用预览：`/m/media/*` 为照片、视频、音频提供同类全盘队列、左右滑动切换、更多菜单中的元信息/操作；文档和其它 File 继续使用 `/m/preview/:fileId`。
+- 大列表性能优化：后端 cursor 分页、缩略图懒加载、移动端列表/网格虚拟化，以及桌面 FileList 虚拟化。
 - 智能搜索独立页：3 栏布局、常驻 AI 助手、历史会话抽屉，支持流式问答与语义检索切换。
 - AI 会话持久化：自动落库 `conversations` / `messages`，支持历史会话列表、切换、重命名与删除。
 - RAG 检索质量增强：多轮 query 改写、heading-aware 索引、动态分数过滤、多 query 扩展、关键词/向量混合检索与父子 chunk。
@@ -48,7 +52,7 @@ flowchart TB
         Router["BrowserRouter + AuthGuard\n登录 redirect 回跳\n手机根路径兜底"]
         Shared["前端共享核心\napi、hooks、stores、types、utils"]
         DesktopUI["桌面 Web\n/、/smart-search、/transfer、/trash、/settings"]
-        MobileUI["移动 H5\n/m、/m/ai、/m/transfer、/m/me、/m/trash、/m/preview/:id"]
+        MobileUI["移动 H5\n/m 首页、/m/files、/m/category/*\n/m/media/*、/m/preview/:id"]
     end
 
     subgraph Backend ["后端 (Go Fiber)"]
@@ -141,7 +145,7 @@ flowchart TB
 - **Smart Search and RAG**：意图解析、File 过滤、多 query 扩展、关键词/向量混合检索、父子 Chunk 还原、分数过滤和 RAG 证据组装拆成聚焦的内部模块，对调用方仍保持简洁的 Search / RAG 接口。
 - **Trash Lifecycle**：软删除、恢复、永久删除、子项处理、Chunk 清理、Vector Index 清理、物理存储清理，以及 Janitor Sweep 的过期 Trash Entry 清理，都集中在一个生命周期实现中。
 - **Drive Workflow**：Drive 页面中的路径、搜索、选择、重命名、删除、移动、创建 Folder、上传、预览和文件展示规则已拆成有测试的 workflow helper，页面负责组合 UI 和副作用。
-- **Mobile H5 Surface**：移动端路由集中在 `frontend/src/mobile`，用独立页面和 CSS 处理手机端体验。它复用桌面端稳定业务逻辑，但导航、布局、轻提示、AI 工作台、上传入口和预览外壳都按移动端单独设计。
+- **Mobile H5 Surface**：移动端路由集中在 `frontend/src/mobile`，用独立页面和 CSS 处理手机端体验。它复用桌面端稳定业务逻辑，但首页、文件页、分类页、媒体预览、多选批量操作、导航、布局、轻提示、AI 工作台和上传入口都按移动端单独设计。
 - **Production Edge Routing**：`edge` nginx 负责 TLS 终止、`/api/*` 直连后端、SPA 路由转发到前端，并在手机 User-Agent 访问裸 `/` 时用临时 `302` 跳转到 `/m`。
 
 ### 架构词汇
@@ -175,7 +179,7 @@ flowchart TB
 | 入口 | 路由 | 说明 |
 |------|------|------|
 | 桌面 Web | `/`、`/smart-search`、`/transfer`、`/trash`、`/settings` | 重生产力入口，保留桌面布局、表格/列表控制、常驻 AI 助手和设置页。 |
-| 移动 H5 | `/m`、`/m/ai`、`/m/transfer`、`/m/me`、`/m/trash`、`/m/preview/:fileId` | 手机优先入口，包含底部导航、全屏 AI/预览、固定上传 FAB、移动端轻提示，以及 URL 化文件夹路径。 |
+| 移动 H5 | `/m`、`/m/files`、`/m/category/photos`、`/m/category/videos`、`/m/category/documents`、`/m/category/audio`、`/m/media/:category/:fileId`、`/m/preview/:fileId`、`/m/ai`、`/m/transfer`、`/m/me`、`/m/trash` | 手机优先入口，包含首页、五项底部导航、分类内搜索、虚拟化媒体/文件列表、全屏 AI/预览、固定上传 FAB、移动端轻提示、URL 化文件夹路径和批量管理。 |
 | 鉴权 | `/login` | `AuthGuard` 会把未登录用户带到 `/login?redirect=...`，登录成功后回到原始桌面或移动目标。 |
 | API | `/api/*` | 生产环境 edge nginx 将 API 流量直接转发到 `backend:8080`；前端开发服务器把 `/api` 代理到本地后端。 |
 
@@ -223,6 +227,7 @@ MemoDrive/
 │
 ├── docker-compose.yml        # Docker Compose 核心服务编排文件
 ├── docker-compose.prod.yml   # Docker Compose 生产环境配置覆写
+├── docker-compose.tailnet.yml # 可选的 Tailscale Tailnet 前端入口覆写
 ├── deploy/nginx/tls.conf     # Edge nginx TLS、API 路由、SPA 转发、移动根路径跳转
 ├── .env.example              # 环境变量配置模板文件
 ├── start.sh                  # macOS/Linux 一键启动脚本
@@ -282,21 +287,125 @@ make docker-up
 
 > **安全提示：** 若 `JWT_SECRET` 仍为默认值或 `ADMIN_PASSWORD` 为空，后端启动时会输出警告日志，可用 `docker compose logs backend` 查看。
 
+## WebDAV 访问
+
+WebDAV 是可选入口，默认关闭。需要显式开启：
+
+```env
+WEBDAV_ENABLED=true
+ADMIN_PASSWORD=your-strong-password
+```
+
+WebDAV 入口固定为 `/dav`。本地 Docker 或开发环境建议直接连接后端：
+
+```text
+http://localhost:8080/dav
+```
+
+生产环境使用 edge nginx 时，使用同一个 HTTPS 域名：
+
+```text
+https://drive.example.com/dav
+```
+
+WebDAV 使用 Basic Auth，用户名固定为 `admin`，密码复用 `ADMIN_PASSWORD`。如果 `ADMIN_PASSWORD` 为空，WebDAV 会和 MemoDrive 其它入口一样免鉴权；生产环境不建议这样做。
+
+支持的方法为：
+
+```text
+OPTIONS, PROPFIND, GET, HEAD, PUT, MKCOL, MOVE, COPY, DELETE
+```
+
+反向代理需要允许大请求体，把请求体流式转发到后端，把 `/dav` 路由到 `backend:8080`，并保留这些头：
+
+```text
+Destination, Depth, Overwrite, If, If-Match, If-None-Match, Authorization
+```
+
+仓库内置的生产 nginx 配置已包含 `/dav` 路由。如果使用其它反向代理，也要转发 `Host` 和 `X-Forwarded-Proto`；由于 Basic Auth 会随每个 WebDAV 请求发送，生产环境强烈建议只通过 HTTPS 暴露。
+
+### curl 冒烟
+
+先设置：
+
+```bash
+export MEMODRIVE_URL=http://localhost:8080
+export MEMODRIVE_PASSWORD=your-strong-password
+```
+
+运行内置冒烟脚本：
+
+```bash
+./deploy/scripts/webdav_smoke.sh
+```
+
+也可以手动执行等价 curl：
+
+```bash
+curl -X PROPFIND -u admin:${MEMODRIVE_PASSWORD} \
+  "${MEMODRIVE_URL}/dav/" \
+  -H "Depth: 0" \
+  -H "Content-Type: application/xml" \
+  --data-binary '<?xml version="1.0"?><D:propfind xmlns:D="DAV:"><D:prop><D:displayname/><D:resourcetype/><D:quota-used-bytes/></D:prop></D:propfind>'
+
+printf 'hello webdav\n' > /tmp/memodrive-webdav.txt
+curl -T /tmp/memodrive-webdav.txt -u admin:${MEMODRIVE_PASSWORD} \
+  "${MEMODRIVE_URL}/dav/memodrive-webdav.txt"
+
+curl -u admin:${MEMODRIVE_PASSWORD} \
+  "${MEMODRIVE_URL}/dav/memodrive-webdav.txt"
+
+curl -X MOVE -u admin:${MEMODRIVE_PASSWORD} \
+  "${MEMODRIVE_URL}/dav/memodrive-webdav.txt" \
+  -H "Destination: ${MEMODRIVE_URL}/dav/memodrive-webdav-moved.txt"
+
+curl -X COPY -u admin:${MEMODRIVE_PASSWORD} \
+  "${MEMODRIVE_URL}/dav/memodrive-webdav-moved.txt" \
+  -H "Destination: ${MEMODRIVE_URL}/dav/memodrive-webdav-copy.txt"
+
+curl -X DELETE -u admin:${MEMODRIVE_PASSWORD} \
+  "${MEMODRIVE_URL}/dav/memodrive-webdav-copy.txt"
+```
+
+WebDAV 上传后的 File 应能在 App 文件列表中看到，并像普通上传一样进入 File Indexing Pipeline。通过 WebDAV `DELETE` 删除后，File 会从 WebDAV 视图消失，并作为 Trash Entry 出现在 App 回收站中。
+
+### rclone 冒烟
+
+创建本地 WebDAV remote：
+
+```bash
+rclone config create memodrive webdav \
+  url "${MEMODRIVE_URL}/dav" \
+  vendor other \
+  user admin \
+  pass "$(rclone obscure "${MEMODRIVE_PASSWORD}")"
+```
+
+再验证核心操作：
+
+```bash
+rclone ls memodrive:
+rclone copy /tmp/memodrive-webdav.txt memodrive:
+rclone cat memodrive:memodrive-webdav.txt
+rclone moveto memodrive:memodrive-webdav.txt memodrive:memodrive-webdav-rclone-moved.txt
+rclone deletefile memodrive:memodrive-webdav-rclone-moved.txt
+```
+
 ## 生产环境 HTTPS（反向代理终止 TLS）
 
-生产环境建议使用 compose 覆盖配置，所有外部流量通过 `edge` nginx 以 HTTPS 入口访问：
+生产环境建议使用 compose 覆盖配置，让公网流量通过 `edge` nginx 以 HTTPS 入口访问：
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
 ```
 
-生产 compose 覆盖的作用：
-- 移除 `backend`、`chroma`、`ollama` 的宿主机端口绑定（仅内网通信）
+生产部署的边界设计：
 - 新增 `edge` nginx 容器，在 `80`/`443` 上终止 TLS
 - `/api/` 请求直接代理到 `backend:8080`（单跳，支持 SSE 流式响应）
 - 其余请求代理到 `frontend:80`
 - 手机 User-Agent 访问裸根路径 `/` 时，以 `302` 临时跳转到 `/m`；平板 User-Agent 和所有深链不受影响
 - 移动端登录通过 `/login?redirect=...` 保持闭环，即使首次 `/` 请求直接到达前端，未登录手机用户登录后也会回到 `/m`
+- 云服务器防火墙/安全组应只向公网开放 `80/tcp` 与 `443/tcp`；不要向公网开放 `3000/tcp`、`8080/tcp`、`8000/tcp`、`11434/tcp`。
 
 **部署检查清单：**
 
@@ -334,11 +443,49 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
 
    | 服务 | 开发环境 | 生产环境 |
    |------|---------|---------|
-   | Frontend | `3000`（宿主机） | 仅内网 |
-   | Backend | `8080`（宿主机） | 仅内网 |
-   | Chroma | `8000`（宿主机） | 仅内网 |
-   | Ollama | `11434`（宿主机） | 仅内网 |
-   | Edge nginx | — | `80`、`443`（宿主机） |
+   | Frontend | `3000`（宿主机） | 通过 edge 访问，不应直接对公网开放 |
+   | Backend | `8080`（宿主机） | 应用内部服务，阻断公网入站 |
+   | Chroma | `8000`（宿主机） | 应用内部服务，阻断公网入站 |
+   | Ollama | `11434`（宿主机） | 应用内部服务，阻断公网入站 |
+   | Edge nginx | — | 公网 `80`、`443` |
+
+### Tailscale Tailnet 私网加速入口
+
+当云服务器和手机都已加入同一个 Tailnet 时，可以新增一个私有高速入口，不替代原有公网 HTTPS 域名：
+
+```bash
+make docker-tailnet-build
+```
+
+Tailnet 覆写会把 frontend 的宿主机端口替换成仅本机回环可访问的 Tailscale Serve upstream：
+
+```bash
+sudo tailscale set --hostname=memodrive
+tailscale serve --bg --https=443 http://127.0.0.1:${TAILSCALE_FRONTEND_PORT:-3000}
+```
+
+然后在手机端打开移动入口：
+
+```text
+https://memodrive.<your-tailnet>.ts.net/m
+```
+
+推荐的 Tailnet 边界：
+
+- 开启 Tailscale MagicDNS 和 HTTPS Certificates。
+- 使用 `tailscale serve`，不要使用 `tailscale funnel`；Tailnet 入口应保持私有。
+- 在 Tailscale Admin Console 中把 `memodrive` 服务限制为仅你的个人设备可访问。
+- 保留 MemoDrive 自己的密码/JWT 登录。公网域名和 Tailnet 域名的浏览器存储相互隔离，因此两边各登录一次是正常现象。
+- 云服务器防火墙/安全组向公网开放 `80/tcp`、`443/tcp`，并放行 Tailscale `41641/udp`；阻断公网 `3000/tcp`、`8080/tcp`、`8000/tcp`、`11434/tcp`。
+
+大文件传输慢或失败时，先确认手机打开的是 `https://memodrive.<your-tailnet>.ts.net/m`，再检查 Tailscale 是否直连：
+
+```bash
+tailscale status
+tailscale ping <phone-device-name>
+```
+
+如果连接回落到 DERP 中继，优先检查云服务器防火墙/安全组是否放行 `41641/udp`，再考虑调整 MemoDrive 的 `UPLOAD_CHUNK_SIZE` 等上传参数。
 
 ## 本地开发
 
@@ -440,10 +587,14 @@ cd frontend && pnpm build
     - `[✓]` **14-D** 前端适配：搜索结果展示解析出的筛选条件 Chips，`SearchResponse` 增加 `intent` 字段
 - `[✓]` **优先级 15: 移动 H5 入口**
     - `[✓]` 在 `frontend/src/mobile` 下新增独立 `/m/*` 路由，桌面路由保持不变
-    - `[✓]` 实现移动文件、AI、传输、我的、回收站、全屏预览页面，并补充移动端 CSS 与布局契约测试
-    - `[✓]` 实现文件页上传 FAB、URL 化文件夹路径、移动文件卡片、当前目录搜索、可选语义搜索、轻提示确认/输入以及单文件操作
+    - `[✓]` 将 `/m` 拆为真正的移动首页，文件夹浏览迁移到 `/m/files`，底部导航调整为五项
+    - `[✓]` 实现首页搜索、传输快捷入口、媒体大分类入口、最近查看 File 和根目录上传
+    - `[✓]` 实现移动文件页上传 FAB、URL 化文件夹路径、移动文件卡片、当前目录搜索、轻提示确认/输入、单 File/Folder 移动、长按多选、批量移动和批量软删除
+    - `[✓]` 新增照片/视频/文档/音频分类路由，支持分类内搜索、筛选/排序、cursor 分页、缩略图懒加载和虚拟列表/网格渲染
+    - `[✓]` 新增照片/视频/音频专用媒体预览，支持同类全盘队列、左右滑动切换、更多菜单元信息/操作；文档预览继续走 `/m/preview/:fileId`
     - `[✓]` 实现全屏移动 AI：底部输入框固定、内容区滚动、RAG/Search 模式切换与停止流式输出
     - `[✓]` 移动传输、我的、回收站接入共享上传会话、存储、语言、退出登录与回收站 API
+    - `[✓]` 桌面 FileList 和移动端大列表完成虚拟化，控制大量数据下的 DOM 节点数量
     - `[✓]` 生产环境 edge nginx 增加手机访问 `/` 自动进入 `/m`，并完善 Login/AuthGuard 的 redirect 回跳闭环
 
 ## 许可证

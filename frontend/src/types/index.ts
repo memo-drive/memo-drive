@@ -11,11 +11,22 @@ export interface DriveFile {
   chunk_count: number;
   created_at: string;
   updated_at: string;
+  last_viewed_at?: string;
   deleted_at?: string;
   original_path?: string;
   original_name?: string;
   trash_root_id?: string;
   metadata?: FileMetadata;
+}
+
+export interface MarkdownContentResponse {
+  file: DriveFile;
+  content: string;
+  updated_at: string;
+}
+
+export interface CreateMarkdownResponse {
+  file: DriveFile;
 }
 
 export interface StorageUsage {
@@ -159,6 +170,64 @@ export interface FileSearchResponse {
   hits: FileSearchHit[];
   semantic: boolean;
   intent?: SearchIntent;
+}
+
+export type FileQueryCategory = "photos" | "videos" | "documents" | "audio" | "all";
+
+export type FileQueryDocumentSubtype =
+  | "all"
+  | "pdf"
+  | "text"
+  | "spreadsheet"
+  | "presentation"
+  | "txt"
+  | "other";
+
+export type FileQueryMediaFilter =
+  | "all"
+  | "lt_1m"
+  | "1_10m"
+  | "gt_10m";
+
+export interface FileQueryRequest {
+  category?: FileQueryCategory | string;
+  query?: string;
+  sort?: string;
+  cursor?: string;
+  limit?: number;
+  media_filter?: FileQueryMediaFilter | string;
+  document_subtype?: FileQueryDocumentSubtype | string;
+}
+
+export interface FileQueryResponse {
+  items: DriveFile[];
+  next_cursor: string;
+  has_more: boolean;
+}
+
+export interface PhotoTimelineRequest {
+  year: number;
+  month: number;
+  query?: string;
+  sort?: string;
+  cursor?: string;
+  limit?: number;
+}
+
+export interface PhotoMonthIndexItem {
+  year: number;
+  month: number;
+  count: number;
+}
+
+export interface PhotoMonthIndexResponse {
+  months: PhotoMonthIndexItem[];
+}
+
+export interface BatchFileResult {
+  total: number;
+  succeeded: number;
+  failed: number;
 }
 
 export type AISseEvent =

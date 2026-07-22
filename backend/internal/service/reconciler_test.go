@@ -1,9 +1,12 @@
 package service
 
 import (
+	"bytes"
 	"context"
+	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -55,6 +58,31 @@ func TestReconcilerPeriodicSweepFailsStuckTasks(t *testing.T) {
 	}
 	if updatedFile.Status != model.FileStatusFailed {
 		t.Fatalf("expected failed file, got %q", updatedFile.Status)
+	}
+}
+
+func TestReconcilerPeriodicSweepCleansWebDAVTemp(t *testing.T) {
+	cfg, db := newReconcilerTestStore(t)
+	cfg.Storage.UploadTTL = time.Hour
+	reconciler := NewReconciler(cfg, db, nil, NewFileService(cfg, db, nil))
+	webDAVTempDir := filepath.Join(cfg.Storage.TempDir, "webdav")
+	if err := os.MkdirAll(webDAVTempDir, 0o755); err != nil {
+		t.Fatalf("create webdav temp dir: %v", err)
+	}
+	expired := filepath.Join(webDAVTempDir, "expired.upload")
+	if err := writeSmallFile(expired); err != nil {
+		t.Fatalf("write temp file: %v", err)
+	}
+	old := time.Now().Add(-2 * time.Hour)
+	if err := os.Chtimes(expired, old, old); err != nil {
+		t.Fatalf("age temp file: %v", err)
+	}
+
+	if err := reconciler.PeriodicSweep(context.Background()); err != nil {
+		t.Fatalf("PeriodicSweep returned error: %v", err)
+	}
+	if exists(expired) {
+		t.Fatal("expected periodic sweep to remove expired WebDAV temp file")
 	}
 }
 
@@ -120,6 +148,110 @@ func TestReconcilerSweepThumbnailsRemovesOrphans(t *testing.T) {
 	}
 	if exists(orphan) {
 		t.Fatal("expected orphan thumbnail to be removed")
+	}
+}
+
+func TestReconcilerSweepWebDAVTempRemovesExpiredFiles(t *testing.T) {
+	cfg, db := newReconcilerTestStore(t)
+	cfg.Storage.UploadTTL = time.Hour
+	reconciler := NewReconciler(cfg, db, nil, NewFileService(cfg, db, nil))
+	webDAVTempDir := filepath.Join(cfg.Storage.TempDir, "webdav")
+	if err := os.MkdirAll(webDAVTempDir, 0o755); err != nil {
+		t.Fatalf("create webdav temp dir: %v", err)
+	}
+	expired := filepath.Join(webDAVTempDir, "expired.upload")
+	if err := writeSmallFile(expired); err != nil {
+		t.Fatalf("write temp file: %v", err)
+	}
+	old := time.Now().Add(-2 * time.Hour)
+	if err := os.Chtimes(expired, old, old); err != nil {
+		t.Fatalf("age temp file: %v", err)
+	}
+
+	removed, err := reconciler.SweepWebDAVTemp(context.Background())
+	if err != nil {
+		t.Fatalf("SweepWebDAVTemp returned error: %v", err)
+	}
+	if removed != 1 {
+		t.Fatalf("expected one expired WebDAV temp file removed, got %d", removed)
+	}
+	if exists(expired) {
+		t.Fatal("expected expired WebDAV temp file to be removed")
+	}
+}
+
+func TestReconcilerSweepWebDAVTempKeepsUnexpiredFiles(t *testing.T) {
+	cfg, db := newReconcilerTestStore(t)
+	cfg.Storage.UploadTTL = time.Hour
+	reconciler := NewReconciler(cfg, db, nil, NewFileService(cfg, db, nil))
+	webDAVTempDir := filepath.Join(cfg.Storage.TempDir, "webdav")
+	if err := os.MkdirAll(webDAVTempDir, 0o755); err != nil {
+		t.Fatalf("create webdav temp dir: %v", err)
+	}
+	active := filepath.Join(webDAVTempDir, "active.upload")
+	if err := writeSmallFile(active); err != nil {
+		t.Fatalf("write temp file: %v", err)
+	}
+	recent := time.Now().Add(-5 * time.Minute)
+	if err := os.Chtimes(active, recent, recent); err != nil {
+		t.Fatalf("age temp file: %v", err)
+	}
+
+	removed, err := reconciler.SweepWebDAVTemp(context.Background())
+	if err != nil {
+		t.Fatalf("SweepWebDAVTemp returned error: %v", err)
+	}
+	if removed != 0 {
+		t.Fatalf("expected no active WebDAV temp files removed, got %d", removed)
+	}
+	if !exists(active) {
+		t.Fatal("expected active WebDAV temp file to remain")
+	}
+}
+
+func TestReconcilerPeriodicSweepLogsWebDAVTempFailureAndContinues(t *testing.T) {
+	cfg, db := newReconcilerTestStore(t)
+	cfg.Storage.UploadTTL = time.Hour
+	cfg.Trash.RetentionDays = 0
+	files := NewFileService(cfg, db, nil)
+	reconciler := NewReconciler(cfg, db, nil, files)
+	brokenWebDAVTemp := filepath.Join(cfg.Storage.TempDir, "webdav")
+	if err := writeSmallFile(brokenWebDAVTemp); err != nil {
+		t.Fatalf("write broken webdav temp path: %v", err)
+	}
+	file := &model.File{
+		ID:          "trash-after-webdav-temp-failure",
+		Name:        "expired.txt",
+		Path:        "/",
+		StoragePath: "expired.txt",
+		MimeType:    "text/plain",
+		Status:      model.FileStatusReady,
+	}
+	if err := writeSmallFile(filepath.Join(cfg.Storage.Root, file.StoragePath)); err != nil {
+		t.Fatalf("write storage file: %v", err)
+	}
+	if err := db.CreateFile(context.Background(), file); err != nil {
+		t.Fatalf("create file: %v", err)
+	}
+	if err := files.SoftDelete(context.Background(), file.ID); err != nil {
+		t.Fatalf("soft delete: %v", err)
+	}
+
+	var logs bytes.Buffer
+	previousOutput := log.Writer()
+	log.SetOutput(&logs)
+	t.Cleanup(func() {
+		log.SetOutput(previousOutput)
+	})
+
+	if err := reconciler.PeriodicSweep(context.Background()); err != nil {
+		t.Fatalf("PeriodicSweep returned error: %v", err)
+	}
+	if !strings.Contains(logs.String(), "event=webdav_temp_sweep_failed") {
+		t.Fatalf("expected WebDAV temp sweep failure log, got %q", logs.String())
+	}
+	if _, err := db.GetFileIncludeDeleted(context.Background(), file.ID); err == nil {
+		t.Fatal("expected trash sweep to continue and purge expired file")
 	}
 }
 

@@ -1,9 +1,11 @@
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import type { DriveFile, FileSearchHit } from "../../types";
+import { VirtualList } from "../../components/Virtualized";
 import { MobileConfirmPrompt } from "../components/ConfirmPrompt/MobileConfirmPrompt";
 import { MobileFileCard } from "../components/FileCard/MobileFileCard";
 import { MobileTextPrompt } from "../components/TextPrompt/MobileTextPrompt";
+import { MobileBatchActionBar, MobileSelectionTopBar } from "../selection/MobileSelectionBars";
 import { mobileFilesHref, mobilePreviewHref, normalizeMobilePath } from "../utils/mobilePath";
 import styles from "./MobileDriveView.module.css";
 
@@ -11,6 +13,7 @@ interface MobileDriveViewProps {
   currentPath: string;
   files: DriveFile[];
   loading?: boolean;
+  enteringFolderId?: string | null;
   error?: string;
   searchDraft?: string;
   searchActive?: boolean;
@@ -29,16 +32,22 @@ interface MobileDriveViewProps {
   createFolderOpen?: boolean;
   createFolderDraft?: string;
   createFolderBusy?: boolean;
+  selectionActive?: boolean;
+  selectedIds?: string[];
+  selectedCount?: number;
+  allSelected?: boolean;
   onSearchDraftChange?: (query: string) => void;
   onSearchSubmit?: () => void;
   onClearSearch?: () => void;
   onSemanticChange?: (includeSemantic: boolean) => void;
   onOpenCreateFolder?: () => void;
+  onEnterFolder?: (file: DriveFile) => boolean | void;
   onCreateFolderDraftChange?: (value: string) => void;
   onCancelCreateFolder?: () => void;
   onConfirmCreateFolder?: () => void;
   onOpenActions?: (file: DriveFile) => void;
   onCloseActions?: () => void;
+  onMove?: (file: DriveFile) => void;
   onRename?: (file: DriveFile) => void;
   onDelete?: (file: DriveFile) => void;
   onCancelDelete?: () => void;
@@ -46,12 +55,19 @@ interface MobileDriveViewProps {
   onRenameDraftChange?: (value: string) => void;
   onCancelRename?: () => void;
   onConfirmRename?: () => void;
+  onLongPressFile?: (file: DriveFile) => void;
+  onToggleSelection?: (file: DriveFile) => void;
+  onCancelSelection?: () => void;
+  onSelectAll?: () => void;
+  onBatchMove?: () => void;
+  onBatchDelete?: () => void;
 }
 
 export function MobileDriveView({
   currentPath,
   files,
   loading = false,
+  enteringFolderId = null,
   error = "",
   searchDraft = "",
   searchActive = false,
@@ -70,16 +86,22 @@ export function MobileDriveView({
   createFolderOpen = false,
   createFolderDraft = "",
   createFolderBusy = false,
+  selectionActive = false,
+  selectedIds = [],
+  selectedCount = selectedIds.length,
+  allSelected = false,
   onSearchDraftChange,
   onSearchSubmit,
   onClearSearch,
   onSemanticChange,
   onOpenCreateFolder,
+  onEnterFolder,
   onCreateFolderDraftChange,
   onCancelCreateFolder,
   onConfirmCreateFolder,
   onOpenActions,
   onCloseActions,
+  onMove,
   onRename,
   onDelete,
   onCancelDelete,
@@ -87,59 +109,77 @@ export function MobileDriveView({
   onRenameDraftChange,
   onCancelRename,
   onConfirmRename,
+  onLongPressFile,
+  onToggleSelection,
+  onCancelSelection,
+  onSelectAll,
+  onBatchMove,
+  onBatchDelete,
 }: MobileDriveViewProps) {
   const { t } = useTranslation();
   const hasSearchDraft = searchDraft.trim().length > 0;
+  const fileListBusy = loading && files.length > 0 && !searchActive;
 
   return (
     <>
-      <form
-        className={styles.searchBar}
-        role="search"
-        onSubmit={(event) => {
-          event.preventDefault();
-          onSearchSubmit?.();
-        }}
-      >
-        <span className="material-symbols-outlined" aria-hidden>
-          search
-        </span>
-        <input
-          value={searchDraft}
-          placeholder={t("drive.searchPlaceholder")}
-          onChange={(event) => onSearchDraftChange?.(event.target.value)}
+      {selectionActive ? (
+        <MobileSelectionTopBar
+          selectedCount={selectedCount}
+          allSelected={allSelected}
+          onCancel={() => onCancelSelection?.()}
+          onSelectAll={() => onSelectAll?.()}
         />
-        {searchActive && hasSearchDraft ? (
-          <button type="button" onClick={onClearSearch}>
-            {t("searchResultList.clearSearch")}
+      ) : (
+        <>
+          <form
+            className={styles.searchBar}
+            role="search"
+            onSubmit={(event) => {
+              event.preventDefault();
+              onSearchSubmit?.();
+            }}
+          >
+            <span className="material-symbols-outlined" aria-hidden>
+              search
+            </span>
+            <input
+              value={searchDraft}
+              placeholder={t("drive.searchPlaceholder")}
+              onChange={(event) => onSearchDraftChange?.(event.target.value)}
+            />
+            {searchActive && hasSearchDraft ? (
+              <button type="button" onClick={onClearSearch}>
+                {t("searchResultList.clearSearch")}
+              </button>
+            ) : (
+              <button type="submit">{t("common.search")}</button>
+            )}
+          </form>
+          <button
+            className={`${styles.semanticToggle} ${includeSemantic ? styles.semanticToggleActive : ""}`}
+            type="button"
+            role="switch"
+            aria-checked={includeSemantic}
+            onClick={() => onSemanticChange?.(!includeSemantic)}
+          >
+            <span className="material-symbols-outlined" aria-hidden>
+              psychology
+            </span>
+            <span>
+              <strong>{t("mobile.files.semanticSearch")}</strong>
+              <small>{t("mobile.files.semanticSearchHint")}</small>
+            </span>
           </button>
-        ) : (
-          <button type="submit">{t("common.search")}</button>
-        )}
-      </form>
-      <button
-        className={`${styles.semanticToggle} ${includeSemantic ? styles.semanticToggleActive : ""}`}
-        type="button"
-        role="switch"
-        aria-checked={includeSemantic}
-        onClick={() => onSemanticChange?.(!includeSemantic)}
-      >
-        <span className="material-symbols-outlined" aria-hidden>
-          psychology
-        </span>
-        <span>
-          <strong>{t("mobile.files.semanticSearch")}</strong>
-          <small>{t("mobile.files.semanticSearchHint")}</small>
-        </span>
-      </button>
-      <div className={styles.quickActions}>
-        <button type="button" onClick={() => onOpenCreateFolder?.()}>
-          <span className="material-symbols-outlined" aria-hidden>
-            create_new_folder
-          </span>
-          {t("drive.newFolder")}
-        </button>
-      </div>
+          <div className={styles.quickActions}>
+            <button type="button" onClick={() => onOpenCreateFolder?.()}>
+              <span className="material-symbols-outlined" aria-hidden>
+                create_new_folder
+              </span>
+              {t("drive.newFolder")}
+            </button>
+          </div>
+        </>
+      )}
 
       {searchActive ? (
         <SearchResults
@@ -156,17 +196,49 @@ export function MobileDriveView({
       ) : files.length === 0 ? (
         <div className={styles.state}>{t("mobile.files.empty")}</div>
       ) : (
-        <div className={styles.list}>
-          {files.map((file) => (
-            <MobileFileCard
-              key={file.id}
-              file={file}
-              currentPath={currentPath}
-              onMore={onOpenActions}
-            />
-          ))}
+        <div
+          className={`${styles.listShell} ${fileListBusy ? styles.listBusy : ""}`}
+          aria-busy={fileListBusy || undefined}
+          data-mobile-file-list-busy={fileListBusy || undefined}
+        >
+          <VirtualList
+            className={styles.list}
+            itemClassName={styles.listRow}
+            items={files}
+            height="100%"
+            estimateSize={68}
+            overscan={6}
+            getItemKey={(file) => file.id}
+            renderItem={(file) => (
+              <MobileFileCard
+                file={file}
+                currentPath={currentPath}
+                entering={enteringFolderId === file.id}
+                folderNavigationDisabled={loading}
+                selectionMode={selectionActive}
+                selected={selectedIds.includes(file.id)}
+                onFolderEnter={onEnterFolder}
+                onMore={onOpenActions}
+                onSelectionToggle={onToggleSelection}
+                onLongPress={onLongPressFile}
+              />
+            )}
+          />
+          {fileListBusy ? (
+            <div className={styles.listBusyOverlay} role="status" aria-live="polite">
+              <LoadingSpinnerIcon className={styles.listBusyIcon} />
+              <span>{t("fileList.loadingFolder")}</span>
+            </div>
+          ) : null}
         </div>
       )}
+      {selectionActive ? (
+        <MobileBatchActionBar
+          selectedCount={selectedCount}
+          onMove={() => onBatchMove?.()}
+          onDelete={() => onBatchDelete?.()}
+        />
+      ) : null}
       {actionFile ? (
         <section
           className={styles.actionSheet}
@@ -194,6 +266,12 @@ export function MobileDriveView({
                   {t("common.download")}
                 </a>
               ) : null}
+              <button type="button" onClick={() => onMove?.(actionFile)}>
+                <span className="material-symbols-outlined" aria-hidden>
+                  drive_file_move
+                </span>
+                {t("common.moveTo")}
+              </button>
               <button type="button" onClick={() => onRename?.(actionFile)}>
                 <span className="material-symbols-outlined" aria-hidden>
                   edit
@@ -254,6 +332,33 @@ export function MobileDriveView({
         onConfirm={() => onConfirmCreateFolder?.()}
       />
     </>
+  );
+}
+
+function LoadingSpinnerIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <circle
+        cx="12"
+        cy="12"
+        r="9"
+        stroke="currentColor"
+        strokeWidth="3"
+        opacity="0.18"
+      />
+      <path
+        d="M21 12a9 9 0 0 0-9-9"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeWidth="3"
+      />
+    </svg>
   );
 }
 

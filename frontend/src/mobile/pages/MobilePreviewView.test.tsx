@@ -11,18 +11,33 @@ describe("MobilePreviewView", () => {
       <MemoryRouter>
         <MobilePreviewView
           file={makeFile({ id: "file-1", name: "Memo.txt" })}
-          returnPath="/Docs"
+          returnHref="/m/files?path=%2FDocs"
           downloadHref="/api/files/file-1/download"
         />
       </MemoryRouter>,
     );
 
     expect(html).toContain("Memo.txt");
-    expect(html).toContain("href=\"/m?path=%2FDocs\"");
+    expect(html).toContain("href=\"/m/files?path=%2FDocs\"");
     expect(html).toContain("href=\"/api/files/file-1/download\"");
     expect(html).not.toContain("移动预览");
     expect(html).not.toContain(">Loading<");
     expect(html).not.toContain("eyebrow");
+  });
+
+  it("returns document category previews to the document category route", () => {
+    const html = renderToString(
+      <MemoryRouter>
+        <MobilePreviewView
+          file={makeFile({ id: "doc-1", name: "手册.pdf", mime_type: "application/pdf" })}
+          returnHref="/m/category/documents"
+          downloadHref="/api/files/doc-1/download"
+        />
+      </MemoryRouter>,
+    );
+
+    expect(html).toContain("href=\"/m/category/documents\"");
+    expect(html).not.toContain("href=\"/m/files");
   });
 });
 

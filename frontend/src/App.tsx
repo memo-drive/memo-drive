@@ -8,6 +8,7 @@ import { currentUserAgent, mobileRootEntryForUserAgent } from "./mobile/mobileEn
 import { MobileRoutes } from "./mobile/MobileRoutes";
 import { DrivePage } from "./pages/Drive";
 import { LoginPage } from "./pages/Login";
+import { MarkdownEditorPage } from "./pages/MarkdownEditor";
 import { SmartSearchPage } from "./pages/SmartSearch";
 import { SettingsPage } from "./pages/Settings";
 import { TransferPage } from "./pages/Transfer";
@@ -41,6 +42,7 @@ export default function App() {
           }
         >
           <Route index element={<DesktopRootEntry />} />
+          <Route path="files/:id/edit" element={<MarkdownEditorPage />} />
           <Route path="smart-search" element={<SmartSearchPage />} />
           <Route path="transfer" element={<TransferPage />} />
           <Route path="trash" element={<TrashPage />} />

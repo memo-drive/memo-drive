@@ -399,12 +399,6 @@
   height: min(72vh, 760px);
 }
 
-.codeToolbarLabel {
-  color: var(--preview-muted);
-  font-size: 0.8rem;
-  word-break: break-all;
-}
-
 .codeFrame {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
@@ -448,6 +442,10 @@
   color: var(--preview-ink);
   font-size: 0.92rem;
   line-height: 1.75;
+}
+
+.markdownBody :where(p, li, blockquote, dd) {
+  white-space: pre-wrap;
 }
 
 .markdownBody pre {

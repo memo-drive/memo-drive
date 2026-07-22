@@ -21,8 +21,56 @@ describe("MobileFileCard", () => {
       />,
     );
 
-    expect(folderHtml).toContain("href=\"/m?path=%2FPhotos\"");
+    expect(folderHtml).toContain("href=\"/m/files?path=%2FPhotos\"");
     expect(fileHtml).toContain("href=\"/m/preview/file-1?path=%2FDocs\"");
+  });
+
+  it("keeps stale folder cards from appending the same path again while entering", () => {
+    const html = renderCard(
+      <MobileFileCard
+        file={makeFile({
+          is_dir: true,
+          name: "Photos",
+          path: "/",
+          storage_path: "Photos",
+        })}
+        currentPath="/Photos"
+      />,
+    );
+
+    expect(html).toContain("href=\"/m/files?path=%2FPhotos\"");
+    expect(html).not.toContain("%2FPhotos%2FPhotos");
+  });
+
+  it("marks an entering folder as busy so repeat taps are ignored", () => {
+    const html = renderCard(
+      <MobileFileCard
+        file={makeFile({ is_dir: true, name: "Photos" })}
+        currentPath="/"
+        entering
+        folderNavigationDisabled
+      />,
+    );
+
+    expect(html).toContain("aria-disabled=\"true\"");
+    expect(html).toContain("进入中");
+  });
+
+  it("disables file preview and actions while the folder view is loading", () => {
+    const html = renderCard(
+      <MobileFileCard
+        file={makeFile({
+          id: "image-1",
+          name: "receipt.jpg",
+          mime_type: "image/jpeg",
+        })}
+        currentPath="/Photos"
+        folderNavigationDisabled
+      />,
+    );
+
+    expect(html).toContain("aria-disabled=\"true\"");
+    expect(html).toContain("disabled=\"\"");
   });
 
   it("renders image files with their generated thumbnail", () => {
@@ -93,6 +141,25 @@ describe("MobileFileCard", () => {
 
     expect(html).not.toContain('src="/api/files/video-1/thumbnail"');
     expect(html).toContain("video_library");
+  });
+
+  it("renders a selectable state for multi-select mode and hides per-file actions", () => {
+    const html = renderCard(
+      <MobileFileCard
+        file={makeFile({ id: "file-1", name: "note.pdf" })}
+        currentPath="/Docs"
+        selectionMode
+        selected
+        onSelectionToggle={() => undefined}
+        onLongPress={() => undefined}
+      />,
+    );
+
+    expect(html).toContain("data-mobile-selectable=\"true\"");
+    expect(html).toContain("aria-selected=\"true\"");
+    expect(html).toContain("check_circle");
+    expect(html).not.toContain("more_vert");
+    expect(html).not.toContain("href=\"/m/preview/file-1?path=%2FDocs\"");
   });
 });
 

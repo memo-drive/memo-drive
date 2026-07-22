@@ -153,16 +153,76 @@
   font-size: 1.1rem;
 }
 
-.list {
-  display: grid;
-  gap: 0.4rem;
+.listShell {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
   margin-top: 0.5rem;
+}
+
+.list {
+  min-height: 0;
+  border-radius: var(--radius-md);
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.list::-webkit-scrollbar {
+  display: none;
+}
+
+.listRow {
+  padding-bottom: 0.4rem;
+}
+
+.listBusy {
+  min-height: 5rem;
+}
+
+.listBusyOverlay {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  border-radius: var(--radius-md);
+  color: var(--color-accent-text);
+  background: var(--color-surface-glass);
+  font-size: 0.875rem;
+  font-weight: 750;
+  backdrop-filter: blur(2px);
+  pointer-events: all;
+}
+
+.listBusyIcon {
+  width: 1.15rem;
+  height: 1.15rem;
+  color: var(--color-accent);
+  animation: spin 0.9s linear infinite;
+  transform-origin: center;
 }
 
 .searchResults {
   display: grid;
+  flex: 1;
+  min-height: 0;
   gap: 0.4rem;
   margin-top: 0.5rem;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.searchResults::-webkit-scrollbar {
+  display: none;
 }
 
 .searchInfo {
@@ -279,6 +339,7 @@
 
 .state {
   display: flex;
+  flex: 1;
   min-height: 8rem;
   align-items: center;
   justify-content: center;
@@ -411,4 +472,10 @@
 
 .sheetActions .dangerAction :global(.material-symbols-outlined) {
   color: currentColor;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
