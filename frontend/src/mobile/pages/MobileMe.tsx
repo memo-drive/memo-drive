@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
-import { clearToken } from "../../api/client";
+import { httpClient } from "../../api/client";
 import { getStorageUsage } from "../../api/fileApi";
 import type { StorageUsage } from "../../types";
 import { MobileMeView } from "./MobileMeView";
@@ -27,10 +27,15 @@ export function MobileMePage() {
     };
   }, []);
 
-  function handleLogout() {
-    clearToken();
-    navigate("/login", { replace: true });
-  }
+	async function handleLogout() {
+		await httpClient.logout("current");
+		navigate("/login", { replace: true });
+	}
+
+	async function handleLogoutAll() {
+		await httpClient.logout("all");
+		navigate("/login", { replace: true });
+	}
 
   return (
     <section className={styles.page}>
@@ -40,7 +45,8 @@ export function MobileMePage() {
         storageUsage={storageUsage}
         currentLanguage={currentLanguage}
         onLanguageChange={(language) => void i18n.changeLanguage(language)}
-        onLogout={handleLogout}
+		onLogout={handleLogout}
+		onLogoutAll={handleLogoutAll}
       />
     </section>
   );

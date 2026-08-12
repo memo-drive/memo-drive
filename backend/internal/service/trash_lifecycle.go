@@ -180,6 +180,15 @@ func (s *FileService) purgeTrashEntry(ctx context.Context, id string) (int, *mod
 	if err != nil {
 		return childrenPurged, nil, err
 	}
+	versions, err := s.store.ListFileVersions(ctx, file.ID)
+	if err != nil {
+		return childrenPurged, nil, err
+	}
+	for i := range versions {
+		if err := s.DeleteVersion(ctx, file.ID, versions[i].ID); err != nil {
+			return childrenPurged, nil, err
+		}
+	}
 	s.removeStoredObject(file)
 	s.removeVectorChunks(ctx, file)
 	s.removeChunkRows(ctx, file)

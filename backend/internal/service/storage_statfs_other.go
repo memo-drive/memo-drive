@@ -2,6 +2,6 @@
 
 package service
 
-func filesystemTotalBytes(root string) (int64, error) {
-	return 0, nil
+func filesystemCapacity(root string) (FilesystemCapacity, error) {
+	return FilesystemCapacity{}, nil
 }
