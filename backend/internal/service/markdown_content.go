@@ -3,8 +3,7 @@ package service
 import (
 	"context"
 	"errors"
-	"fmt"
-	"log"
+	"io"
 	"os"
 	"path"
 	"path/filepath"
@@ -12,10 +11,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/memodrive/backend/internal/indexing"
 	"github.com/memodrive/backend/internal/model"
 	"github.com/memodrive/backend/internal/store"
-	"github.com/memodrive/backend/internal/vectordb"
 )
 
 const MarkdownContentMaxBytes = 1 * 1024 * 1024
@@ -30,6 +27,12 @@ type MarkdownContent struct {
 
 func (s *FileService) MarkdownContent(ctx context.Context, id string) (*MarkdownContent, error) {
 	file, err := s.store.GetFile(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	unlock := sharedFilePathLocks.lock(virtualTarget(file.Path, file.Name))
+	defer unlock()
+	file, err = s.store.GetFile(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -65,6 +68,12 @@ func (s *FileService) UpdateMarkdownContent(ctx context.Context, id, content, ba
 	if err != nil {
 		return nil, err
 	}
+	unlock := sharedFilePathLocks.lock(virtualTarget(file.Path, file.Name))
+	defer unlock()
+	file, err = s.store.GetFile(ctx, id)
+	if err != nil {
+		return nil, err
+	}
 	if err := ensureEditableMarkdown(file); err != nil {
 		return nil, err
 	}
@@ -77,27 +86,33 @@ func (s *FileService) UpdateMarkdownContent(ctx context.Context, id, content, ba
 		return nil, ErrMarkdownConflict
 	}
 
-	if err := os.MkdirAll(filepath.Dir(absPath), 0o755); err != nil {
-		return nil, err
-	}
-	if err := os.WriteFile(absPath, []byte(content), 0o644); err != nil {
-		return nil, err
-	}
-	if err := s.store.UpdateFileContent(ctx, file.ID, int64(len([]byte(content))), "text/markdown", model.FileStatusUploaded, 0); err != nil {
-		return nil, err
-	}
-	if err := s.cleanupMarkdownIndex(ctx, file); err != nil {
-		return nil, err
-	}
-	updated, err := s.store.GetFile(ctx, file.ID)
+	mutations := s.markdownMutations()
+	result, err := mutations.applyLocked(ctx, FileMutationInput{
+		Kind: model.FileMutationKindUploadReplace,
+		File: &model.File{
+			ID:          file.ID,
+			Name:        file.Name,
+			Path:        file.Path,
+			StoragePath: file.StoragePath,
+			Size:        int64(len([]byte(content))),
+			MimeType:    "text/markdown",
+			Status:      model.FileStatusUploaded,
+			ChunkCount:  0,
+		},
+		TargetFile:    file,
+		VersionSource: model.FileVersionSourceMarkdownSave,
+	}, func(writer io.Writer) error {
+		_, err := io.WriteString(writer, content)
+		return err
+	})
 	if err != nil {
 		return nil, err
 	}
+	updated := result.File
 	nextVersion, err := markdownContentVersion(absPath)
 	if err != nil {
 		return nil, err
 	}
-	s.enqueueMarkdownPipeline(ctx, updated)
 	return &MarkdownContent{
 		File:      updated,
 		Content:   content,
@@ -111,6 +126,8 @@ func (s *FileService) CreateMarkdownFile(ctx context.Context, dirPath, name stri
 		return nil, errors.New("markdown file name is required")
 	}
 	dirPath = CleanVirtualPath(dirPath)
+	unlock := sharedFilePathLocks.lock(virtualTarget(dirPath, name))
+	defer unlock()
 	if err := s.ensureMarkdownParent(ctx, dirPath); err != nil {
 		return nil, err
 	}
@@ -124,20 +141,6 @@ func (s *FileService) CreateMarkdownFile(ctx context.Context, dirPath, name stri
 
 	fileID := uuid.NewString()
 	storageRel := s.BuildStorageRel(fileID, dirPath, name)
-	absPath := s.absStoragePath(storageRel)
-	if err := os.MkdirAll(filepath.Dir(absPath), 0o755); err != nil {
-		return nil, err
-	}
-	if err := os.WriteFile(absPath, nil, 0o644); err != nil {
-		return nil, err
-	}
-	cleanupStored := true
-	defer func() {
-		if cleanupStored {
-			_ = os.Remove(absPath)
-		}
-	}()
-
 	file := &model.File{
 		ID:          fileID,
 		Name:        name,
@@ -148,12 +151,16 @@ func (s *FileService) CreateMarkdownFile(ctx context.Context, dirPath, name stri
 		Status:      model.FileStatusUploaded,
 		ChunkCount:  0,
 	}
-	if err := s.store.CreateFile(ctx, file); err != nil {
+	result, err := s.markdownMutations().applyLocked(ctx, FileMutationInput{
+		Kind: model.FileMutationKindUploadCreate,
+		File: file,
+	}, func(io.Writer) error {
+		return nil
+	})
+	if err != nil {
 		return nil, mapStorePathConflict(err)
 	}
-	cleanupStored = false
-	s.enqueueMarkdownPipeline(ctx, file)
-	return file, nil
+	return result.File, nil
 }
 
 func (s *FileService) ensureMarkdownParent(ctx context.Context, dirPath string) error {
@@ -213,30 +220,8 @@ func markdownContentVersion(absPath string) (string, error) {
 	return markdownTimestamp(stat.ModTime()), nil
 }
 
-func (s *FileService) cleanupMarkdownIndex(ctx context.Context, file *model.File) error {
-	if file == nil || file.IsDir {
-		return nil
-	}
-	if file.ChunkCount > 0 && s.vectorDB != nil {
-		ids := indexing.ChunkIDs(file.ID, file.ChunkCount)
-		if err := s.vectorDB.Delete(ctx, vectordb.DefaultCollection, ids); err != nil {
-			log.Printf("level=warn component=file event=markdown_vector_cleanup_failed file_id=%s chunk_count=%d err=%q", file.ID, file.ChunkCount, err)
-		}
-	}
-	if err := s.store.DeleteChunksByFileID(ctx, file.ID); err != nil {
-		return fmt.Errorf("delete markdown chunks: %w", err)
-	}
-	if err := s.store.DeleteMetadataByFileID(ctx, file.ID); err != nil {
-		return fmt.Errorf("delete markdown metadata: %w", err)
-	}
-	return nil
-}
-
-func (s *FileService) enqueueMarkdownPipeline(ctx context.Context, file *model.File) {
-	if s.pipeline == nil || file == nil {
-		return
-	}
-	if _, err := s.pipeline.Enqueue(ctx, file); err != nil {
-		log.Printf("level=warn component=file event=markdown_pipeline_enqueue_failed file_id=%s name=%q err=%q", file.ID, file.Name, err)
-	}
+func (s *FileService) markdownMutations() *FileMutationService {
+	mutations := NewFileMutationService(s.cfg, s.store, s.pipeline)
+	mutations.vectorDB = s.vectorDB
+	return mutations
 }
