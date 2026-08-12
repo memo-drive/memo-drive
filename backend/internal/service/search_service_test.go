@@ -71,6 +71,7 @@ func (p *mockSearchProvider) Embed(ctx context.Context, texts []string) ([][]flo
 }
 
 type mockVectorStore struct {
+	mu            sync.Mutex
 	queryResult   *vectordb.QueryResult
 	queryErr      error
 	queryNResults int
@@ -87,6 +88,8 @@ func (s *mockVectorStore) Upsert(ctx context.Context, collection string, ids []s
 }
 
 func (s *mockVectorStore) Query(ctx context.Context, collection string, queryEmbedding []float32, nResults int) (*vectordb.QueryResult, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.queryCalled = true
 	s.queryCalls++
 	s.queryNResults = nResults

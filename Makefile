@@ -72,7 +72,9 @@ docker-tailnet-build:
 
 # --- Local Build ---
 build-backend:
+	mkdir -p backend/bin
 	cd backend && go build -o bin/server ./cmd/server
+	cd backend && go build -o bin/memodrive-admin ./cmd/memodrive-admin
 
 build-frontend:
 	cd frontend && npm run build
@@ -81,13 +83,19 @@ build-all: build-frontend build-backend
 
 # --- Cross-Platform Build ---
 build-linux:
+	mkdir -p backend/bin
 	cd backend && GOOS=linux GOARCH=amd64 go build -o bin/server-linux-amd64 ./cmd/server
+	cd backend && GOOS=linux GOARCH=amd64 go build -o bin/memodrive-admin-linux-amd64 ./cmd/memodrive-admin
 
 build-windows:
+	mkdir -p backend/bin
 	cd backend && GOOS=windows GOARCH=amd64 go build -o bin/server-windows-amd64.exe ./cmd/server
+	cd backend && GOOS=windows GOARCH=amd64 go build -o bin/memodrive-admin-windows-amd64.exe ./cmd/memodrive-admin
 
 build-mac:
+	mkdir -p backend/bin
 	cd backend && GOOS=darwin GOARCH=arm64 go build -o bin/server-darwin-arm64 ./cmd/server
+	cd backend && GOOS=darwin GOARCH=arm64 go build -o bin/memodrive-admin-darwin-arm64 ./cmd/memodrive-admin
 
 # --- Testing & Cleanup ---
 test:
