@@ -30,16 +30,22 @@ func (h *FileHandler) Register(router fiber.Router) {
 	router.Get("/files", h.list)
 	router.Post("/files/search", h.search)
 	router.Post("/files/query", h.query)
+	router.Post("/files/conflicts", h.conflicts)
 	router.Get("/files/recent", h.recent)
 	router.Get("/files/photos/months", h.photoMonths)
 	router.Post("/files/photos/timeline", h.photoTimeline)
 	router.Post("/files/markdown", h.createMarkdown)
 	router.Post("/files/batch/move", h.batchMove)
 	router.Post("/files/batch/delete", h.batchDelete)
+	router.Get("/files/:id/versions", h.versions)
+	router.Get("/files/:id/versions/:versionId/download", h.downloadVersion)
+	router.Post("/files/:id/versions/:versionId/restore", h.restoreVersion)
+	router.Delete("/files/:id/versions/:versionId", h.deleteVersion)
 	router.Get("/files/:id", h.get)
 	router.Post("/files/:id/view", h.markViewed)
 	router.Get("/files/:id/content", h.content)
 	router.Put("/files/:id/content", h.updateContent)
+	router.Post("/files/:id/copy", h.copy)
 	router.Get("/files/:id/download", h.download)
 	router.Head("/files/:id/download", h.download)
 	router.Get("/files/:id/thumbnail", h.thumbnail)
@@ -49,12 +55,138 @@ func (h *FileHandler) Register(router fiber.Router) {
 	router.Post("/folders", h.createFolder)
 }
 
-func (h *FileHandler) list(c *fiber.Ctx) error {
-	files, err := h.files.List(c.Context(), c.Query("path", "/"), c.Query("sort", "created_at"))
-	if err != nil {
-		return err
+func (h *FileHandler) deleteVersion(c *fiber.Ctx) error {
+	if err := h.files.DeleteVersion(c.Context(), c.Params("id"), c.Params("versionId")); err != nil {
+		return mapStoreError(err)
 	}
-	return c.JSON(fiber.Map{"files": files})
+	return c.SendStatus(fiber.StatusNoContent)
+}
+
+func (h *FileHandler) restoreVersion(c *fiber.Ctx) error {
+	result, err := h.files.RestoreVersion(c.Context(), c.Params("id"), c.Params("versionId"))
+	if err != nil {
+		if errors.Is(err, service.ErrFileVersioningDisabled) {
+			return c.Status(fiber.StatusConflict).JSON(fiber.Map{
+				"error": fiber.Map{
+					"code":      "file_versioning_disabled",
+					"message":   err.Error(),
+					"retryable": false,
+				},
+			})
+		}
+		return mapStoreError(err)
+	}
+	response := fiber.Map{"file": result.File}
+	if result.Task != nil {
+		response["task_id"] = result.Task.ID
+	}
+	return c.JSON(response)
+}
+
+func (h *FileHandler) versions(c *fiber.Ctx) error {
+	versions, err := h.files.ListVersions(c.Context(), c.Params("id"))
+	if err != nil {
+		return mapStoreError(err)
+	}
+	return c.JSON(fiber.Map{"versions": versions})
+}
+
+func (h *FileHandler) downloadVersion(c *fiber.Ctx) error {
+	version, path, err := h.files.VersionDownload(c.Context(), c.Params("id"), c.Params("versionId"))
+	if err != nil {
+		var missing *service.FileVersionNotFoundError
+		if errors.As(err, &missing) {
+			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+				"error": fiber.Map{
+					"code":      "version_not_found",
+					"message":   err.Error(),
+					"retryable": false,
+					"details":   fiber.Map{"file_id": missing.FileID, "version_id": missing.VersionID},
+				},
+			})
+		}
+		return mapStoreError(err)
+	}
+	if version.MimeType != "" {
+		c.Set(fiber.HeaderContentType, version.MimeType)
+	}
+	c.Set(fiber.HeaderContentDisposition, fmt.Sprintf(`attachment; filename="version-%d"`, version.VersionNo))
+	return c.SendFile(path)
+}
+
+func (h *FileHandler) copy(c *fiber.Ctx) error {
+	var input service.FileCopyInput
+	if err := c.BodyParser(&input); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "invalid file copy payload")
+	}
+	result, err := h.files.Copy(c.Context(), c.Params("id"), input)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+				"error": fiber.Map{
+					"code":      "file_not_found",
+					"message":   "File not found",
+					"retryable": false,
+					"details": fiber.Map{
+						"file_id": c.Params("id"),
+					},
+				},
+			})
+		}
+		return writeUploadError(c, err)
+	}
+	status := fiber.StatusOK
+	if result.Created {
+		status = fiber.StatusCreated
+	}
+	return c.Status(status).JSON(result)
+}
+
+func (h *FileHandler) conflicts(c *fiber.Ctx) error {
+	var body struct {
+		Path  string   `json:"path"`
+		Names []string `json:"names"`
+	}
+	if err := c.BodyParser(&body); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "invalid conflict preflight payload")
+	}
+	items, err := h.files.PreflightConflicts(c.Context(), body.Path, body.Names)
+	if err != nil {
+		return writeUploadError(c, err)
+	}
+	return c.JSON(fiber.Map{"items": items})
+}
+
+func (h *FileHandler) list(c *fiber.Ctx) error {
+	page, err := h.files.ListPage(
+		c.Context(),
+		c.Query("path", "/"),
+		c.Query("sort", "created_at"),
+		c.Query("cursor"),
+		c.QueryInt("limit", 0),
+	)
+	if err != nil {
+		if errors.Is(err, store.ErrInvalidSort) {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"error": fiber.Map{
+					"code":      "invalid_sort",
+					"message":   "sort must be name, size, created_at, or updated_at",
+					"retryable": false,
+				},
+			})
+		}
+		if errors.Is(err, store.ErrInvalidCursor) {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"error": fiber.Map{
+					"code":      "invalid_cursor",
+					"message":   "invalid cursor",
+					"retryable": false,
+				},
+			})
+		}
+		return mapStoreError(err)
+	}
+	return c.JSON(page)
 }
 
 func (h *FileHandler) recent(c *fiber.Ctx) error {
@@ -260,6 +392,29 @@ func (h *FileHandler) batchMove(c *fiber.Ctx) error {
 }
 
 func (h *FileHandler) download(c *fiber.Ctx) error {
+	if c.Query("archive") == "zip" {
+		archive, err := h.files.PrepareFolderZIP(c.Context(), c.Params("id"))
+		if err != nil {
+			return writeFolderArchiveError(c, err)
+		}
+		c.Set("Content-Type", "application/zip")
+		c.Set("Content-Disposition", attachmentDisposition(archive.Name()))
+		c.Set("X-Content-Type-Options", "nosniff")
+		if c.Method() == fiber.MethodHead {
+			return nil
+		}
+		reader, writer := io.Pipe()
+		requestCtx := c.UserContext()
+		fileID := c.Params("id")
+		go func() {
+			err := archive.Write(requestCtx, writer)
+			if err != nil {
+				log.Printf("level=error component=file event=folder_zip_failed file_id=%s err=%q", fileID, err)
+			}
+			_ = writer.CloseWithError(err)
+		}()
+		return c.SendStream(reader)
+	}
 	file, absPath, err := h.files.DownloadPath(c.Context(), c.Params("id"))
 	if err != nil {
 		return mapStoreError(err)
@@ -307,6 +462,46 @@ func (h *FileHandler) download(c *fiber.Ctx) error {
 	section := &readCloser{Reader: io.NewSectionReader(handle, start, length), Closer: handle}
 	log.Printf("level=info component=file event=download_begin file_id=%s name=%q size=%d range=true start=%d end=%d length=%d", file.ID, file.Name, stat.Size(), start, end, length)
 	return c.SendStream(section, int(length))
+}
+
+func writeFolderArchiveError(c *fiber.Ctx, err error) error {
+	var readError *service.FolderArchiveReadError
+	if errors.As(err, &readError) {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": fiber.Map{
+				"code":      "archive_read_failed",
+				"message":   readError.Error(),
+				"retryable": false,
+			},
+		})
+	}
+	var unsafePath *service.UnsafeArchivePathError
+	if errors.As(err, &unsafePath) {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": fiber.Map{
+				"code":      "unsafe_archive_path",
+				"message":   unsafePath.Error(),
+				"retryable": false,
+			},
+		})
+	}
+	var limit *service.FolderArchiveLimitError
+	if errors.As(err, &limit) {
+		return c.Status(fiber.StatusRequestEntityTooLarge).JSON(fiber.Map{
+			"error": fiber.Map{
+				"code":      "archive_limit_exceeded",
+				"message":   limit.Error(),
+				"retryable": false,
+				"details": fiber.Map{
+					"nodes":                  limit.Nodes,
+					"max_nodes":              limit.MaxNodes,
+					"uncompressed_bytes":     limit.UncompressedBytes,
+					"max_uncompressed_bytes": limit.MaxUncompressedBytes,
+				},
+			},
+		})
+	}
+	return mapStoreError(err)
 }
 
 type readCloser struct {
@@ -363,6 +558,12 @@ func inlineDisposition(name string) string {
 	base := filepath.Base(name)
 	fallback := asciiFilenameFallback(base)
 	return fmt.Sprintf(`inline; filename="%s"; filename*=UTF-8''%s`, quoteHeaderValue(fallback), encodeRFC5987(base))
+}
+
+func attachmentDisposition(name string) string {
+	base := filepath.Base(name)
+	fallback := asciiFilenameFallback(base)
+	return fmt.Sprintf(`attachment; filename="%s"; filename*=UTF-8''%s`, quoteHeaderValue(fallback), encodeRFC5987(base))
 }
 
 func asciiFilenameFallback(name string) string {
@@ -447,6 +648,9 @@ func mapStoreError(err error) error {
 	}
 	if errors.Is(err, service.ErrNotInTrash) {
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+	}
+	if errors.Is(err, service.ErrFileVersioningDisabled) {
+		return fiber.NewError(fiber.StatusConflict, err.Error())
 	}
 	if errors.Is(err, service.ErrServiceUnavailable) {
 		return fiber.NewError(fiber.StatusServiceUnavailable, err.Error())

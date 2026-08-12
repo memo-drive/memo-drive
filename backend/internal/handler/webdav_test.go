@@ -8,7 +8,6 @@ import (
 	"html"
 	"io"
 	"log"
-	"math"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -347,8 +346,8 @@ func TestWebDAVIntegrationSuiteCoversFirstVersionProtocol(t *testing.T) {
 
 	dirCopyResp := webDAVIntegrationRequest(t, app, "COPY", "/dav/Notes", nil, map[string]string{"Destination": "http://example.com/dav/NotesCopy"})
 	defer dirCopyResp.Body.Close()
-	if dirCopyResp.StatusCode != http.StatusNotImplemented {
-		t.Fatalf("expected directory COPY to return 501, got %d", dirCopyResp.StatusCode)
+	if dirCopyResp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected directory COPY to return 201, got %d", dirCopyResp.StatusCode)
 	}
 
 	putResp := webDAVIntegrationRequest(t, app, http.MethodPut, "/dav/Notes/integration.md", strings.NewReader("hello integration"), map[string]string{"Content-Type": "text/markdown"})
@@ -1245,6 +1244,26 @@ func TestWebDAVPropfindExplicitQuotaPropertiesReturnStorageUsage(t *testing.T) {
 	}
 }
 
+func TestWebDAVQuotaAvailableUsesCapacityAdmissionResult(t *testing.T) {
+	properties := webDAVQuotaProperties(&service.StorageUsage{
+		UsedBytes:            80,
+		TotalBytes:           100,
+		UploadAvailableBytes: 7,
+	})
+	for _, property := range properties {
+		if property.Name == "quota-available-bytes" {
+			if property.Value != "7" {
+				t.Fatalf(
+					"quota-available-bytes = %q, want admission result 7",
+					property.Value,
+				)
+			}
+			return
+		}
+	}
+	t.Fatal("quota-available-bytes property missing")
+}
+
 func TestWebDAVPropfindQuotaFailureDoesNotHideOtherRequestedProperties(t *testing.T) {
 	root := t.TempDir()
 	storageRoot := filepath.Join(root, "files")
@@ -2050,6 +2069,28 @@ func TestWebDAVPutExistingFileOverwritesContentAndKeepsFileID(t *testing.T) {
 	}
 }
 
+func TestWebDAVPutRecordsFileMutation(t *testing.T) {
+	app, db, cleanup := newWebDAVLookupTestApp(t)
+	defer cleanup()
+
+	req := httptest.NewRequest(http.MethodPut, "/dav/Notes/readme.md", strings.NewReader("journaled"))
+	resp, err := app.Test(req)
+	if err != nil {
+		t.Fatalf("PUT overwrite /dav/Notes/readme.md: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("expected overwrite to return 204, got %d", resp.StatusCode)
+	}
+	ids, err := db.ListFileMutationIDs(context.Background())
+	if err != nil {
+		t.Fatalf("list File Mutation journal IDs: %v", err)
+	}
+	if len(ids) != 1 {
+		t.Fatalf("expected WebDAV PUT to record one File Mutation, got %d", len(ids))
+	}
+}
+
 func TestWebDAVPutExistingFileClearsOldIndexData(t *testing.T) {
 	app, db, cleanup := newWebDAVLookupTestApp(t)
 	defer cleanup()
@@ -2130,6 +2171,40 @@ func TestWebDAVPutExistingFileDeletesOldVectorChunks(t *testing.T) {
 	want := []string{"readme#0", "readme#1"}
 	if strings.Join(vector.deletedIDs, ",") != strings.Join(want, ",") {
 		t.Fatalf("expected old vector chunks %v to be deleted, got %v", want, vector.deletedIDs)
+	}
+}
+
+func TestWebDAVPutExistingFileRecordsWebDAVVersionSource(t *testing.T) {
+	app, _, _, cleanup := newWebDAVLookupTestAppWithConfig(t, 1024, nil, func(cfg *config.Config) {
+		cfg.FileVersion.Enabled = true
+	})
+	defer cleanup()
+
+	putReq := httptest.NewRequest(http.MethodPut, "/dav/Notes/readme.md", strings.NewReader("rewritten"))
+	putReq.Header.Set("Content-Type", "text/markdown")
+	putResp, err := app.Test(putReq)
+	if err != nil {
+		t.Fatalf("PUT existing WebDAV File: %v", err)
+	}
+	_ = putResp.Body.Close()
+	if putResp.StatusCode != http.StatusNoContent {
+		t.Fatalf("PUT existing WebDAV File status = %d, want 204", putResp.StatusCode)
+	}
+
+	listReq := httptest.NewRequest(http.MethodGet, "/files/readme/versions", nil)
+	listResp, err := app.Test(listReq)
+	if err != nil {
+		t.Fatalf("list WebDAV File Versions: %v", err)
+	}
+	defer listResp.Body.Close()
+	var body struct {
+		Versions []model.FileVersion `json:"versions"`
+	}
+	if err := json.NewDecoder(listResp.Body).Decode(&body); err != nil {
+		t.Fatalf("decode WebDAV File Versions: %v", err)
+	}
+	if len(body.Versions) != 1 || body.Versions[0].Source != "webdav_put" {
+		t.Fatalf("unexpected WebDAV File Versions %#v", body.Versions)
 	}
 }
 
@@ -2283,17 +2358,16 @@ func TestWebDAVPutOverMaxFileSizeReturnsTooLargeAndCleansTemp(t *testing.T) {
 }
 
 func TestWebDAVPutOverQuotaReturnsInsufficientStorage(t *testing.T) {
-	app, db, cleanup := newWebDAVLookupTestApp(t)
+	app, _, _, cleanup := newWebDAVLookupTestAppWithConfig(
+		t,
+		1024*1024,
+		nil,
+		func(cfg *config.Config) {
+			cfg.Storage.QuotaBytes = 6
+			cfg.Storage.TempLimitBytes = 1024
+		},
+	)
 	defer cleanup()
-	createHandlerTestFile(t, db, t.TempDir(), &model.File{
-		ID:          "huge",
-		Name:        "huge.bin",
-		Path:        "/Notes",
-		StoragePath: "huge.bin",
-		Size:        math.MaxInt64 / 2,
-		MimeType:    "application/octet-stream",
-		Status:      model.FileStatusReady,
-	}, "huge")
 
 	req := httptest.NewRequest(http.MethodPut, "/dav/Notes/quota.md", strings.NewReader("q"))
 	resp, err := app.Test(req)
@@ -2312,6 +2386,42 @@ func TestWebDAVPutOverQuotaReturnsInsufficientStorage(t *testing.T) {
 	defer getResp.Body.Close()
 	if getResp.StatusCode != http.StatusNotFound {
 		t.Fatalf("expected over-quota failed PUT target not to be visible, got %d", getResp.StatusCode)
+	}
+}
+
+func TestWebDAVPutRechecksFullStagingCapacityAfterWritingTemp(t *testing.T) {
+	app, _, tempDir, cleanup := newWebDAVLookupTestAppWithConfig(
+		t,
+		1024*1024,
+		nil,
+		func(cfg *config.Config) {
+			cfg.Storage.QuotaBytes = 100
+			cfg.Storage.TempLimitBytes = 9
+		},
+	)
+	defer cleanup()
+
+	req := httptest.NewRequest(
+		http.MethodPut,
+		"/dav/Notes/staging.md",
+		strings.NewReader("hello"),
+	)
+	resp, err := app.Test(req)
+	if err != nil {
+		t.Fatalf("PUT /dav/Notes/staging.md: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != fiber.StatusInsufficientStorage {
+		t.Fatalf("expected staging-limited WebDAV PUT to return 507, got %d", resp.StatusCode)
+	}
+
+	webDAVTempDir := filepath.Join(tempDir, "webdav")
+	entries, err := os.ReadDir(webDAVTempDir)
+	if err != nil && !os.IsNotExist(err) {
+		t.Fatalf("read WebDAV temp dir: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("expected capacity failure to clean temp files, got %d entries", len(entries))
 	}
 }
 
@@ -3169,7 +3279,7 @@ func TestWebDAVCopyOverExistingFileKeepsTargetFileID(t *testing.T) {
 	}
 }
 
-func TestWebDAVCopyFolderReturnsNotImplemented(t *testing.T) {
+func TestWebDAVCopyFolderRecursivelyCopiesChildren(t *testing.T) {
 	app, _, cleanup := newWebDAVLookupTestApp(t)
 	defer cleanup()
 
@@ -3180,8 +3290,21 @@ func TestWebDAVCopyFolderReturnsNotImplemented(t *testing.T) {
 		t.Fatalf("COPY folder: %v", err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusNotImplemented {
-		t.Fatalf("expected folder COPY to return 501, got %d", resp.StatusCode)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected folder COPY to return 201, got %d", resp.StatusCode)
+	}
+
+	getResp, err := app.Test(httptest.NewRequest(http.MethodGet, "/dav/NotesCopy/readme.md", nil))
+	if err != nil {
+		t.Fatalf("GET copied folder child: %v", err)
+	}
+	defer getResp.Body.Close()
+	body, err := io.ReadAll(getResp.Body)
+	if err != nil {
+		t.Fatalf("read copied folder child: %v", err)
+	}
+	if getResp.StatusCode != http.StatusOK || string(body) != "readme" {
+		t.Fatalf("copied folder child status = %d, body = %q", getResp.StatusCode, body)
 	}
 }
 
@@ -3496,6 +3619,15 @@ func newWebDAVLookupTestAppWithVectorStore(t *testing.T, vector vectordb.VectorS
 }
 
 func newWebDAVLookupTestAppWithMaxFileSizeAndPipeline(t *testing.T, maxFileSize int64, pipelineOut **service.PipelineService) (*fiber.App, *store.Store, string, func()) {
+	return newWebDAVLookupTestAppWithConfig(t, maxFileSize, pipelineOut, nil)
+}
+
+func newWebDAVLookupTestAppWithConfig(
+	t *testing.T,
+	maxFileSize int64,
+	pipelineOut **service.PipelineService,
+	configure func(*config.Config),
+) (*fiber.App, *store.Store, string, func()) {
 	t.Helper()
 	root := t.TempDir()
 	storageRoot := filepath.Join(root, "files")
@@ -3510,6 +3642,9 @@ func newWebDAVLookupTestAppWithMaxFileSizeAndPipeline(t *testing.T, maxFileSize 
 			MaxFileSize:  maxFileSize,
 			ChunkSize:    5,
 		},
+	}
+	if configure != nil {
+		configure(cfg)
 	}
 	if err := cfg.EnsureDirs(); err != nil {
 		t.Fatalf("ensure dirs: %v", err)

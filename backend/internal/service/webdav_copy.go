@@ -3,8 +3,7 @@ package service
 import (
 	"context"
 	"errors"
-	"os"
-	"path/filepath"
+	"path"
 
 	"github.com/memodrive/backend/internal/model"
 	"github.com/memodrive/backend/internal/store"
@@ -25,9 +24,6 @@ func (s *WebDAVService) Copy(ctx context.Context, input WebDAVCopyInput) (*WebDA
 	if input.Source == nil || input.Source.File == nil {
 		return nil, store.ErrNotFound
 	}
-	if input.Source.IsDir() {
-		return nil, ErrUnsupportedResource
-	}
 	if err := validateWebDAVVirtualPath(input.DestinationPath); err != nil {
 		return nil, err
 	}
@@ -37,7 +33,22 @@ func (s *WebDAVService) Copy(ctx context.Context, input WebDAVCopyInput) (*WebDA
 	}
 	unlock := s.lockPaths(input.Source.VirtualPath, destinationPath)
 	defer unlock()
+	// Resolve again after acquiring the path locks. Another WebDAV operation may
+	// have moved or replaced the resource between the handler's initial resolve
+	// and this critical section, making the cached File ID stale.
+	source, err := s.Resolve(ctx, input.Source.VirtualPath)
+	if err != nil {
+		if errors.Is(err, ErrPathConflict) {
+			return nil, err
+		}
+		return nil, store.ErrNotFound
+	}
+	if source.File == nil {
+		return nil, store.ErrNotFound
+	}
+	destinationExists := false
 	if existing, err := s.Resolve(ctx, destinationPath); err == nil && existing != nil {
+		destinationExists = true
 		if !input.Overwrite {
 			return nil, ErrPreconditionFailed
 		}
@@ -50,21 +61,20 @@ func (s *WebDAVService) Copy(ctx context.Context, input WebDAVCopyInput) (*WebDA
 		return nil, err
 	}
 
-	source := input.Source.File
-	sourcePath := filepath.Join(s.cfg.Storage.Root, filepath.FromSlash(source.StoragePath))
-	sourceFile, err := os.Open(sourcePath)
-	if err != nil {
-		return nil, err
+	policy := ConflictReject
+	if destinationExists && input.Overwrite {
+		policy = ConflictReplace
 	}
-	defer sourceFile.Close()
-
-	result, err := s.putFile(ctx, WebDAVCreateFileInput{
-		VirtualPath:   destinationPath,
-		Body:          sourceFile,
-		ContentLength: source.Size,
-		ContentType:   source.MimeType,
-	})
+	result, err := s.files.copy(ctx, source.File.ID, FileCopyInput{
+		Path:           CleanVirtualPath(path.Dir(destinationPath)),
+		Name:           path.Base(destinationPath),
+		ConflictPolicy: policy,
+	}, false)
 	if err != nil {
+		var conflict *FileConflictError
+		if !input.Overwrite && errors.As(err, &conflict) {
+			return nil, ErrPreconditionFailed
+		}
 		return nil, err
 	}
 	return &WebDAVCopyResult{File: result.File, Created: result.Created}, nil

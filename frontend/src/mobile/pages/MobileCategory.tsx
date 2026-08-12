@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Navigate, useParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import {
@@ -11,6 +11,7 @@ import {
   queryPhotoTimeline,
 } from "../../api/fileApi";
 import { message } from "../../components/base";
+import { appendFolderPage } from "../../workflows/folderPagination";
 import type {
   DriveFile,
   FileQueryDocumentSubtype,
@@ -85,9 +86,14 @@ function MobileCategoryController({ category }: { category: MobileCategoryKey })
   const [moveCurrentDir, setMoveCurrentDir] = useState("/");
   const [moveDirs, setMoveDirs] = useState<DriveFile[]>([]);
   const [moveLoading, setMoveLoading] = useState(false);
+  const [moveLoadingMore, setMoveLoadingMore] = useState(false);
+  const [moveCursor, setMoveCursor] = useState("");
+  const [moveHasMore, setMoveHasMore] = useState(false);
   const [moving, setMoving] = useState(false);
   const [batchDeleteOpen, setBatchDeleteOpen] = useState(false);
   const [batchDeleting, setBatchDeleting] = useState(false);
+  const moveCurrentDirRef = useRef(moveCurrentDir);
+  moveCurrentDirRef.current = moveCurrentDir;
   const shouldLoadList = category !== "photos" || photoMode === "list";
   const selectionContext = [
     "category",
@@ -133,12 +139,14 @@ function MobileCategoryController({ category }: { category: MobileCategoryKey })
     );
 
     setMoveLoading(true);
-    listFiles(moveCurrentDir)
+    listFiles(moveCurrentDir, { sort: "name", limit: 100 })
       .then((response) => {
         if (cancelled) return;
         setMoveDirs(
           (response.files ?? []).filter((file) => file.is_dir && !movingDirIds.has(file.id)),
         );
+        setMoveCursor(response.next_cursor);
+        setMoveHasMore(response.has_more && response.files.every((file) => file.is_dir));
       })
       .catch((err) => {
         if (cancelled) return;
@@ -153,6 +161,27 @@ function MobileCategoryController({ category }: { category: MobileCategoryKey })
       cancelled = true;
     };
   }, [moveCurrentDir, moveRequest, t]);
+
+  const loadMoreMoveDirs = useCallback(() => {
+    if (!moveRequest || !moveCursor || !moveHasMore || moveLoadingMore) return;
+    const movingDirIds = new Set(
+      moveRequest.targets.filter((file) => file.is_dir).map((file) => file.id),
+    );
+    const path = moveCurrentDir;
+    setMoveLoadingMore(true);
+    listFiles(path, { sort: "name", cursor: moveCursor, limit: 100 })
+      .then((response) => {
+        if (moveCurrentDirRef.current !== path) return;
+        const nextDirs = response.files.filter(
+          (file) => file.is_dir && !movingDirIds.has(file.id),
+        );
+        setMoveDirs((current) => appendFolderPage(current, nextDirs));
+        setMoveCursor(response.next_cursor);
+        setMoveHasMore(response.has_more && response.files.every((file) => file.is_dir));
+      })
+      .catch((err) => message.error(err instanceof Error ? err.message : t("drive.loadError")))
+      .finally(() => setMoveLoadingMore(false));
+  }, [moveCurrentDir, moveCursor, moveHasMore, moveLoadingMore, moveRequest, t]);
 
   useEffect(() => {
     if (!shouldLoadList) return;
@@ -528,12 +557,15 @@ function MobileCategoryController({ category }: { category: MobileCategoryKey })
         currentDir={moveCurrentDir}
         dirs={moveDirs}
         loading={moveLoading}
+        loadingMore={moveLoadingMore}
+        hasMore={moveHasMore}
         busy={moving}
         disabledReason={moveDisabledText}
         onClose={() => setMoveRequest(null)}
         onMoveHere={() => void confirmMoveHere()}
         onEnterDir={(dir) => setMoveCurrentDir(joinMobileMovePath(dir.path || "/", dir.name))}
         onGoToDir={setMoveCurrentDir}
+        onLoadMore={loadMoreMoveDirs}
       />
       <MobileConfirmPrompt
         open={batchDeleteOpen}

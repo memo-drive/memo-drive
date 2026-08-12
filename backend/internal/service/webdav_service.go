@@ -14,7 +14,6 @@ import (
 
 var (
 	ErrFileTooLarge        = errors.New("file too large")
-	ErrInsufficientStorage = errors.New("insufficient storage")
 	ErrPreconditionFailed  = errors.New("precondition failed")
 	ErrUnsupportedResource = errors.New("unsupported resource")
 	ErrInvalidWebDAVPath   = errors.New("invalid webdav path")
@@ -33,10 +32,13 @@ func (r *WebDAVResource) IsDir() bool {
 
 // WebDAVService resolves MemoDrive virtual paths for the WebDAV endpoint.
 type WebDAVService struct {
-	cfg      *config.Config
-	store    *store.Store
-	pipeline *PipelineService
-	locks    *webDAVPathLocks
+	cfg       *config.Config
+	store     *store.Store
+	pipeline  *PipelineService
+	mutations *FileMutationService
+	capacity  *CapacityService
+	files     *FileService
+	locks     *filePathLocks
 }
 
 func NewWebDAVService(cfg *config.Config, store *store.Store, pipelines ...*PipelineService) *WebDAVService {
@@ -44,7 +46,17 @@ func NewWebDAVService(cfg *config.Config, store *store.Store, pipelines ...*Pipe
 	if len(pipelines) > 0 {
 		pipeline = pipelines[0]
 	}
-	return &WebDAVService{cfg: cfg, store: store, pipeline: pipeline, locks: newWebDAVPathLocks()}
+	files := NewFileService(cfg, store, nil)
+	files.SetPipeline(pipeline)
+	return &WebDAVService{
+		cfg:       cfg,
+		store:     store,
+		pipeline:  pipeline,
+		mutations: NewFileMutationService(cfg, store, pipeline),
+		capacity:  NewCapacityService(cfg, store),
+		files:     files,
+		locks:     sharedFilePathLocks,
+	}
 }
 
 func (s *WebDAVService) Resolve(ctx context.Context, virtualPath string) (*WebDAVResource, error) {
@@ -96,16 +108,5 @@ func (s *WebDAVService) DownloadPath(resource *WebDAVResource) (*model.File, str
 }
 
 func (s *WebDAVService) StorageUsage(ctx context.Context) (*StorageUsage, error) {
-	used, err := s.store.TotalActiveFileSize(ctx)
-	if err != nil {
-		return nil, err
-	}
-	total, err := filesystemTotalBytes(s.cfg.Storage.Root)
-	if err != nil {
-		return nil, err
-	}
-	return &StorageUsage{
-		UsedBytes:  used,
-		TotalBytes: total,
-	}, nil
+	return NewFileService(s.cfg, s.store, nil).StorageUsage(ctx)
 }

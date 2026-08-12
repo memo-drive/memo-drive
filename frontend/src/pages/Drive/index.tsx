@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import {
@@ -6,18 +6,23 @@ import {
 	createFolder,
 	deleteFile,
 	downloadUrl,
+	folderZIPDownloadUrl,
 	listFiles,
 	renameFile,
 	searchFiles,
 } from "../../api/fileApi";
+import { prepareDirectoryUpload } from "../../api/uploadApi";
 import { AIFloatyBall } from "../../components/AIAssistant/AIFloatyBall";
 import { Button, message, Modal } from "../../components/base";
 import { FilePreview } from "../../components/FilePreview/FilePreview";
+import { VersionHistoryDialog } from "../../components/FileVersion/VersionHistoryDialog";
 import previewStyles from "../../components/FilePreview/FilePreview.module.css";
 import { FileList } from "../../components/FileManager/FileList";
 import { MoveDialog } from "../../components/FileManager/MoveDialog";
 import { SearchResultList } from "../../components/FileManager/SearchResultList";
+import { UploadConflictDialog } from "../../components/UploadConflict/UploadConflictDialog";
 import { useChunkedUpload } from "../../hooks/useChunkedUpload";
+import { useUploadConflictResolver } from "../../hooks/useUploadConflictResolver";
 import { useFileStore } from "../../stores/fileStore";
 import type { DriveFile, FileSearchHit } from "../../types";
 import {
@@ -46,10 +51,18 @@ import {
 	startDriveFolderCreate,
 	startDriveMarkdownCreate,
 	startDriveMove,
+	startDriveVersionHistory,
 	startDriveRename,
 	type DriveCrumb,
 	type DrivePreviewBadgeTone,
 } from "../../workflows/driveWorkflow";
+import { appendFolderPage } from "../../workflows/folderPagination";
+import {
+	droppedDirectoryUploadEntries,
+	matchPreparedDirectoryEntries,
+	selectedDirectoryUploadEntries,
+	type LocalDirectoryEntry,
+} from "../../workflows/directoryUploadWorkflow";
 import styles from "./index.module.css";
 
 const MAX_CRUMB_LEVELS = 3;
@@ -66,6 +79,7 @@ export function DrivePage() {
 		setSelectedFile,
 	} = useFileStore();
 	const fileInputRef = useRef<HTMLInputElement | null>(null);
+	const directoryInputRef = useRef<HTMLInputElement | null>(null);
 	const [error, setError] = useState("");
 	const [query, setQuery] = useState("");
 	const [searchHits, setSearchHits] = useState<FileSearchHit[] | null>(null);
@@ -84,13 +98,21 @@ export function DrivePage() {
 	const [newName, setNewName] = useState("");
 	const [renaming, setRenaming] = useState(false);
 	const [moveTarget, setMoveTarget] = useState<DriveFile | null>(null);
+	const [copyTarget, setCopyTarget] = useState<DriveFile | null>(null);
+	const [versionHistoryTarget, setVersionHistoryTarget] = useState<DriveFile | null>(null);
 	const [enteringFolderId, setEnteringFolderId] = useState<string | null>(null);
+	const [nextCursor, setNextCursor] = useState("");
+	const [hasMore, setHasMore] = useState(false);
+	const [loadingMore, setLoadingMore] = useState(false);
 	const { upload } = useChunkedUpload(() => {
 		void refresh();
 	});
+	const uploadConflicts = useUploadConflictResolver();
 	const searchSerial = useRef(0);
 	const enteringFolderIdRef = useRef<string | null>(null);
 	const enteringPathRef = useRef<string | null>(null);
+	const currentPathRef = useRef(currentPath);
+	currentPathRef.current = currentPath;
 
 	const crumbs = buildDriveCrumbs(
 		currentPath,
@@ -101,8 +123,10 @@ export function DrivePage() {
 
 	async function refresh(path = currentPath) {
 		try {
-			const result = await listFiles(path);
+			const result = await listFiles(path, { limit: 100 });
 			setFiles(result.files);
+			setNextCursor(result.next_cursor);
+			setHasMore(result.has_more);
 			setError("");
 		} catch (err) {
 			setError(err instanceof Error ? err.message : t("drive.loadError"));
@@ -114,6 +138,23 @@ export function DrivePage() {
 			}
 		}
 	}
+
+	const loadMore = useCallback(async () => {
+		if (!hasMore || !nextCursor || loadingMore) return;
+		const path = currentPath;
+		setLoadingMore(true);
+		try {
+			const result = await listFiles(path, { cursor: nextCursor, limit: 100 });
+			if (currentPathRef.current !== path) return;
+			setFiles(appendFolderPage(files, result.files));
+			setNextCursor(result.next_cursor);
+			setHasMore(result.has_more);
+		} catch (err) {
+			setError(err instanceof Error ? err.message : t("drive.loadError"));
+		} finally {
+			setLoadingMore(false);
+		}
+	}, [currentPath, files, hasMore, loadingMore, nextCursor, setFiles, t]);
 
 	useEffect(() => {
 		void refresh(currentPath);
@@ -208,8 +249,7 @@ export function DrivePage() {
 	}
 
 	function onDownload(file: DriveFile) {
-		if (file.is_dir) return;
-		window.open(downloadUrl(file.id), "_self");
+		window.open(file.is_dir ? folderZIPDownloadUrl(file.id) : downloadUrl(file.id), "_self");
 	}
 
 	function onEdit(file: DriveFile) {
@@ -276,17 +316,88 @@ export function DrivePage() {
 		fileInputRef.current?.click();
 	}
 
+	function triggerDirectoryUpload() {
+		directoryInputRef.current?.click();
+	}
+
 	async function handleFiles(files: FileList | null) {
 		if (!shouldStartDriveUpload(files)) return;
 		const selected = selectedDriveUploadFiles(files);
-		message.info(
-			t("drive.filesAddedToTransfer", { count: selected.length }),
-		);
-		for (const file of selected) {
-			void upload(file, currentPath).catch((err) => {
-				if (err instanceof Error && err.message === "upload cancelled") return;
-				message.error(`${file.name} 上传失败`);
-			});
+		try {
+			const batch = await uploadConflicts.resolve(selected, currentPath);
+			if (batch.uploads.length > 0) {
+				message.info(
+					t("drive.filesAddedToTransfer", { count: batch.uploads.length }),
+				);
+			}
+			if (batch.skipped > 0) {
+				message.info(t("uploadConflict.skippedSummary", { count: batch.skipped }));
+			}
+			for (const item of batch.uploads) {
+				void upload(item.file, currentPath, item.overwritePolicy).catch((err) => {
+					if (err instanceof Error && err.message === "upload cancelled") return;
+					message.error(t("drive.uploadFailed", { name: item.file.name }));
+				});
+			}
+		} catch (err) {
+			message.error(
+				err instanceof Error ? err.message : t("uploadConflict.preflightFailed"),
+			);
+		}
+	}
+
+	async function handleDirectoryFiles(files: FileList | null) {
+		if (!files || files.length === 0) return;
+		try {
+			await handleDirectoryEntries(selectedDirectoryUploadEntries(files));
+		} catch (err) {
+			message.error(
+				err instanceof Error ? err.message : t("uploadConflict.preflightFailed"),
+			);
+		}
+	}
+
+	async function handleDirectoryEntries(localEntries: LocalDirectoryEntry[]) {
+		try {
+			const response = await prepareDirectoryUpload(currentPath, localEntries);
+			const prepared = matchPreparedDirectoryEntries(localEntries, response);
+			const batch = await uploadConflicts.resolvePrepared(
+				prepared.batchId,
+				prepared.uploads,
+			);
+			if (batch.uploads.length > 0) {
+				message.info(t("drive.filesAddedToTransfer", { count: batch.uploads.length }));
+			}
+			const skipped = batch.skipped + prepared.failures.length;
+			if (skipped > 0) {
+				message.info(t("uploadConflict.skippedSummary", { count: skipped }));
+			}
+			for (const item of batch.uploads) {
+				if (!item.destPath || !item.batchId || !item.relativePath) continue;
+				void upload(item.file, item.destPath, item.overwritePolicy, {
+					batchId: item.batchId,
+					relativePath: item.relativePath,
+				}).catch((err) => {
+					if (err instanceof Error && err.message === "upload cancelled") return;
+					message.error(t("drive.uploadFailed", { name: item.file.name }));
+				});
+			}
+		} catch (err) {
+			message.error(
+				err instanceof Error ? err.message : t("uploadConflict.preflightFailed"),
+			);
+		}
+	}
+
+	async function handleDrop(event: React.DragEvent<HTMLElement>) {
+		event.preventDefault();
+		try {
+			const entries = await droppedDirectoryUploadEntries(event.dataTransfer.items);
+			if (entries.length > 0) await handleDirectoryEntries(entries);
+		} catch (err) {
+			message.error(
+				err instanceof Error ? err.message : t("uploadConflict.preflightFailed"),
+			);
 		}
 	}
 
@@ -341,6 +452,10 @@ export function DrivePage() {
 
 	return (
 		<div className={styles.pageWrapper}>
+			<UploadConflictDialog
+				conflict={uploadConflicts.conflict}
+				onDecision={uploadConflicts.decide}
+			/>
 			<div className={styles.header}>
 				<div className={styles.titleGroup}>
 					<h2>{t("drive.title")}</h2>
@@ -427,6 +542,23 @@ export function DrivePage() {
 							e.target.value = "";
 						}}
 					/>
+					<input
+						ref={directoryInputRef}
+						type="file"
+						multiple
+						{...({ webkitdirectory: "" } as Record<string, string>)}
+						hidden
+						onChange={(event) => {
+							void handleDirectoryFiles(event.currentTarget.files);
+							event.currentTarget.value = "";
+						}}
+					/>
+					<Button variant="secondary" onClick={triggerDirectoryUpload}>
+						<span className="material-symbols-outlined text-[14px]">
+							drive_folder_upload
+						</span>
+						{t("drive.uploadFolder")}
+					</Button>
 					<Button variant="primary" onClick={triggerUpload}>
 						<span className="material-symbols-outlined text-[14px]">
 							upload_file
@@ -438,7 +570,11 @@ export function DrivePage() {
 
 			{/* File list */}
 			<div className={styles.mainGrid}>
-				<section className={styles.fileListSection}>
+				<section
+					className={styles.fileListSection}
+					onDragOver={(event) => event.preventDefault()}
+					onDrop={(event) => void handleDrop(event)}
+				>
 					<div className={styles.fileListInner}>
 						{searchHits === null ? (
 							<FileList
@@ -446,12 +582,17 @@ export function DrivePage() {
 								selectedId={selectedFile?.id}
 								enteringFolderId={enteringFolderId}
 								folderNavigationDisabled={Boolean(enteringFolderId)}
+								hasMore={hasMore}
+								isLoadingMore={loadingMore}
+								onEndReached={loadMore}
 								onOpenFolder={openFolder}
 								onSelect={handleFileClick}
 								onDelete={onDelete}
 								onEdit={onEdit}
 								onRename={onRename}
 								onMove={(file) => setMoveTarget(startDriveMove(file).target)}
+								onCopy={setCopyTarget}
+								onVersionHistory={(file) => setVersionHistoryTarget(startDriveVersionHistory(file)?.target ?? null)}
 								onDownload={onDownload}
 							/>
 						) : (
@@ -614,6 +755,28 @@ export function DrivePage() {
 				target={moveTarget}
 				onClose={() => setMoveTarget(null)}
 				onMoved={handleMoveComplete}
+			/>
+
+			<MoveDialog
+				open={!!copyTarget}
+				target={copyTarget}
+				mode="copy"
+				onClose={() => setCopyTarget(null)}
+				onMoved={async () => {
+					setCopyTarget(null);
+					await refresh();
+				}}
+			/>
+
+			<VersionHistoryDialog
+				open={!!versionHistoryTarget}
+				file={versionHistoryTarget}
+				onClose={() => setVersionHistoryTarget(null)}
+				onRestored={async (file) => {
+					setVersionHistoryTarget(file);
+					if (selectedFile?.id === file.id) setSelectedFile(file);
+					await refresh();
+				}}
 			/>
 
 			{/* File preview modal */}

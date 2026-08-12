@@ -12,6 +12,7 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/memodrive/backend/internal/config"
+	"github.com/memodrive/backend/internal/middleware"
 	"github.com/memodrive/backend/internal/service"
 	"github.com/memodrive/backend/internal/store"
 )
@@ -378,7 +379,7 @@ func webDAVAuthorized(c *fiber.Ctx, cfg config.AuthConfig) (bool, string) {
 	if !ok {
 		return false, "malformed_basic"
 	}
-	if username != "admin" || password != cfg.Password {
+	if username != middleware.AdminIdentity || password != cfg.Password {
 		return false, "invalid_credentials"
 	}
 	return true, ""

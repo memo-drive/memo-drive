@@ -1,11 +1,15 @@
 package handler
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -115,6 +119,789 @@ func TestFileDownloadHeadersAndSuffixRange(t *testing.T) {
 	}
 	if string(body) != "%%EOF" {
 		t.Fatalf("unexpected range body %q", body)
+	}
+}
+
+func TestFileCopyEndpointCreatesDownloadableIndependentFile(t *testing.T) {
+	content := []byte("copy me without sharing storage")
+	app, cleanup := newFileDownloadTestApp(t, content)
+	defer cleanup()
+
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/files/file-1/copy",
+		strings.NewReader(`{"path":"/","name":"sample-copy.pdf","conflict_policy":"reject"}`),
+	)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := app.Test(req)
+	if err != nil {
+		t.Fatalf("copy request failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("expected 201, got %d: %s", resp.StatusCode, body)
+	}
+	var copied struct {
+		File model.File `json:"file"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&copied); err != nil {
+		t.Fatalf("decode copy response: %v", err)
+	}
+	if copied.File.ID == "" || copied.File.ID == "file-1" {
+		t.Fatalf("expected a new File ID, got %q", copied.File.ID)
+	}
+	if copied.File.Name != "sample-copy.pdf" || copied.File.Path != "/" {
+		t.Fatalf("unexpected copied target: %#v", copied.File)
+	}
+	if copied.File.StoragePath == "" || copied.File.StoragePath == "sample.pdf" {
+		t.Fatalf("expected an independent storage object, got %q", copied.File.StoragePath)
+	}
+
+	download, err := app.Test(httptest.NewRequest(http.MethodGet, "/files/"+copied.File.ID+"/download", nil))
+	if err != nil {
+		t.Fatalf("download copied file: %v", err)
+	}
+	defer download.Body.Close()
+	if download.StatusCode != http.StatusOK {
+		t.Fatalf("download copied file status = %d, want %d", download.StatusCode, http.StatusOK)
+	}
+	got, err := io.ReadAll(download.Body)
+	if err != nil {
+		t.Fatalf("read copied content: %v", err)
+	}
+	if string(got) != string(content) {
+		t.Fatalf("copied content = %q, want %q", got, content)
+	}
+}
+
+func TestFileCopyEndpointReportsMissingSourceAsFileNotFound(t *testing.T) {
+	app, cleanup := newFileDownloadTestApp(t, []byte("source"))
+	defer cleanup()
+
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/files/missing/copy",
+		strings.NewReader(`{"path":"/","conflict_policy":"reject"}`),
+	)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := app.Test(req)
+	if err != nil {
+		t.Fatalf("copy missing File: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("copy missing File status = %d, want %d", resp.StatusCode, http.StatusNotFound)
+	}
+	var failure struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&failure); err != nil {
+		t.Fatalf("decode missing File response: %v", err)
+	}
+	if failure.Error.Code != "file_not_found" {
+		t.Fatalf("missing File error code = %q, want file_not_found", failure.Error.Code)
+	}
+}
+
+func TestFileCopyEndpointRejectsOccupiedTargetWithoutChangingIt(t *testing.T) {
+	content := []byte("source remains intact")
+	app, cleanup := newFileDownloadTestApp(t, content)
+	defer cleanup()
+
+	create := httptest.NewRequest(
+		http.MethodPost,
+		"/files/file-1/copy",
+		strings.NewReader(`{"path":"/","name":"occupied.pdf","conflict_policy":"reject"}`),
+	)
+	create.Header.Set("Content-Type", "application/json")
+	created, err := app.Test(create)
+	if err != nil {
+		t.Fatalf("create occupied target: %v", err)
+	}
+	defer created.Body.Close()
+	if created.StatusCode != http.StatusCreated {
+		t.Fatalf("create occupied target status = %d, want %d", created.StatusCode, http.StatusCreated)
+	}
+	var target struct {
+		File model.File `json:"file"`
+	}
+	if err := json.NewDecoder(created.Body).Decode(&target); err != nil {
+		t.Fatalf("decode occupied target: %v", err)
+	}
+
+	reject := httptest.NewRequest(
+		http.MethodPost,
+		"/files/file-1/copy",
+		strings.NewReader(`{"path":"/","name":"occupied.pdf","conflict_policy":"reject"}`),
+	)
+	reject.Header.Set("Content-Type", "application/json")
+	rejected, err := app.Test(reject)
+	if err != nil {
+		t.Fatalf("reject occupied target: %v", err)
+	}
+	defer rejected.Body.Close()
+	if rejected.StatusCode != http.StatusConflict {
+		body, _ := io.ReadAll(rejected.Body)
+		t.Fatalf("reject status = %d, want %d: %s", rejected.StatusCode, http.StatusConflict, body)
+	}
+	var failure struct {
+		Error struct {
+			Code    string `json:"code"`
+			Details struct {
+				ExistingFileID string `json:"existing_file_id"`
+			} `json:"details"`
+		} `json:"error"`
+	}
+	if err := json.NewDecoder(rejected.Body).Decode(&failure); err != nil {
+		t.Fatalf("decode conflict response: %v", err)
+	}
+	if failure.Error.Code != "path_conflict" || failure.Error.Details.ExistingFileID != target.File.ID {
+		t.Fatalf("unexpected conflict response: %#v", failure.Error)
+	}
+
+	download, err := app.Test(httptest.NewRequest(http.MethodGet, "/files/"+target.File.ID+"/download", nil))
+	if err != nil {
+		t.Fatalf("download occupied target: %v", err)
+	}
+	defer download.Body.Close()
+	got, err := io.ReadAll(download.Body)
+	if err != nil {
+		t.Fatalf("read occupied target: %v", err)
+	}
+	if string(got) != string(content) {
+		t.Fatalf("occupied target changed to %q, want %q", got, content)
+	}
+}
+
+func TestFileCopyEndpointReplacePreservesTargetIDAndSource(t *testing.T) {
+	sourceContent := []byte("new source content")
+	targetContent := []byte("old target")
+	app, cleanup := newFileCopyReplaceTestApp(t, sourceContent, targetContent)
+	defer cleanup()
+
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/files/source/copy",
+		strings.NewReader(`{"path":"/","name":"target.txt","conflict_policy":"replace"}`),
+	)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := app.Test(req)
+	if err != nil {
+		t.Fatalf("replace copy request failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("replace status = %d, want %d: %s", resp.StatusCode, http.StatusOK, body)
+	}
+	var result struct {
+		File model.File `json:"file"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("decode replace response: %v", err)
+	}
+	if result.File.ID != "target" || result.File.Name != "target.txt" {
+		t.Fatalf("replace result = %#v, want preserved target identity", result.File)
+	}
+
+	for _, check := range []struct {
+		id   string
+		want []byte
+	}{
+		{id: "target", want: sourceContent},
+		{id: "source", want: sourceContent},
+	} {
+		download, err := app.Test(httptest.NewRequest(http.MethodGet, "/files/"+check.id+"/download", nil))
+		if err != nil {
+			t.Fatalf("download %s: %v", check.id, err)
+		}
+		got, readErr := io.ReadAll(download.Body)
+		_ = download.Body.Close()
+		if readErr != nil {
+			t.Fatalf("read %s: %v", check.id, readErr)
+		}
+		if string(got) != string(check.want) {
+			t.Fatalf("%s content = %q, want %q", check.id, got, check.want)
+		}
+	}
+}
+
+func TestFileCopyEndpointReplaceRecordsCopyVersionSource(t *testing.T) {
+	app, cleanup := newFileCopyReplaceTestApp(t, []byte("source"), []byte("target"))
+	defer cleanup()
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/files/source/copy",
+		strings.NewReader(`{"path":"/","name":"target.txt","conflict_policy":"replace"}`),
+	)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := app.Test(req)
+	if err != nil {
+		t.Fatalf("replace target with Copy: %v", err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("replace target with Copy status = %d, want 200", resp.StatusCode)
+	}
+	listResp, err := app.Test(httptest.NewRequest(http.MethodGet, "/files/target/versions", nil))
+	if err != nil {
+		t.Fatalf("list Copy target File Versions: %v", err)
+	}
+	defer listResp.Body.Close()
+	var body struct {
+		Versions []model.FileVersion `json:"versions"`
+	}
+	if err := json.NewDecoder(listResp.Body).Decode(&body); err != nil {
+		t.Fatalf("decode Copy target File Versions: %v", err)
+	}
+	if len(body.Versions) != 1 || body.Versions[0].Source != "copy_replace" {
+		t.Fatalf("unexpected Copy target File Versions %#v", body.Versions)
+	}
+}
+
+func TestFileCopyEndpointRenameKeepsBothFiles(t *testing.T) {
+	app, cleanup := newFileDownloadTestApp(t, []byte("same source"))
+	defer cleanup()
+
+	for index, wantName := range []string{"copy.txt", "copy (1).txt"} {
+		policy := "reject"
+		if index > 0 {
+			policy = "rename"
+		}
+		req := httptest.NewRequest(
+			http.MethodPost,
+			"/files/file-1/copy",
+			strings.NewReader(fmt.Sprintf(`{"path":"/","name":"copy.txt","conflict_policy":%q}`, policy)),
+		)
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := app.Test(req)
+		if err != nil {
+			t.Fatalf("copy %d: %v", index, err)
+		}
+		if resp.StatusCode != http.StatusCreated {
+			body, _ := io.ReadAll(resp.Body)
+			_ = resp.Body.Close()
+			t.Fatalf("copy %d status = %d, want %d: %s", index, resp.StatusCode, http.StatusCreated, body)
+		}
+		var result struct {
+			File model.File `json:"file"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			_ = resp.Body.Close()
+			t.Fatalf("decode copy %d: %v", index, err)
+		}
+		_ = resp.Body.Close()
+		if result.File.ID == "file-1" || result.File.Name != wantName {
+			t.Fatalf("copy %d = %#v, want new File named %q", index, result.File, wantName)
+		}
+	}
+}
+
+func TestConcurrentFileCopyRenameKeepsEveryCopy(t *testing.T) {
+	app, cleanup := newFileDownloadTestApp(t, []byte("concurrent copy"))
+	defer cleanup()
+
+	create := httptest.NewRequest(
+		http.MethodPost,
+		"/files/file-1/copy",
+		strings.NewReader(`{"path":"/","name":"copy.txt","conflict_policy":"reject"}`),
+	)
+	create.Header.Set("Content-Type", "application/json")
+	created, err := app.Test(create)
+	if err != nil {
+		t.Fatalf("create initial target: %v", err)
+	}
+	_ = created.Body.Close()
+	if created.StatusCode != http.StatusCreated {
+		t.Fatalf("create initial target status = %d", created.StatusCode)
+	}
+
+	type outcome struct {
+		status int
+		name   string
+		err    error
+	}
+	results := make(chan outcome, 2)
+	start := make(chan struct{})
+	for range 2 {
+		go func() {
+			<-start
+			req := httptest.NewRequest(
+				http.MethodPost,
+				"/files/file-1/copy",
+				strings.NewReader(`{"path":"/","name":"copy.txt","conflict_policy":"rename"}`),
+			)
+			req.Header.Set("Content-Type", "application/json")
+			resp, err := app.Test(req)
+			if err != nil {
+				results <- outcome{err: err}
+				return
+			}
+			defer resp.Body.Close()
+			var body struct {
+				File model.File `json:"file"`
+			}
+			if resp.StatusCode == http.StatusCreated {
+				err = json.NewDecoder(resp.Body).Decode(&body)
+			}
+			results <- outcome{status: resp.StatusCode, name: body.File.Name, err: err}
+		}()
+	}
+	close(start)
+	names := map[string]bool{}
+	for range 2 {
+		result := <-results
+		if result.err != nil || result.status != http.StatusCreated {
+			t.Fatalf("concurrent rename copy = %#v, want 201", result)
+		}
+		names[result.name] = true
+	}
+	if !names["copy (1).txt"] || !names["copy (2).txt"] {
+		t.Fatalf("concurrent copy names = %#v", names)
+	}
+}
+
+func TestFolderCopyEndpointRecursivelyCopiesIndependentTree(t *testing.T) {
+	app, _, cleanup := newBatchFileActionTestApp(t)
+	defer cleanup()
+
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/files/dir-b/copy",
+		strings.NewReader(`{"path":"/","name":"B-copy","conflict_policy":"reject"}`),
+	)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := app.Test(req)
+	if err != nil {
+		t.Fatalf("copy folder: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("copy folder status = %d, want %d: %s", resp.StatusCode, http.StatusCreated, body)
+	}
+	var result struct {
+		File    model.File `json:"file"`
+		Summary struct {
+			Files   int `json:"files"`
+			Folders int `json:"folders"`
+		} `json:"summary"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("decode folder copy response: %v", err)
+	}
+	if result.File.ID == "dir-b" || !result.File.IsDir || result.File.Name != "B-copy" {
+		t.Fatalf("copied root = %#v, want independent B-copy Folder", result.File)
+	}
+	if result.Summary.Files != 2 || result.Summary.Folders != 2 {
+		t.Fatalf("copy summary = %#v, want 2 Files and 2 Folders", result.Summary)
+	}
+
+	root := getFileListPage(t, app, "/files?path=%2FB-copy&sort=name")
+	if len(root.Files) != 2 || !root.Files[0].IsDir || root.Files[0].Name != "sub" || root.Files[1].Name != "foo.txt" {
+		t.Fatalf("copied root children = %#v", root.Files)
+	}
+	sub := getFileListPage(t, app, "/files?path=%2FB-copy%2Fsub&sort=name")
+	if len(sub.Files) != 1 || sub.Files[0].Name != "bar.txt" {
+		t.Fatalf("copied sub children = %#v", sub.Files)
+	}
+	for _, check := range []struct {
+		file model.File
+		old  string
+		want string
+	}{
+		{file: root.Files[1], old: "foo", want: "foo"},
+		{file: sub.Files[0], old: "bar", want: "bar"},
+	} {
+		if check.file.ID == check.old || check.file.StoragePath == "A/B/"+check.file.Name {
+			t.Fatalf("copied File still shares source identity/storage: %#v", check.file)
+		}
+		download, err := app.Test(httptest.NewRequest(http.MethodGet, "/files/"+check.file.ID+"/download", nil))
+		if err != nil {
+			t.Fatalf("download copied %s: %v", check.file.Name, err)
+		}
+		got, readErr := io.ReadAll(download.Body)
+		_ = download.Body.Close()
+		if readErr != nil || string(got) != check.want {
+			t.Fatalf("copied %s content = %q, err=%v, want %q", check.file.Name, got, readErr, check.want)
+		}
+	}
+}
+
+func TestConcurrentFolderCopyRenameKeepsEveryTree(t *testing.T) {
+	app, _, cleanup := newBatchFileActionTestApp(t)
+	defer cleanup()
+
+	type outcome struct {
+		status int
+		name   string
+		err    error
+	}
+	results := make(chan outcome, 2)
+	start := make(chan struct{})
+	for range 2 {
+		go func() {
+			<-start
+			req := httptest.NewRequest(
+				http.MethodPost,
+				"/files/dir-b/copy",
+				strings.NewReader(`{"path":"/","name":"B-copy","conflict_policy":"rename"}`),
+			)
+			req.Header.Set("Content-Type", "application/json")
+			resp, err := app.Test(req)
+			if err != nil {
+				results <- outcome{err: err}
+				return
+			}
+			defer resp.Body.Close()
+			var body struct {
+				File model.File `json:"file"`
+			}
+			if resp.StatusCode == http.StatusCreated {
+				err = json.NewDecoder(resp.Body).Decode(&body)
+			}
+			results <- outcome{status: resp.StatusCode, name: body.File.Name, err: err}
+		}()
+	}
+	close(start)
+	names := map[string]bool{}
+	outcomes := make([]outcome, 0, 2)
+	for range 2 {
+		result := <-results
+		outcomes = append(outcomes, result)
+		names[result.name] = true
+	}
+	for _, result := range outcomes {
+		if result.err != nil || result.status != http.StatusCreated {
+			t.Fatalf("concurrent Folder rename copies = %#v, want two 201 responses", outcomes)
+		}
+	}
+	if !names["B-copy"] || !names["B-copy (1)"] {
+		t.Fatalf("concurrent Folder copy names = %#v", names)
+	}
+}
+
+func TestFolderCopyEndpointRejectsTreeAboveNodeLimit(t *testing.T) {
+	app, cleanup := newFolderCopyLimitTestApp(t, 3)
+	defer cleanup()
+
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/files/folder/copy",
+		strings.NewReader(`{"path":"/","name":"Folder-copy","conflict_policy":"reject"}`),
+	)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := app.Test(req)
+	if err != nil {
+		t.Fatalf("copy over node limit: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusRequestEntityTooLarge {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("copy over node limit status = %d, want %d: %s", resp.StatusCode, http.StatusRequestEntityTooLarge, body)
+	}
+	var failure struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&failure); err != nil {
+		t.Fatalf("decode copy limit response: %v", err)
+	}
+	if failure.Error.Code != "copy_limit_exceeded" {
+		t.Fatalf("copy limit error code = %q, want copy_limit_exceeded", failure.Error.Code)
+	}
+}
+
+func TestFolderCopyEndpointRejectsReplaceWithStableErrorCode(t *testing.T) {
+	app, _, cleanup := newBatchFileActionTestApp(t)
+	defer cleanup()
+	createParent := httptest.NewRequest(http.MethodPost, "/folders", strings.NewReader(`{"path":"/","name":"A"}`))
+	createParent.Header.Set("Content-Type", "application/json")
+	parentResponse, err := app.Test(createParent)
+	if err != nil {
+		t.Fatalf("create Folder Copy parent metadata: %v", err)
+	}
+	_ = parentResponse.Body.Close()
+	if parentResponse.StatusCode != http.StatusCreated {
+		t.Fatalf("create Folder Copy parent status = %d", parentResponse.StatusCode)
+	}
+
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/files/dir-b/copy",
+		strings.NewReader(`{"path":"/A","name":"B","conflict_policy":"replace"}`),
+	)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := app.Test(req)
+	if err != nil {
+		t.Fatalf("replace Folder Copy: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusConflict {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("replace Folder Copy status = %d, want %d: %s", resp.StatusCode, http.StatusConflict, body)
+	}
+	var failure struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&failure); err != nil {
+		t.Fatalf("decode Folder replace response: %v", err)
+	}
+	if failure.Error.Code != "folder_replace_unsupported" {
+		t.Fatalf("Folder replace error code = %q, want folder_replace_unsupported", failure.Error.Code)
+	}
+}
+
+func TestFolderCopyEndpointRollsBackPartialTreeWhenAFileCannotBeRead(t *testing.T) {
+	app, cleanup := newBrokenFolderCopyTestApp(t)
+	defer cleanup()
+
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/files/folder/copy",
+		strings.NewReader(`{"path":"/","name":"Folder-copy","conflict_policy":"reject"}`),
+	)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := app.Test(req)
+	if err != nil {
+		t.Fatalf("copy broken folder: %v", err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode >= http.StatusOK && resp.StatusCode < http.StatusMultipleChoices {
+		t.Fatalf("copy broken folder status = %d, want failure", resp.StatusCode)
+	}
+
+	root := getFileListPage(t, app, "/files?path=%2F&sort=name")
+	for _, file := range root.Files {
+		if file.Name == "Folder-copy" {
+			t.Fatalf("failed copy left partial target visible: %#v", file)
+		}
+	}
+}
+
+func TestFolderDownloadAsZIPStreamsVirtualTree(t *testing.T) {
+	app, _, cleanup := newBatchFileActionTestApp(t)
+	defer cleanup()
+
+	resp, err := app.Test(httptest.NewRequest(http.MethodGet, "/files/dir-b/download?archive=zip", nil))
+	if err != nil {
+		t.Fatalf("download Folder ZIP: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("Folder ZIP status = %d, want %d: %s", resp.StatusCode, http.StatusOK, body)
+	}
+	if got := resp.Header.Get("Content-Type"); got != "application/zip" {
+		t.Fatalf("Folder ZIP content type = %q, want application/zip", got)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read Folder ZIP: %v", err)
+	}
+	reader, err := zip.NewReader(bytes.NewReader(body), int64(len(body)))
+	if err != nil {
+		t.Fatalf("open Folder ZIP: %v", err)
+	}
+	entries := make(map[string]string, len(reader.File))
+	for _, entry := range reader.File {
+		if entry.FileInfo().IsDir() {
+			entries[entry.Name] = ""
+			continue
+		}
+		handle, err := entry.Open()
+		if err != nil {
+			t.Fatalf("open ZIP entry %q: %v", entry.Name, err)
+		}
+		content, readErr := io.ReadAll(handle)
+		_ = handle.Close()
+		if readErr != nil {
+			t.Fatalf("read ZIP entry %q: %v", entry.Name, readErr)
+		}
+		entries[entry.Name] = string(content)
+	}
+	want := map[string]string{
+		"foo.txt":     "foo",
+		"sub/":        "",
+		"sub/bar.txt": "bar",
+	}
+	if !reflect.DeepEqual(entries, want) {
+		t.Fatalf("Folder ZIP entries = %#v, want %#v", entries, want)
+	}
+}
+
+func TestFolderZIPHeadReturnsArchiveHeadersWithoutBodyOrLength(t *testing.T) {
+	app, _, cleanup := newBatchFileActionTestApp(t)
+	defer cleanup()
+
+	resp, err := app.Test(httptest.NewRequest(http.MethodHead, "/files/dir-b/download?archive=zip", nil))
+	if err != nil {
+		t.Fatalf("HEAD Folder ZIP: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("HEAD Folder ZIP status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+	if got := resp.Header.Get("Content-Type"); got != "application/zip" {
+		t.Fatalf("HEAD content type = %q, want application/zip", got)
+	}
+	if got := resp.Header.Get("Content-Disposition"); !strings.Contains(got, "B.zip") {
+		t.Fatalf("HEAD content disposition = %q, want B.zip", got)
+	}
+	if got := resp.Header.Get("Content-Length"); got != "" {
+		t.Fatalf("HEAD content length = %q, want unknown length", got)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read HEAD body: %v", err)
+	}
+	if len(body) != 0 {
+		t.Fatalf("HEAD body length = %d, want 0", len(body))
+	}
+}
+
+func TestFolderZIPRejectsTreeAboveNodeLimitBeforeStreaming(t *testing.T) {
+	app, cleanup := newFolderCopyLimitTestApp(t, 3)
+	defer cleanup()
+
+	resp, err := app.Test(httptest.NewRequest(http.MethodGet, "/files/folder/download?archive=zip", nil))
+	if err != nil {
+		t.Fatalf("download Folder ZIP over node limit: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusRequestEntityTooLarge {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("Folder ZIP over node limit status = %d, want %d: %s", resp.StatusCode, http.StatusRequestEntityTooLarge, body)
+	}
+	var failure struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&failure); err != nil {
+		t.Fatalf("decode archive limit response: %v", err)
+	}
+	if failure.Error.Code != "archive_limit_exceeded" {
+		t.Fatalf("archive limit error code = %q, want archive_limit_exceeded", failure.Error.Code)
+	}
+}
+
+func TestFolderZIPRejectsUncompressedBytesAboveLimitBeforeStreaming(t *testing.T) {
+	app, cleanup := newFolderCopyLimitTestApp(t, 100)
+	defer cleanup()
+
+	resp, err := app.Test(httptest.NewRequest(http.MethodGet, "/files/folder/download?archive=zip", nil))
+	if err != nil {
+		t.Fatalf("download Folder ZIP over byte limit: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusRequestEntityTooLarge {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("Folder ZIP over byte limit status = %d, want %d: %s", resp.StatusCode, http.StatusRequestEntityTooLarge, body)
+	}
+	var failure struct {
+		Error struct {
+			Code    string `json:"code"`
+			Details struct {
+				UncompressedBytes    int64 `json:"uncompressed_bytes"`
+				MaxUncompressedBytes int64 `json:"max_uncompressed_bytes"`
+			} `json:"details"`
+		} `json:"error"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&failure); err != nil {
+		t.Fatalf("decode archive byte limit response: %v", err)
+	}
+	if failure.Error.Code != "archive_limit_exceeded" ||
+		failure.Error.Details.UncompressedBytes != 2 ||
+		failure.Error.Details.MaxUncompressedBytes != 1 {
+		t.Fatalf("archive byte limit response = %#v", failure.Error)
+	}
+}
+
+func TestFolderZIPRejectsUnsafeRelativeEntryPath(t *testing.T) {
+	app, cleanup := newUnsafeFolderZIPTestApp(t)
+	defer cleanup()
+
+	resp, err := app.Test(httptest.NewRequest(http.MethodGet, "/files/folder/download?archive=zip", nil))
+	if err != nil {
+		t.Fatalf("download unsafe Folder ZIP: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusInternalServerError {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("unsafe Folder ZIP status = %d, want %d: %s", resp.StatusCode, http.StatusInternalServerError, body)
+	}
+	var failure struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&failure); err != nil {
+		t.Fatalf("decode unsafe archive response: %v", err)
+	}
+	if failure.Error.Code != "unsafe_archive_path" {
+		t.Fatalf("unsafe archive error code = %q, want unsafe_archive_path", failure.Error.Code)
+	}
+}
+
+func TestFolderZIPPreservesUnicodeNamesAndEmptyFolders(t *testing.T) {
+	app, cleanup := newUnicodeFolderZIPTestApp(t)
+	defer cleanup()
+
+	resp, err := app.Test(httptest.NewRequest(http.MethodGet, "/files/folder/download?archive=zip", nil))
+	if err != nil {
+		t.Fatalf("download Unicode Folder ZIP: %v", err)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read Unicode Folder ZIP: %v", err)
+	}
+	reader, err := zip.NewReader(bytes.NewReader(body), int64(len(body)))
+	if err != nil {
+		t.Fatalf("open Unicode Folder ZIP: %v", err)
+	}
+	entries := map[string]bool{}
+	for _, entry := range reader.File {
+		entries[entry.Name] = true
+		if entry.NonUTF8 {
+			t.Fatalf("ZIP entry %q is marked as non-UTF-8", entry.Name)
+		}
+	}
+	if !entries["说明.txt"] || !entries["空目录/"] {
+		t.Fatalf("Unicode Folder ZIP entries = %#v", entries)
+	}
+}
+
+func TestFolderZIPReportsMissingStorageObjectBeforeStreaming(t *testing.T) {
+	app, cleanup := newBrokenFolderCopyTestApp(t)
+	defer cleanup()
+
+	resp, err := app.Test(httptest.NewRequest(http.MethodGet, "/files/folder/download?archive=zip", nil))
+	if err != nil {
+		t.Fatalf("download Folder ZIP with missing object: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusInternalServerError {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("missing object status = %d, want %d: %s", resp.StatusCode, http.StatusInternalServerError, body)
+	}
+	var failure struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&failure); err != nil {
+		t.Fatalf("decode missing object response: %v", err)
+	}
+	if failure.Error.Code != "archive_read_failed" {
+		t.Fatalf("missing object error code = %q, want archive_read_failed", failure.Error.Code)
 	}
 }
 
@@ -276,6 +1063,311 @@ func TestFileListEndpointDefaultsToNewestUploadsFirst(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("expected newest uploads first %v, got %v", want, got)
 	}
+}
+
+func TestFileListEndpointReturnsFolderFirstCursorPage(t *testing.T) {
+	app, db, cleanup := newEmptyFileHandlerTestApp(t)
+	defer cleanup()
+	storageRoot := t.TempDir()
+	for _, file := range []*model.File{
+		{ID: "file-b", Name: "b.txt", Path: "/Docs", StoragePath: "Docs/b.txt", Size: 1, MimeType: "text/plain", Status: model.FileStatusReady},
+		{ID: "folder-z", Name: "Zulu", Path: "/Docs", StoragePath: "Docs/Zulu", IsDir: true, Status: model.FileStatusReady},
+		{ID: "file-a", Name: "a.txt", Path: "/Docs", StoragePath: "Docs/a.txt", Size: 1, MimeType: "text/plain", Status: model.FileStatusReady},
+	} {
+		createHandlerTestFile(t, db, storageRoot, file, file.Name)
+	}
+
+	resp, err := app.Test(httptest.NewRequest(http.MethodGet, "/files?path=%2FDocs&sort=name&limit=2", nil))
+	if err != nil {
+		t.Fatalf("GET /files first page: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /files first page status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+	var page struct {
+		Files      []model.File `json:"files"`
+		NextCursor string       `json:"next_cursor"`
+		HasMore    bool         `json:"has_more"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&page); err != nil {
+		t.Fatalf("decode first page: %v", err)
+	}
+	if got, want := fileIDs(page.Files), []string{"folder-z", "file-a"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("first page IDs = %v, want folder-first %v", got, want)
+	}
+	if !page.HasMore || page.NextCursor == "" {
+		t.Fatalf("first page pagination = has_more:%t next_cursor:%q, want more items and an opaque cursor", page.HasMore, page.NextCursor)
+	}
+}
+
+func TestFileListEndpointContinuesFromCursorWithoutRepeatingFiles(t *testing.T) {
+	app, db, cleanup := newEmptyFileHandlerTestApp(t)
+	defer cleanup()
+	storageRoot := t.TempDir()
+	for _, file := range []*model.File{
+		{ID: "folder-b", Name: "Beta", Path: "/Docs", StoragePath: "Docs/Beta", IsDir: true, Status: model.FileStatusReady},
+		{ID: "folder-a", Name: "Alpha", Path: "/Docs", StoragePath: "Docs/Alpha", IsDir: true, Status: model.FileStatusReady},
+		{ID: "file-b", Name: "b.txt", Path: "/Docs", StoragePath: "Docs/b.txt", Size: 1, MimeType: "text/plain", Status: model.FileStatusReady},
+		{ID: "file-a", Name: "a.txt", Path: "/Docs", StoragePath: "Docs/a.txt", Size: 1, MimeType: "text/plain", Status: model.FileStatusReady},
+	} {
+		createHandlerTestFile(t, db, storageRoot, file, file.Name)
+	}
+
+	first := getFileListPage(t, app, "/files?path=%2FDocs&sort=name&limit=2")
+	second := getFileListPage(t, app, "/files?path=%2FDocs&sort=name&limit=2&cursor="+url.QueryEscape(first.NextCursor))
+	got := append(fileIDs(first.Files), fileIDs(second.Files)...)
+	want := []string{"folder-a", "folder-b", "file-a", "file-b"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("two pages IDs = %v, want %v", got, want)
+	}
+	if second.HasMore || second.NextCursor != "" {
+		t.Fatalf("last page pagination = has_more:%t next_cursor:%q, want exhausted", second.HasMore, second.NextCursor)
+	}
+}
+
+func TestFileListEndpointPaginatesSizeSortWithStableFileIDTieBreak(t *testing.T) {
+	app, db, cleanup := newEmptyFileHandlerTestApp(t)
+	defer cleanup()
+	storageRoot := t.TempDir()
+	for _, file := range []*model.File{
+		{ID: "folder-z", Name: "Zulu", Path: "/Docs", StoragePath: "Docs/Zulu", IsDir: true, Status: model.FileStatusReady},
+		{ID: "file-c", Name: "small.txt", Path: "/Docs", StoragePath: "Docs/small.txt", Size: 5, MimeType: "text/plain", Status: model.FileStatusReady},
+		{ID: "file-b", Name: "same-b.txt", Path: "/Docs", StoragePath: "Docs/same-b.txt", Size: 10, MimeType: "text/plain", Status: model.FileStatusReady},
+		{ID: "file-a", Name: "same-a.txt", Path: "/Docs", StoragePath: "Docs/same-a.txt", Size: 10, MimeType: "text/plain", Status: model.FileStatusReady},
+	} {
+		createHandlerTestFile(t, db, storageRoot, file, file.Name)
+	}
+
+	first := getFileListPage(t, app, "/files?path=%2FDocs&sort=size&limit=2")
+	second := getFileListPage(t, app, "/files?path=%2FDocs&sort=size&limit=2&cursor="+url.QueryEscape(first.NextCursor))
+	got := append(fileIDs(first.Files), fileIDs(second.Files)...)
+	want := []string{"folder-z", "file-a", "file-b", "file-c"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("size-sorted pages IDs = %v, want %v", got, want)
+	}
+}
+
+func TestFileListEndpointPaginatesCreatedAtSortAfterFolders(t *testing.T) {
+	app, db, cleanup := newEmptyFileHandlerTestApp(t)
+	defer cleanup()
+	storageRoot := t.TempDir()
+	createHandlerTestFile(t, db, storageRoot, &model.File{
+		ID: "folder-old", Name: "Archive", Path: "/Docs", StoragePath: "Docs/Archive", IsDir: true, Status: model.FileStatusReady,
+	}, "")
+	createHandlerTestFile(t, db, storageRoot, &model.File{
+		ID: "file-old", Name: "old.txt", Path: "/Docs", StoragePath: "Docs/old.txt", Size: 1, MimeType: "text/plain", Status: model.FileStatusReady,
+	}, "old")
+	time.Sleep(time.Millisecond)
+	createHandlerTestFile(t, db, storageRoot, &model.File{
+		ID: "file-new", Name: "new.txt", Path: "/Docs", StoragePath: "Docs/new.txt", Size: 1, MimeType: "text/plain", Status: model.FileStatusReady,
+	}, "new")
+
+	first := getFileListPage(t, app, "/files?path=%2FDocs&sort=created_at&limit=2")
+	second := getFileListPage(t, app, "/files?path=%2FDocs&sort=created_at&limit=2&cursor="+url.QueryEscape(first.NextCursor))
+	got := append(fileIDs(first.Files), fileIDs(second.Files)...)
+	want := []string{"folder-old", "file-new", "file-old"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("created-at pages IDs = %v, want %v", got, want)
+	}
+}
+
+func TestFileListEndpointPaginatesUpdatedAtSortAfterFolders(t *testing.T) {
+	app, db, cleanup := newEmptyFileHandlerTestApp(t)
+	defer cleanup()
+	storageRoot := t.TempDir()
+	for _, file := range []*model.File{
+		{ID: "folder", Name: "Archive", Path: "/Docs", StoragePath: "Docs/Archive", IsDir: true, Status: model.FileStatusReady},
+		{ID: "file-a", Name: "a.txt", Path: "/Docs", StoragePath: "Docs/a.txt", Size: 1, MimeType: "text/plain", Status: model.FileStatusReady},
+		{ID: "file-b", Name: "b.txt", Path: "/Docs", StoragePath: "Docs/b.txt", Size: 1, MimeType: "text/plain", Status: model.FileStatusReady},
+	} {
+		createHandlerTestFile(t, db, storageRoot, file, file.Name)
+	}
+	time.Sleep(time.Millisecond)
+	if err := db.UpdateFileStatus(context.Background(), "file-a", model.FileStatusReady); err != nil {
+		t.Fatalf("touch file-a: %v", err)
+	}
+
+	first := getFileListPage(t, app, "/files?path=%2FDocs&sort=updated_at&limit=2")
+	second := getFileListPage(t, app, "/files?path=%2FDocs&sort=updated_at&limit=2&cursor="+url.QueryEscape(first.NextCursor))
+	got := append(fileIDs(first.Files), fileIDs(second.Files)...)
+	want := []string{"folder", "file-a", "file-b"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("updated-at pages IDs = %v, want %v", got, want)
+	}
+}
+
+func TestFileListEndpointRejectsInvalidCursorWithStableErrorCode(t *testing.T) {
+	app, _, cleanup := newEmptyFileHandlerTestApp(t)
+	defer cleanup()
+	resp, err := app.Test(httptest.NewRequest(http.MethodGet, "/files?path=%2FDocs&sort=name&cursor=not-base64", nil))
+	if err != nil {
+		t.Fatalf("GET /files invalid cursor: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("invalid cursor status = %d, want %d", resp.StatusCode, http.StatusBadRequest)
+	}
+	var body struct {
+		Error struct {
+			Code      string `json:"code"`
+			Retryable bool   `json:"retryable"`
+		} `json:"error"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("decode invalid cursor response: %v", err)
+	}
+	if body.Error.Code != "invalid_cursor" || body.Error.Retryable {
+		t.Fatalf("invalid cursor error = %#v, want non-retryable invalid_cursor", body.Error)
+	}
+}
+
+func TestFileListEndpointRejectsUnsupportedSort(t *testing.T) {
+	app, _, cleanup := newEmptyFileHandlerTestApp(t)
+	defer cleanup()
+	resp, err := app.Test(httptest.NewRequest(http.MethodGet, "/files?sort=magic", nil))
+	if err != nil {
+		t.Fatalf("GET /files unsupported sort: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("unsupported sort status = %d, want %d", resp.StatusCode, http.StatusBadRequest)
+	}
+	var body struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("decode unsupported sort response: %v", err)
+	}
+	if body.Error.Code != "invalid_sort" {
+		t.Fatalf("unsupported sort code = %q, want invalid_sort", body.Error.Code)
+	}
+}
+
+func TestFileListCursorCannotBeReusedWithAnotherFolderOrSort(t *testing.T) {
+	app, db, cleanup := newEmptyFileHandlerTestApp(t)
+	defer cleanup()
+	for index := 0; index < 3; index++ {
+		file := &model.File{
+			ID:          fmt.Sprintf("file-%d", index),
+			Name:        fmt.Sprintf("file-%d.txt", index),
+			Path:        "/Docs",
+			StoragePath: fmt.Sprintf("Docs/file-%d.txt", index),
+			Size:        int64(index + 1),
+			MimeType:    "text/plain",
+			Status:      model.FileStatusReady,
+		}
+		if err := db.CreateFile(context.Background(), file); err != nil {
+			t.Fatalf("create file %d: %v", index, err)
+		}
+	}
+	first := getFileListPage(t, app, "/files?path=%2FDocs&sort=name&limit=2")
+	for _, target := range []string{
+		"/files?path=%2FOther&sort=name&limit=2&cursor=" + url.QueryEscape(first.NextCursor),
+		"/files?path=%2FDocs&sort=size&limit=2&cursor=" + url.QueryEscape(first.NextCursor),
+	} {
+		resp, err := app.Test(httptest.NewRequest(http.MethodGet, target, nil))
+		if err != nil {
+			t.Fatalf("GET %s: %v", target, err)
+		}
+		_ = resp.Body.Close()
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Fatalf("GET %s status = %d, want %d", target, resp.StatusCode, http.StatusBadRequest)
+		}
+	}
+}
+
+func TestFileListEndpointAppliesDefaultAndMaximumLimits(t *testing.T) {
+	app, db, cleanup := newEmptyFileHandlerTestApp(t)
+	defer cleanup()
+	for index := 0; index < 501; index++ {
+		file := &model.File{
+			ID:          fmt.Sprintf("file-%03d", index),
+			Name:        fmt.Sprintf("file-%03d.txt", index),
+			Path:        "/Large",
+			StoragePath: fmt.Sprintf("Large/file-%03d.txt", index),
+			Size:        1,
+			MimeType:    "text/plain",
+			Status:      model.FileStatusReady,
+		}
+		if err := db.CreateFile(context.Background(), file); err != nil {
+			t.Fatalf("create file %d: %v", index, err)
+		}
+	}
+
+	defaultPage := getFileListPage(t, app, "/files?path=%2FLarge&sort=name")
+	if len(defaultPage.Files) != 100 || !defaultPage.HasMore {
+		t.Fatalf("default page = %d files, has_more:%t; want 100 and more", len(defaultPage.Files), defaultPage.HasMore)
+	}
+	maxPage := getFileListPage(t, app, "/files?path=%2FLarge&sort=name&limit=9999")
+	if len(maxPage.Files) != 500 || !maxPage.HasMore {
+		t.Fatalf("max page = %d files, has_more:%t; want 500 and more", len(maxPage.Files), maxPage.HasMore)
+	}
+}
+
+func TestFileListCursorRemainsUsableWhenFolderChangesBetweenPages(t *testing.T) {
+	app, db, cleanup := newEmptyFileHandlerTestApp(t)
+	defer cleanup()
+	for _, name := range []string{"a.txt", "b.txt", "c.txt", "d.txt"} {
+		if err := db.CreateFile(context.Background(), &model.File{
+			ID:          name,
+			Name:        name,
+			Path:        "/Docs",
+			StoragePath: "Docs/" + name,
+			Size:        1,
+			MimeType:    "text/plain",
+			Status:      model.FileStatusReady,
+		}); err != nil {
+			t.Fatalf("create %s: %v", name, err)
+		}
+	}
+	first := getFileListPage(t, app, "/files?path=%2FDocs&sort=name&limit=2")
+	if err := db.SoftDeleteFile(context.Background(), "b.txt", "b.txt"); err != nil {
+		t.Fatalf("delete cursor anchor: %v", err)
+	}
+	for _, name := range []string{"aa.txt", "bb.txt"} {
+		if err := db.CreateFile(context.Background(), &model.File{
+			ID:          name,
+			Name:        name,
+			Path:        "/Docs",
+			StoragePath: "Docs/" + name,
+			Size:        1,
+			MimeType:    "text/plain",
+			Status:      model.FileStatusReady,
+		}); err != nil {
+			t.Fatalf("create concurrent %s: %v", name, err)
+		}
+	}
+
+	second := getFileListPage(t, app, "/files?path=%2FDocs&sort=name&limit=10&cursor="+url.QueryEscape(first.NextCursor))
+	if got, want := fileIDs(second.Files), []string{"bb.txt", "c.txt", "d.txt"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("page after Folder changes IDs = %v, want cursor-successors %v", got, want)
+	}
+}
+
+type fileListPageResponse struct {
+	Files      []model.File `json:"files"`
+	NextCursor string       `json:"next_cursor"`
+	HasMore    bool         `json:"has_more"`
+}
+
+func getFileListPage(t *testing.T, app *fiber.App, target string) fileListPageResponse {
+	t.Helper()
+	resp, err := app.Test(httptest.NewRequest(http.MethodGet, target, nil))
+	if err != nil {
+		t.Fatalf("GET %s: %v", target, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET %s status = %d, want %d", target, resp.StatusCode, http.StatusOK)
+	}
+	var page fileListPageResponse
+	if err := json.NewDecoder(resp.Body).Decode(&page); err != nil {
+		t.Fatalf("decode %s: %v", target, err)
+	}
+	return page
 }
 
 func TestFileQueryEndpointReturnsUnifiedPageShape(t *testing.T) {
@@ -848,8 +1940,18 @@ func TestStorageUsageEndpointReturnsUsage(t *testing.T) {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}
 	var body struct {
-		UsedBytes  int64 `json:"used_bytes"`
-		TotalBytes int64 `json:"total_bytes"`
+		UsedBytes                int64 `json:"used_bytes"`
+		TotalBytes               int64 `json:"total_bytes"`
+		ActiveBytes              int64 `json:"active_bytes"`
+		TrashBytes               int64 `json:"trash_bytes"`
+		VersionBytes             int64 `json:"version_bytes"`
+		TempBytes                int64 `json:"temp_bytes"`
+		AuxiliaryBytes           int64 `json:"auxiliary_bytes"`
+		FilesystemTotalBytes     int64 `json:"filesystem_total_bytes"`
+		FilesystemAvailableBytes int64 `json:"filesystem_available_bytes"`
+		QuotaBytes               int64 `json:"quota_bytes"`
+		ReservedBytes            int64 `json:"reserved_bytes"`
+		UploadAvailableBytes     int64 `json:"upload_available_bytes"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
 		t.Fatalf("decode response: %v", err)
@@ -859,6 +1961,40 @@ func TestStorageUsageEndpointReturnsUsage(t *testing.T) {
 	}
 	if body.TotalBytes <= 0 {
 		t.Fatalf("expected positive total bytes, got %d", body.TotalBytes)
+	}
+	if body.ActiveBytes != 12 || body.TrashBytes != 50 || body.VersionBytes != 0 {
+		t.Fatalf(
+			"category bytes = active:%d trash:%d version:%d, want 12/50/0",
+			body.ActiveBytes,
+			body.TrashBytes,
+			body.VersionBytes,
+		)
+	}
+	if body.FilesystemTotalBytes <= 0 || body.FilesystemAvailableBytes <= 0 {
+		t.Fatalf(
+			"filesystem bytes = total:%d available:%d, want positive",
+			body.FilesystemTotalBytes,
+			body.FilesystemAvailableBytes,
+		)
+	}
+	if body.QuotaBytes != 100 || body.ReservedBytes != 0 {
+		t.Fatalf(
+			"limits = quota:%d reserved:%d, want 100/0",
+			body.QuotaBytes,
+			body.ReservedBytes,
+		)
+	}
+	if body.UploadAvailableBytes != 88 {
+		t.Fatalf("upload available bytes = %d, want 88", body.UploadAvailableBytes)
+	}
+	if body.TempBytes != 18 {
+		t.Fatalf("temp bytes = %d, want upload temp + staging = 18", body.TempBytes)
+	}
+	if body.AuxiliaryBytes <= 13 {
+		t.Fatalf(
+			"auxiliary bytes = %d, want thumbnail plus database bytes",
+			body.AuxiliaryBytes,
+		)
 	}
 }
 
@@ -908,7 +2044,7 @@ func newFileDownloadTestApp(t *testing.T, content []byte) (*fiber.App, func()) {
 	}
 }
 
-func newStorageUsageTestApp(t *testing.T) (*fiber.App, func()) {
+func newFileCopyReplaceTestApp(t *testing.T, sourceContent, targetContent []byte) (*fiber.App, func()) {
 	t.Helper()
 	root := t.TempDir()
 	storageRoot := filepath.Join(root, "files")
@@ -919,9 +2055,204 @@ func newStorageUsageTestApp(t *testing.T) (*fiber.App, func()) {
 			TempDir:      filepath.Join(root, "tmp"),
 			ThumbnailDir: filepath.Join(root, "thumbs"),
 		},
+		FileVersion: config.FileVersionConfig{Enabled: true},
 	}
 	if err := cfg.EnsureDirs(); err != nil {
 		t.Fatalf("ensure dirs: %v", err)
+	}
+	db, err := store.Open(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	createHandlerTestFile(t, db, storageRoot, &model.File{
+		ID: "source", Name: "source.txt", Path: "/", StoragePath: "source.txt",
+		Size: int64(len(sourceContent)), MimeType: "text/plain", Status: model.FileStatusReady,
+	}, string(sourceContent))
+	createHandlerTestFile(t, db, storageRoot, &model.File{
+		ID: "target", Name: "target.txt", Path: "/", StoragePath: "target.txt",
+		Size: int64(len(targetContent)), MimeType: "text/plain", Status: model.FileStatusReady,
+	}, string(targetContent))
+
+	app := fiber.New()
+	NewFileHandler(service.NewFileService(cfg, db, nil), nil).Register(app)
+	return app, func() { _ = db.Close() }
+}
+
+func newFolderCopyLimitTestApp(t *testing.T, maxNodes int) (*fiber.App, func()) {
+	t.Helper()
+	root := t.TempDir()
+	storageRoot := filepath.Join(root, "files")
+	cfg := &config.Config{
+		Storage: config.StorageConfig{
+			Root:                          storageRoot,
+			DBPath:                        filepath.Join(root, "db", "memodrive.db"),
+			TempDir:                       filepath.Join(root, "tmp"),
+			ThumbnailDir:                  filepath.Join(root, "thumbs"),
+			FolderCopyMaxNodes:            maxNodes,
+			FolderZIPMaxNodes:             maxNodes,
+			FolderZIPMaxUncompressedBytes: 1,
+		},
+	}
+	if err := cfg.EnsureDirs(); err != nil {
+		t.Fatalf("ensure dirs: %v", err)
+	}
+	db, err := store.Open(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	for _, file := range []*model.File{
+		{ID: "folder", Name: "Folder", Path: "/", StoragePath: "Folder", IsDir: true, Status: model.FileStatusReady},
+		{ID: "file-a", Name: "a.txt", Path: "/Folder", StoragePath: "Folder/a.txt", Size: 1, MimeType: "text/plain", Status: model.FileStatusReady},
+		{ID: "sub", Name: "Sub", Path: "/Folder", StoragePath: "Folder/Sub", IsDir: true, Status: model.FileStatusReady},
+		{ID: "file-b", Name: "b.txt", Path: "/Folder/Sub", StoragePath: "Folder/Sub/b.txt", Size: 1, MimeType: "text/plain", Status: model.FileStatusReady},
+	} {
+		createHandlerTestFile(t, db, storageRoot, file, "x")
+	}
+	app := fiber.New()
+	NewFileHandler(service.NewFileService(cfg, db, nil), nil).Register(app)
+	return app, func() { _ = db.Close() }
+}
+
+func newBrokenFolderCopyTestApp(t *testing.T) (*fiber.App, func()) {
+	t.Helper()
+	root := t.TempDir()
+	storageRoot := filepath.Join(root, "files")
+	cfg := &config.Config{
+		Storage: config.StorageConfig{
+			Root:               storageRoot,
+			DBPath:             filepath.Join(root, "db", "memodrive.db"),
+			TempDir:            filepath.Join(root, "tmp"),
+			ThumbnailDir:       filepath.Join(root, "thumbs"),
+			FolderCopyMaxNodes: 100,
+		},
+	}
+	if err := cfg.EnsureDirs(); err != nil {
+		t.Fatalf("ensure dirs: %v", err)
+	}
+	db, err := store.Open(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	createHandlerTestFile(t, db, storageRoot, &model.File{
+		ID: "folder", Name: "Folder", Path: "/", StoragePath: "Folder", IsDir: true, Status: model.FileStatusReady,
+	}, "")
+	createHandlerTestFile(t, db, storageRoot, &model.File{
+		ID: "good", Name: "a-good.txt", Path: "/Folder", StoragePath: "Folder/a-good.txt",
+		Size: 4, MimeType: "text/plain", Status: model.FileStatusReady,
+	}, "good")
+	if err := db.CreateFile(context.Background(), &model.File{
+		ID: "broken", Name: "z-broken.txt", Path: "/Folder", StoragePath: "Folder/z-broken.txt",
+		Size: 6, MimeType: "text/plain", Status: model.FileStatusReady,
+	}); err != nil {
+		t.Fatalf("create broken File metadata: %v", err)
+	}
+
+	app := fiber.New()
+	NewFileHandler(service.NewFileService(cfg, db, nil), nil).Register(app)
+	return app, func() { _ = db.Close() }
+}
+
+func newUnsafeFolderZIPTestApp(t *testing.T) (*fiber.App, func()) {
+	t.Helper()
+	root := t.TempDir()
+	storageRoot := filepath.Join(root, "files")
+	cfg := &config.Config{
+		Storage: config.StorageConfig{
+			Root:                          storageRoot,
+			DBPath:                        filepath.Join(root, "db", "memodrive.db"),
+			TempDir:                       filepath.Join(root, "tmp"),
+			ThumbnailDir:                  filepath.Join(root, "thumbs"),
+			FolderZIPMaxNodes:             100,
+			FolderZIPMaxUncompressedBytes: 1024,
+		},
+	}
+	if err := cfg.EnsureDirs(); err != nil {
+		t.Fatalf("ensure dirs: %v", err)
+	}
+	db, err := store.Open(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	createHandlerTestFile(t, db, storageRoot, &model.File{
+		ID: "folder", Name: "Folder", Path: "/", StoragePath: "Folder", IsDir: true, Status: model.FileStatusReady,
+	}, "")
+	createHandlerTestFile(t, db, storageRoot, &model.File{
+		ID: "unsafe", Name: "escape.txt", Path: "/Folder/../outside", StoragePath: "unsafe.txt",
+		Size: 6, MimeType: "text/plain", Status: model.FileStatusReady,
+	}, "escape")
+
+	app := fiber.New()
+	NewFileHandler(service.NewFileService(cfg, db, nil), nil).Register(app)
+	return app, func() { _ = db.Close() }
+}
+
+func newUnicodeFolderZIPTestApp(t *testing.T) (*fiber.App, func()) {
+	t.Helper()
+	root := t.TempDir()
+	storageRoot := filepath.Join(root, "files")
+	cfg := &config.Config{
+		Storage: config.StorageConfig{
+			Root:                          storageRoot,
+			DBPath:                        filepath.Join(root, "db", "memodrive.db"),
+			TempDir:                       filepath.Join(root, "tmp"),
+			ThumbnailDir:                  filepath.Join(root, "thumbs"),
+			FolderZIPMaxNodes:             100,
+			FolderZIPMaxUncompressedBytes: 1024,
+		},
+	}
+	if err := cfg.EnsureDirs(); err != nil {
+		t.Fatalf("ensure dirs: %v", err)
+	}
+	db, err := store.Open(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	for _, file := range []*model.File{
+		{ID: "folder", Name: "资料", Path: "/", StoragePath: "资料", IsDir: true, Status: model.FileStatusReady},
+		{ID: "empty", Name: "空目录", Path: "/资料", StoragePath: "资料/空目录", IsDir: true, Status: model.FileStatusReady},
+		{ID: "readme", Name: "说明.txt", Path: "/资料", StoragePath: "资料/说明.txt", Size: 6, MimeType: "text/plain", Status: model.FileStatusReady},
+	} {
+		content := ""
+		if !file.IsDir {
+			content = "说明"
+		}
+		createHandlerTestFile(t, db, storageRoot, file, content)
+	}
+
+	app := fiber.New()
+	NewFileHandler(service.NewFileService(cfg, db, nil), nil).Register(app)
+	return app, func() { _ = db.Close() }
+}
+
+func newStorageUsageTestApp(t *testing.T) (*fiber.App, func()) {
+	t.Helper()
+	root := t.TempDir()
+	storageRoot := filepath.Join(root, "files")
+	cfg := &config.Config{
+		Storage: config.StorageConfig{
+			Root:           storageRoot,
+			DBPath:         filepath.Join(root, "db", "memodrive.db"),
+			TempDir:        filepath.Join(root, "tmp"),
+			ThumbnailDir:   filepath.Join(root, "thumbs"),
+			QuotaBytes:     100,
+			TempLimitBytes: 200,
+		},
+	}
+	if err := cfg.EnsureDirs(); err != nil {
+		t.Fatalf("ensure dirs: %v", err)
+	}
+	stagingDir := filepath.Join(storageRoot, ".staging", "mutation-1")
+	if err := os.MkdirAll(stagingDir, 0o755); err != nil {
+		t.Fatalf("mkdir staging: %v", err)
+	}
+	for filePath, content := range map[string]string{
+		filepath.Join(cfg.Storage.TempDir, "upload.part"):       "1234567",
+		filepath.Join(stagingDir, "payload"):                    "12345678901",
+		filepath.Join(cfg.Storage.ThumbnailDir, "preview.webp"): "1234567890123",
+	} {
+		if err := os.WriteFile(filePath, []byte(content), 0o644); err != nil {
+			t.Fatalf("write usage fixture %s: %v", filePath, err)
+		}
 	}
 	db, err := store.Open(context.Background(), cfg)
 	if err != nil {

@@ -40,6 +40,13 @@ type BatchResult struct {
 	Failed    int `json:"failed"`
 }
 
+// FileListPage is one cursor-addressable page of direct Folder children.
+type FileListPage struct {
+	Files      []model.File `json:"files"`
+	NextCursor string       `json:"next_cursor"`
+	HasMore    bool         `json:"has_more"`
+}
+
 // NewFileService creates a new FileService.
 func NewFileService(cfg *config.Config, store *store.Store, vectorDB vectordb.VectorStore) *FileService {
 	return &FileService{cfg: cfg, store: store, vectorDB: vectorDB}
@@ -47,6 +54,18 @@ func NewFileService(cfg *config.Config, store *store.Store, vectorDB vectordb.Ve
 
 func (s *FileService) SetPipeline(pipeline *PipelineService) {
 	s.pipeline = pipeline
+}
+
+func (s *FileService) PreflightConflicts(
+	ctx context.Context,
+	parentPath string,
+	names []string,
+) ([]FileConflictPreflightItem, error) {
+	return (fileConflictResolver{store: s.store}).Preflight(
+		ctx,
+		CleanVirtualPath(parentPath),
+		names,
+	)
 }
 
 func (s *FileService) List(ctx context.Context, dirPath, sort string) ([]model.File, error) {
@@ -60,6 +79,20 @@ func (s *FileService) List(ctx context.Context, dirPath, sort string) ([]model.F
 	s.attachMetadata(ctx, files)
 	log.Printf("level=debug component=file event=list_complete path=%q sort=%q count=%d duration_ms=%d", cleanPath, sort, len(files), time.Since(started).Milliseconds())
 	return files, nil
+}
+
+// ListPage returns one bounded page of direct Folder children.
+func (s *FileService) ListPage(ctx context.Context, dirPath, sort, cursor string, limit int) (*FileListPage, error) {
+	started := time.Now()
+	cleanPath := CleanVirtualPath(dirPath)
+	files, nextCursor, hasMore, err := s.store.ListFilesPage(ctx, cleanPath, sort, cursor, limit)
+	if err != nil {
+		log.Printf("level=error component=file event=list_page_failed path=%q sort=%q err=%q", cleanPath, sort, err)
+		return nil, err
+	}
+	s.attachMetadata(ctx, files)
+	log.Printf("level=debug component=file event=list_page_complete path=%q sort=%q count=%d has_more=%t duration_ms=%d", cleanPath, sort, len(files), hasMore, time.Since(started).Milliseconds())
+	return &FileListPage{Files: files, NextCursor: nextCursor, HasMore: hasMore}, nil
 }
 
 func (s *FileService) Query(ctx context.Context, req FileQueryRequest) (*FileQueryResponse, error) {
@@ -393,6 +426,9 @@ func (s *FileService) RegisterUploadedFile(ctx context.Context, name, destPath, 
 }
 
 func mapStorePathConflict(err error) error {
+	if errors.Is(err, ErrPathConflict) {
+		return err
+	}
 	if errors.Is(err, store.ErrPathConflict) {
 		return fmt.Errorf("%w: %v", ErrPathConflict, err)
 	}
@@ -431,10 +467,10 @@ func CleanVirtualPath(value string) string {
 func SafeName(value string) string {
 	value = strings.TrimSpace(strings.ReplaceAll(value, "\\", "/"))
 	value = path.Base(value)
-	value = strings.Trim(value, ". ")
+	value = strings.TrimRight(value, ". ")
 	replacer := strings.NewReplacer("/", "_", "\x00", "", ":", "-", "*", "-", "?", "", "\"", "'", "<", "(", ">", ")", "|", "-")
 	value = replacer.Replace(value)
-	if value == "." || value == ".." {
+	if value == "." || value == ".." || strings.Trim(value, ". ") == "" {
 		return ""
 	}
 	return value

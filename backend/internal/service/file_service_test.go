@@ -319,6 +319,34 @@ func TestUpdateMarkdownContentUpdatesFileAndCleansPreviousIndex(t *testing.T) {
 	assertDeletedVectorIDs(t, vectors.deletedIDs, []string{indexing.ChunkID(file.ID, 0), indexing.ChunkID(file.ID, 1)})
 }
 
+func TestUpdateMarkdownContentRecordsMarkdownSaveVersionSource(t *testing.T) {
+	service, db, root := newFileServiceTestHarness(t)
+	service.cfg.FileVersion.Enabled = true
+	file := createServiceTestFile(t, db, root, &model.File{
+		ID:          "versioned-note",
+		Name:        "note.md",
+		Path:        "/",
+		StoragePath: "note.md",
+		Size:        4,
+		MimeType:    "text/markdown",
+		Status:      model.FileStatusReady,
+	}, "base")
+	base, err := service.MarkdownContent(context.Background(), file.ID)
+	if err != nil {
+		t.Fatalf("read Markdown before save: %v", err)
+	}
+	if _, err := service.UpdateMarkdownContent(context.Background(), file.ID, "next", base.UpdatedAt); err != nil {
+		t.Fatalf("save Markdown: %v", err)
+	}
+	versions, err := service.ListVersions(context.Background(), file.ID)
+	if err != nil {
+		t.Fatalf("list Markdown File Versions: %v", err)
+	}
+	if len(versions) != 1 || versions[0].Source != "markdown_save" {
+		t.Fatalf("unexpected Markdown File Versions %#v", versions)
+	}
+}
+
 func TestUpdateMarkdownContentRejectsOversizedContent(t *testing.T) {
 	service, db, root := newFileServiceTestHarness(t)
 	file := createServiceTestFile(t, db, root, &model.File{
@@ -363,6 +391,53 @@ func TestUpdateMarkdownContentIgnoresPipelineStatusTimestampChanges(t *testing.T
 
 	if _, err := service.UpdateMarkdownContent(context.Background(), file.ID, "changed", baseContent.UpdatedAt); err != nil {
 		t.Fatalf("UpdateMarkdownContent should ignore status-only updated_at changes: %v", err)
+	}
+}
+
+func TestConcurrentMarkdownSavesWithSameBaseVersionAllowOneWriter(t *testing.T) {
+	service, db, root := newFileServiceTestHarness(t)
+	file := createServiceTestFile(t, db, root, &model.File{
+		ID:          "note",
+		Name:        "note.md",
+		Path:        "/",
+		StoragePath: "note.md",
+		Size:        4,
+		MimeType:    "text/markdown",
+		Status:      model.FileStatusReady,
+	}, "base")
+	base, err := service.MarkdownContent(context.Background(), file.ID)
+	if err != nil {
+		t.Fatalf("read base markdown content: %v", err)
+	}
+	time.Sleep(2 * time.Millisecond)
+
+	start := make(chan struct{})
+	results := make(chan error, 2)
+	for _, content := range []string{"first", "second"} {
+		content := content
+		go func() {
+			<-start
+			_, err := service.UpdateMarkdownContent(context.Background(), file.ID, content, base.UpdatedAt)
+			results <- err
+		}()
+	}
+	close(start)
+
+	succeeded := 0
+	conflicted := 0
+	for i := 0; i < 2; i++ {
+		err := <-results
+		switch {
+		case err == nil:
+			succeeded++
+		case errors.Is(err, ErrMarkdownConflict):
+			conflicted++
+		default:
+			t.Fatalf("unexpected concurrent Markdown save error: %v", err)
+		}
+	}
+	if succeeded != 1 || conflicted != 1 {
+		t.Fatalf("expected one save and one optimistic-lock conflict, got %d successes and %d conflicts", succeeded, conflicted)
 	}
 }
 

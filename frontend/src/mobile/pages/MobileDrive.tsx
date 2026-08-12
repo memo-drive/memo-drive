@@ -1,20 +1,25 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useLocation } from "react-router-dom";
 import {
   batchDeleteFiles,
   batchMoveFiles,
   createFolder,
+	copyFile,
   deleteFile,
   downloadUrl,
+	folderZIPDownloadUrl,
   listFiles,
   moveFile,
   renameFile,
   searchFiles,
 } from "../../api/fileApi";
+import { prepareDirectoryUpload } from "../../api/uploadApi";
 import type { DriveFile, FileSearchHit } from "../../types";
 import { message } from "../../components/base";
+import { VersionHistoryDialog } from "../../components/FileVersion/VersionHistoryDialog";
 import { useChunkedUpload } from "../../hooks/useChunkedUpload";
+import { useUploadConflictResolver } from "../../hooks/useUploadConflictResolver";
 import {
   buildDriveSearchRequest,
   canSubmitDriveFolder,
@@ -23,11 +28,20 @@ import {
   driveFolderPayloadName,
   driveRenameErrorKey,
   driveRenamePayloadName,
+  selectedDriveUploadFiles,
   startDriveFolderEntry,
   startDriveFolderCreate,
+	startDriveVersionHistory,
 } from "../../workflows/driveWorkflow";
+import { appendFolderPage } from "../../workflows/folderPagination";
+import { buildCopyRequest } from "../../workflows/copyWorkflow";
+import {
+  matchPreparedDirectoryEntries,
+  selectedDirectoryUploadEntries,
+} from "../../workflows/directoryUploadWorkflow";
 import { MobileConfirmPrompt } from "../components/ConfirmPrompt/MobileConfirmPrompt";
 import { UploadFab } from "../components/UploadFab/UploadFab";
+import { MobileUploadConflictSheet } from "../components/UploadConflictSheet/MobileUploadConflictSheet";
 import { useMobileShellChrome } from "../layouts/MobileShell";
 import { mobileBatchResultFeedback } from "../selection/mobileBatchResult";
 import { joinMobileMovePath, mobileMoveDisabledReason } from "../selection/mobileMoveTarget";
@@ -43,11 +57,10 @@ import {
 } from "../selection/mobileMultiSelect";
 import { mobilePathFromSearch } from "../utils/mobilePath";
 import { MobileDriveView } from "./MobileDriveView";
-import { startMobileDriveUploads } from "./mobileUpload";
 import styles from "./MobilePlaceholder.module.css";
 
 type MobileMoveRequest = {
-  kind: "single" | "batch";
+	kind: "single" | "batch" | "copy";
   targets: DriveFile[];
   ids: string[];
 };
@@ -61,6 +74,9 @@ export function MobileDrivePage() {
   const selectionContext = `files:${currentPath}`;
   const [files, setFiles] = useState<DriveFile[]>([]);
   const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [nextCursor, setNextCursor] = useState("");
+  const [hasMore, setHasMore] = useState(false);
   const [error, setError] = useState("");
   const [searchDraft, setSearchDraft] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
@@ -69,6 +85,7 @@ export function MobileDrivePage() {
   const [searchError, setSearchError] = useState("");
   const [includeSemantic, setIncludeSemantic] = useState(false);
   const [actionFile, setActionFile] = useState<DriveFile | null>(null);
+	const [versionHistoryFile, setVersionHistoryFile] = useState<DriveFile | null>(null);
   const [deleteConfirmFile, setDeleteConfirmFile] = useState<DriveFile | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [renameTarget, setRenameTarget] = useState<DriveFile | null>(null);
@@ -85,23 +102,33 @@ export function MobileDrivePage() {
   const [moveCurrentDir, setMoveCurrentDir] = useState("/");
   const [moveDirs, setMoveDirs] = useState<DriveFile[]>([]);
   const [moveLoading, setMoveLoading] = useState(false);
+  const [moveLoadingMore, setMoveLoadingMore] = useState(false);
+  const [moveNextCursor, setMoveNextCursor] = useState("");
+  const [moveHasMore, setMoveHasMore] = useState(false);
   const [moving, setMoving] = useState(false);
   const [batchDeleteOpen, setBatchDeleteOpen] = useState(false);
   const [batchDeleting, setBatchDeleting] = useState(false);
   const enteringFolderIdRef = useRef<string | null>(null);
   const enteringPathRef = useRef<string | null>(null);
+  const currentPathRef = useRef(currentPath);
+  const moveCurrentDirRef = useRef(moveCurrentDir);
+  currentPathRef.current = currentPath;
+  moveCurrentDirRef.current = moveCurrentDir;
   const { upload } = useChunkedUpload(() => {
     void refresh();
   });
+  const uploadConflicts = useUploadConflictResolver();
 
   function refresh() {
     let cancelled = false;
     const path = currentPath;
     setLoading(true);
-    listFiles(path)
+    listFiles(path, { limit: 100 })
       .then((response) => {
         if (cancelled) return;
         setFiles(response.files ?? []);
+        setNextCursor(response.next_cursor);
+        setHasMore(response.has_more);
         setError("");
       })
       .catch((err) => {
@@ -123,32 +150,51 @@ export function MobileDrivePage() {
     };
   }
 
+  const loadMore = useCallback(() => {
+    if (!hasMore || !nextCursor || loadingMore) return;
+    const path = currentPath;
+    setLoadingMore(true);
+    listFiles(path, { cursor: nextCursor, limit: 100 })
+      .then((response) => {
+        if (currentPathRef.current !== path) return;
+        setFiles((current) => appendFolderPage(current, response.files ?? []));
+        setNextCursor(response.next_cursor);
+        setHasMore(response.has_more);
+      })
+      .catch((err) => {
+        setError(err instanceof Error ? err.message : t("drive.loadError"));
+      })
+      .finally(() => setLoadingMore(false));
+  }, [currentPath, hasMore, loadingMore, nextCursor, t]);
+
   useEffect(() => {
     setSelection((current) => resetMobileMultiSelectForContext(current, selectionContext));
   }, [selectionContext]);
 
   useEffect(() => {
     if (!setBottomNavHidden) return;
-    setBottomNavHidden(selection.active);
+    setBottomNavHidden(selection.active || Boolean(uploadConflicts.conflict));
     return () => {
       setBottomNavHidden(false);
     };
-  }, [selection.active, setBottomNavHidden]);
+  }, [selection.active, setBottomNavHidden, uploadConflicts.conflict]);
 
   useEffect(() => {
     if (!moveRequest) return;
     let cancelled = false;
-    const movingDirIds = new Set(
-      moveRequest.targets.filter((file) => file.is_dir).map((file) => file.id),
-    );
+	const movingDirIds = new Set(
+	  moveRequest.kind === "copy" ? [] : moveRequest.targets.filter((file) => file.is_dir).map((file) => file.id),
+	);
 
     setMoveLoading(true);
-    listFiles(moveCurrentDir)
+    listFiles(moveCurrentDir, { sort: "name", limit: 100 })
       .then((response) => {
         if (cancelled) return;
         setMoveDirs(
           (response.files ?? []).filter((file) => file.is_dir && !movingDirIds.has(file.id)),
         );
+        setMoveNextCursor(response.next_cursor);
+        setMoveHasMore(response.has_more && response.files.every((file) => file.is_dir));
       })
       .catch((err) => {
         if (cancelled) return;
@@ -163,6 +209,27 @@ export function MobileDrivePage() {
       cancelled = true;
     };
   }, [moveCurrentDir, moveRequest, t]);
+
+  const loadMoreMoveDirs = useCallback(() => {
+    if (!moveRequest || !moveNextCursor || !moveHasMore || moveLoadingMore) return;
+	const movingDirIds = new Set(
+	  moveRequest.kind === "copy" ? [] : moveRequest.targets.filter((file) => file.is_dir).map((file) => file.id),
+	);
+    const path = moveCurrentDir;
+    setMoveLoadingMore(true);
+    listFiles(path, { sort: "name", cursor: moveNextCursor, limit: 100 })
+      .then((response) => {
+        if (moveCurrentDirRef.current !== path) return;
+        const nextDirs = response.files.filter(
+          (file) => file.is_dir && !movingDirIds.has(file.id),
+        );
+        setMoveDirs((current) => appendFolderPage(current, nextDirs));
+        setMoveNextCursor(response.next_cursor);
+        setMoveHasMore(response.has_more && response.files.every((file) => file.is_dir));
+      })
+      .catch((err) => message.error(err instanceof Error ? err.message : t("drive.loadError")))
+      .finally(() => setMoveLoadingMore(false));
+  }, [moveCurrentDir, moveHasMore, moveLoadingMore, moveNextCursor, moveRequest, t]);
 
   useEffect(() => {
     if (enteringPathRef.current && enteringPathRef.current !== currentPath) {
@@ -243,13 +310,61 @@ export function MobileDrivePage() {
     }
   }
 
-  function handleUploadFiles(selected: FileList | null) {
-    const count = startMobileDriveUploads(selected, currentPath, upload, (file, err) => {
-      if (err instanceof Error && err.message === "upload cancelled") return;
-      message.error(t("drive.uploadFailed", { name: file.name }));
-    });
-    if (count > 0) {
-      message.info(t("drive.filesAddedToTransfer", { count }));
+  async function handleUploadFiles(selected: FileList | null) {
+    const files = selectedDriveUploadFiles(selected);
+    if (files.length === 0) return;
+    try {
+      const batch = await uploadConflicts.resolve(files, currentPath);
+      if (batch.uploads.length > 0) {
+        message.info(t("drive.filesAddedToTransfer", { count: batch.uploads.length }));
+      }
+      if (batch.skipped > 0) {
+        message.info(t("uploadConflict.skippedSummary", { count: batch.skipped }));
+      }
+      for (const item of batch.uploads) {
+        void upload(item.file, currentPath, item.overwritePolicy).catch((err) => {
+          if (err instanceof Error && err.message === "upload cancelled") return;
+          message.error(t("drive.uploadFailed", { name: item.file.name }));
+        });
+      }
+    } catch (err) {
+      message.error(
+        err instanceof Error ? err.message : t("uploadConflict.preflightFailed"),
+      );
+    }
+  }
+
+  async function handleDirectoryFiles(selected: FileList | null) {
+    if (!selected || selected.length === 0) return;
+    try {
+      const localEntries = selectedDirectoryUploadEntries(selected);
+      const response = await prepareDirectoryUpload(currentPath, localEntries);
+      const prepared = matchPreparedDirectoryEntries(localEntries, response);
+      const batch = await uploadConflicts.resolvePrepared(
+        prepared.batchId,
+        prepared.uploads,
+      );
+      if (batch.uploads.length > 0) {
+        message.info(t("drive.filesAddedToTransfer", { count: batch.uploads.length }));
+      }
+      const skipped = batch.skipped + prepared.failures.length;
+      if (skipped > 0) {
+        message.info(t("uploadConflict.skippedSummary", { count: skipped }));
+      }
+      for (const item of batch.uploads) {
+        if (!item.destPath || !item.batchId || !item.relativePath) continue;
+        void upload(item.file, item.destPath, item.overwritePolicy, {
+          batchId: item.batchId,
+          relativePath: item.relativePath,
+        }).catch((err) => {
+          if (err instanceof Error && err.message === "upload cancelled") return;
+          message.error(t("drive.uploadFailed", { name: item.file.name }));
+        });
+      }
+    } catch (err) {
+      message.error(
+        err instanceof Error ? err.message : t("uploadConflict.preflightFailed"),
+      );
     }
   }
 
@@ -346,6 +461,10 @@ export function MobileDrivePage() {
     openMoveRequest({ kind: "single", targets: [file], ids: [file.id] });
   }
 
+	function requestCopy(file: DriveFile) {
+		openMoveRequest({ kind: "copy", targets: [file], ids: [file.id] });
+	}
+
   function requestBatchMove() {
     const targets = selectedFiles();
     openMoveRequest({
@@ -384,12 +503,16 @@ export function MobileDrivePage() {
 
   async function confirmMoveHere() {
     if (!moveRequest) return;
-    const reason = mobileMoveDisabledReason(moveRequest.targets, moveCurrentDir);
+	const reason = moveRequest.kind === "copy" ? "" : mobileMoveDisabledReason(moveRequest.targets, moveCurrentDir);
     if (reason) return;
 
     setMoving(true);
     try {
-      if (moveRequest.kind === "single") {
+	  if (moveRequest.kind === "copy") {
+		const request = buildCopyRequest(moveRequest.targets[0], moveCurrentDir);
+		await copyFile(request.id, request.input);
+		message.success(t("copyDialog.success"));
+	  } else if (moveRequest.kind === "single") {
         await moveFile(moveRequest.ids[0], moveCurrentDir);
         message.success(t("moveDialog.success"));
       } else {
@@ -400,7 +523,7 @@ export function MobileDrivePage() {
       setMoveRequest(null);
       refresh();
     } catch (err) {
-      message.error(err instanceof Error ? err.message : t("moveDialog.failed"));
+	  message.error(err instanceof Error ? err.message : t(moveRequest.kind === "copy" ? "copyDialog.failed" : "moveDialog.failed"));
     } finally {
       setMoving(false);
     }
@@ -412,10 +535,12 @@ export function MobileDrivePage() {
     files.map((file) => file.id),
   );
   const moveReason = moveRequest
-    ? mobileMoveDisabledReason(moveRequest.targets, moveCurrentDir)
+	? moveRequest.kind === "copy" ? "" : mobileMoveDisabledReason(moveRequest.targets, moveCurrentDir)
     : "";
   const moveTitle = moveRequest
-    ? moveRequest.kind === "single"
+	? moveRequest.kind === "copy"
+	  ? t("copyDialog.title", { name: moveRequest.targets[0]?.name ?? "" })
+	  : moveRequest.kind === "single"
       ? t("mobile.selection.singleMoveTitle", { name: moveRequest.targets[0]?.name ?? "" })
       : t("mobile.selection.batchMoveTitle", { count: moveRequest.ids.length })
     : "";
@@ -438,6 +563,8 @@ export function MobileDrivePage() {
         currentPath={currentPath}
         files={files}
         loading={loading}
+        loadingMore={loadingMore}
+        hasMore={hasMore}
         enteringFolderId={enteringFolderId}
         error={error}
         searchDraft={searchDraft}
@@ -447,7 +574,7 @@ export function MobileDrivePage() {
         searchError={searchError}
         includeSemantic={includeSemantic}
         actionFile={actionFile}
-        actionDownloadHref={actionFile && !actionFile.is_dir ? downloadUrl(actionFile.id) : ""}
+		actionDownloadHref={actionFile ? (actionFile.is_dir ? folderZIPDownloadUrl(actionFile.id) : downloadUrl(actionFile.id)) : ""}
         deleteConfirmFile={deleteConfirmFile}
         deleteConfirmBusy={deleting}
         renameFile={renameTarget}
@@ -472,7 +599,12 @@ export function MobileDrivePage() {
         onCreateFolderDraftChange={setCreateFolderDraft}
         onCancelCreateFolder={closeCreateFolder}
         onConfirmCreateFolder={() => void confirmCreateFolder()}
-        onMove={requestMove}
+		onMove={requestMove}
+		onCopy={requestCopy}
+		onVersionHistory={(file) => {
+			setActionFile(null);
+			setVersionHistoryFile(startDriveVersionHistory(file)?.target ?? null);
+		}}
         onRename={requestRename}
         onDelete={requestDelete}
         onCancelDelete={() => setDeleteConfirmFile(null)}
@@ -489,20 +621,34 @@ export function MobileDrivePage() {
         onSelectAll={selectAllVisibleFiles}
         onBatchMove={requestBatchMove}
         onBatchDelete={requestBatchDelete}
+        onEndReached={loadMore}
       />
-      {selection.active ? null : <UploadFab onFiles={handleUploadFiles} />}
+      {selection.active ? null : (
+        <UploadFab
+          onFiles={(files) => void handleUploadFiles(files)}
+          onDirectoryFiles={(files) => void handleDirectoryFiles(files)}
+        />
+      )}
+      <MobileUploadConflictSheet
+        conflict={uploadConflicts.conflict}
+        onDecision={uploadConflicts.decide}
+      />
       <MobileMoveTargetPrompt
         open={Boolean(moveRequest)}
         title={moveTitle}
+		mode={moveRequest?.kind === "copy" ? "copy" : "move"}
         currentDir={moveCurrentDir}
         dirs={moveDirs}
         loading={moveLoading}
+        loadingMore={moveLoadingMore}
+        hasMore={moveHasMore}
         busy={moving}
         disabledReason={moveDisabledText}
         onClose={() => setMoveRequest(null)}
         onMoveHere={() => void confirmMoveHere()}
         onEnterDir={(dir) => setMoveCurrentDir(joinMobileMovePath(dir.path || "/", dir.name))}
         onGoToDir={setMoveCurrentDir}
+        onLoadMore={loadMoreMoveDirs}
       />
       <MobileConfirmPrompt
         open={batchDeleteOpen}
@@ -514,6 +660,15 @@ export function MobileDrivePage() {
         onCancel={() => setBatchDeleteOpen(false)}
         onConfirm={() => void confirmBatchDelete()}
       />
+	  <VersionHistoryDialog
+		open={Boolean(versionHistoryFile)}
+		file={versionHistoryFile}
+		onClose={() => setVersionHistoryFile(null)}
+		onRestored={(file) => {
+			setVersionHistoryFile(file);
+			refresh();
+		}}
+	  />
     </section>
   );
 }

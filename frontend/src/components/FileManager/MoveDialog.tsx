@@ -1,23 +1,31 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { listFiles, moveFile } from "../../api/fileApi";
+import { copyFile, listFiles, moveFile } from "../../api/fileApi";
 import type { DriveFile } from "../../types";
+import { buildCopyRequest } from "../../workflows/copyWorkflow";
+import { appendFolderPage } from "../../workflows/folderPagination";
 import { Button, message, Modal } from "../base";
 import styles from "./MoveDialog.module.css";
 
 interface Props {
   open: boolean;
   target: DriveFile | null;
+	mode?: "move" | "copy";
   onClose: () => void;
   onMoved: () => void | Promise<void>;
 }
 
-export function MoveDialog({ open, target, onClose, onMoved }: Props) {
+export function MoveDialog({ open, target, mode = "move", onClose, onMoved }: Props) {
   const { t } = useTranslation();
   const [currentDir, setCurrentDir] = useState("/");
   const [dirs, setDirs] = useState<DriveFile[]>([]);
   const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [nextCursor, setNextCursor] = useState("");
+  const [hasMore, setHasMore] = useState(false);
   const [moving, setMoving] = useState(false);
+  const currentDirRef = useRef(currentDir);
+  currentDirRef.current = currentDir;
 
   useEffect(() => {
     if (!open) return;
@@ -28,10 +36,12 @@ export function MoveDialog({ open, target, onClose, onMoved }: Props) {
     if (!open) return;
     let cancelled = false;
     setLoading(true);
-    listFiles(currentDir)
+    listFiles(currentDir, { sort: "name", limit: 100 })
       .then((response) => {
         if (cancelled) return;
-        setDirs(response.files.filter((file) => file.is_dir && file.id !== target?.id));
+		setDirs(response.files.filter((file) => file.is_dir && (mode === "copy" || file.id !== target?.id)));
+        setNextCursor(response.next_cursor);
+        setHasMore(response.has_more && response.files.every((file) => file.is_dir));
       })
       .catch((err) => {
         if (cancelled) return;
@@ -44,7 +54,25 @@ export function MoveDialog({ open, target, onClose, onMoved }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [open, currentDir, target?.id]);
+	}, [open, currentDir, mode, target?.id]);
+
+  async function loadMoreDirs() {
+    if (!nextCursor || !hasMore || loadingMore) return;
+    const path = currentDir;
+    setLoadingMore(true);
+    try {
+      const response = await listFiles(path, { sort: "name", cursor: nextCursor, limit: 100 });
+      if (currentDirRef.current !== path) return;
+		const nextDirs = response.files.filter((file) => file.is_dir && (mode === "copy" || file.id !== target?.id));
+      setDirs((current) => appendFolderPage(current, nextDirs));
+      setNextCursor(response.next_cursor);
+      setHasMore(response.has_more && response.files.every((file) => file.is_dir));
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : t("drive.loadError"));
+    } finally {
+      setLoadingMore(false);
+    }
+  }
 
   if (!target) return null;
 
@@ -70,18 +98,23 @@ export function MoveDialog({ open, target, onClose, onMoved }: Props) {
     return "";
   }
 
-  const reason = disabledReason(target, currentDir);
+	const reason = mode === "move" ? disabledReason(target, currentDir) : "";
 
-  async function submitMove() {
+	async function submitOperation() {
     if (!target || reason) return;
     setMoving(true);
     try {
-      await moveFile(target.id, currentDir);
-      message.success(t("moveDialog.success"));
+		if (mode === "copy") {
+			const request = buildCopyRequest(target, currentDir);
+			await copyFile(request.id, request.input);
+		} else {
+			await moveFile(target.id, currentDir);
+		}
+		message.success(t(mode === "copy" ? "copyDialog.success" : "moveDialog.success"));
       onClose();
       await onMoved();
     } catch (err) {
-      message.error(isHTTPStatus(err, 409) ? t("moveDialog.targetExists") : t("moveDialog.failed"));
+		message.error(isHTTPStatus(err, 409) ? t("moveDialog.targetExists") : t(mode === "copy" ? "copyDialog.failed" : "moveDialog.failed"));
     } finally {
       setMoving(false);
     }
@@ -91,15 +124,15 @@ export function MoveDialog({ open, target, onClose, onMoved }: Props) {
     <Modal
       open={open}
       onClose={onClose}
-      title={t("moveDialog.title", { name: target.name })}
+		title={t(mode === "copy" ? "copyDialog.title" : "moveDialog.title", { name: target.name })}
       width={560}
       footer={
         <>
           <Button variant="secondary" onClick={onClose}>
             {t("common.cancel")}
           </Button>
-          <Button variant="primary" onClick={submitMove} disabled={!!reason} loading={moving}>
-            {t("moveDialog.moveHere")}
+		  <Button variant="primary" onClick={submitOperation} disabled={!!reason} loading={moving}>
+			{t(mode === "copy" ? "copyDialog.copyHere" : "moveDialog.moveHere")}
           </Button>
         </>
       }
@@ -147,6 +180,11 @@ export function MoveDialog({ open, target, onClose, onMoved }: Props) {
                 </button>
               ))
             : null}
+          {!loading && hasMore ? (
+            <Button variant="ghost" loading={loadingMore} onClick={loadMoreDirs}>
+              {t("moveDialog.loadMore")}
+            </Button>
+          ) : null}
         </div>
       </div>
     </Modal>

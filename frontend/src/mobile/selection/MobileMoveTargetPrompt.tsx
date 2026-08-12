@@ -5,29 +5,37 @@ import styles from "./MobileMoveTargetPrompt.module.css";
 interface MobileMoveTargetPromptProps {
   open: boolean;
   title: string;
+	mode?: "move" | "copy";
   currentDir: string;
   dirs: DriveFile[];
   loading?: boolean;
+  loadingMore?: boolean;
+  hasMore?: boolean;
   busy?: boolean;
   disabledReason?: string;
   onClose: () => void;
   onMoveHere: () => void;
   onEnterDir: (dir: DriveFile) => void;
   onGoToDir: (path: string) => void;
+  onLoadMore?: () => void;
 }
 
 export function MobileMoveTargetPrompt({
   open,
   title,
+	mode = "move",
   currentDir,
   dirs,
   loading = false,
+  loadingMore = false,
+  hasMore = false,
   busy = false,
   disabledReason = "",
   onClose,
   onMoveHere,
   onEnterDir,
   onGoToDir,
+  onLoadMore,
 }: MobileMoveTargetPromptProps) {
   const { t } = useTranslation();
   if (!open) return null;
@@ -82,13 +90,21 @@ export function MobileMoveTargetPrompt({
                 </button>
               ))
             : null}
+          {!loading && hasMore ? (
+            <button className={styles.dirRow} type="button" disabled={loadingMore} onClick={onLoadMore}>
+              <span className="material-symbols-outlined" aria-hidden>
+                expand_more
+              </span>
+              <span>{loadingMore ? t("moveDialog.loadingDirs") : t("moveDialog.loadMore")}</span>
+            </button>
+          ) : null}
         </div>
         <footer className={styles.footer}>
           <button type="button" onClick={onClose}>
             {t("common.cancel")}
           </button>
           <button className={styles.primary} type="button" disabled={disabled} onClick={onMoveHere}>
-            {busy ? t("drive.processing") : t("moveDialog.moveHere")}
+			{busy ? t("drive.processing") : t(mode === "copy" ? "copyDialog.copyHere" : "moveDialog.moveHere")}
           </button>
         </footer>
       </div>

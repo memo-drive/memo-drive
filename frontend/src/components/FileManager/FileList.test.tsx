@@ -2,7 +2,7 @@ import { renderToString } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import type { DriveFile } from "../../types";
 import "../../i18n";
-import { canEditMarkdownFile, FileList } from "./FileList";
+import { canEditMarkdownFile, fileMenuActions, FileList } from "./FileList";
 
 describe("FileList", () => {
   it("renders image files with their generated thumbnail", () => {
@@ -189,6 +189,11 @@ describe("FileList", () => {
     expect(canEditMarkdownFile(makeFile({ name: "memo.pdf", mime_type: "application/pdf" }))).toBe(false);
     expect(canEditMarkdownFile(makeFile({ name: "Notes", is_dir: true, mime_type: "" }))).toBe(false);
   });
+
+	it("offers Copy for every resource and ZIP download for Folders", () => {
+		expect(fileMenuActions(makeFile({ is_dir: true }))).toEqual(["copy", "download_zip"]);
+		expect(fileMenuActions(makeFile({ is_dir: false }))).toEqual(["copy", "version_history", "download"]);
+	});
 });
 
 function makeFile(overrides: Partial<DriveFile> = {}): DriveFile {

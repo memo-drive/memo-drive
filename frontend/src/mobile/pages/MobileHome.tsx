@@ -7,14 +7,14 @@ import {
 } from "../../api/fileApi";
 import { message } from "../../components/base";
 import { useChunkedUpload } from "../../hooks/useChunkedUpload";
+import { useUploadConflictResolver } from "../../hooks/useUploadConflictResolver";
 import { isActiveTransferStatus } from "../../stores/transferProjection";
 import { useTransferStore } from "../../stores/transferStore";
 import type { DriveFile } from "../../types";
+import { selectedDriveUploadFiles } from "../../workflows/driveWorkflow";
+import { MobileUploadConflictSheet } from "../components/UploadConflictSheet/MobileUploadConflictSheet";
 import { MobileHomeView } from "./MobileHomeView";
-import {
-  buildMobileHomeSearchRequest,
-  startMobileHomeUploads,
-} from "./mobileHomeActions";
+import { buildMobileHomeSearchRequest } from "./mobileHomeActions";
 
 export function MobileHomePage() {
   const { t } = useTranslation();
@@ -30,6 +30,7 @@ export function MobileHomePage() {
   const [searchError, setSearchError] = useState("");
   const transferCount = tasks.filter((task) => isActiveTransferStatus(task.status)).length;
   const { upload } = useChunkedUpload(() => undefined);
+  const uploadConflicts = useUploadConflictResolver();
   const legacyPath = new URLSearchParams(location.search).get("path");
 
   useEffect(() => {
@@ -88,32 +89,54 @@ export function MobileHomePage() {
     setSearching(false);
   }
 
-  function handleUploadFiles(selected: FileList | null) {
-    const count = startMobileHomeUploads(selected, upload, (file, err) => {
-      if (err instanceof Error && err.message === "upload cancelled") return;
-      message.error(t("drive.uploadFailed", { name: file.name }));
-    });
-    if (count > 0) {
-      message.info(t("drive.filesAddedToTransfer", { count }));
+  async function handleUploadFiles(selected: FileList | null) {
+    const files = selectedDriveUploadFiles(selected);
+    if (files.length === 0) return;
+    try {
+      const batch = await uploadConflicts.resolve(files, "/");
+      if (batch.uploads.length > 0) {
+        message.info(t("drive.filesAddedToTransfer", { count: batch.uploads.length }));
+      }
+      if (batch.skipped > 0) {
+        message.info(t("uploadConflict.skippedSummary", { count: batch.skipped }));
+      }
+      for (const item of batch.uploads) {
+        void upload(item.file, "/", item.overwritePolicy).catch((err) => {
+          if (err instanceof Error && err.message === "upload cancelled") return;
+          message.error(t("drive.uploadFailed", { name: item.file.name }));
+        });
+      }
+    } catch (err) {
+      message.error(
+        err instanceof Error ? err.message : t("uploadConflict.preflightFailed"),
+      );
     }
   }
 
-  return legacyPath ? (
-    <Navigate to={`/m/files${location.search}`} replace />
-  ) : (
-    <MobileHomeView
-      searchDraft={searchDraft}
-      searchActive={Boolean(searchQuery)}
-      searchResults={searchResults}
-      searching={searching}
-      searchError={searchError}
-      transferCount={transferCount}
-      recentFiles={recentFiles}
-      recentLoading={recentLoading}
-      onSearchDraftChange={updateSearchDraft}
-      onSearchSubmit={() => void submitSearch()}
-      onClearSearch={clearSearch}
-      onUploadFiles={handleUploadFiles}
-    />
+  if (legacyPath) {
+    return <Navigate to={`/m/files${location.search}`} replace />;
+  }
+
+  return (
+    <>
+      <MobileHomeView
+        searchDraft={searchDraft}
+        searchActive={Boolean(searchQuery)}
+        searchResults={searchResults}
+        searching={searching}
+        searchError={searchError}
+        transferCount={transferCount}
+        recentFiles={recentFiles}
+        recentLoading={recentLoading}
+        onSearchDraftChange={updateSearchDraft}
+        onSearchSubmit={() => void submitSearch()}
+        onClearSearch={clearSearch}
+        onUploadFiles={(files) => void handleUploadFiles(files)}
+      />
+      <MobileUploadConflictSheet
+        conflict={uploadConflicts.conflict}
+        onDecision={uploadConflicts.decide}
+      />
+    </>
   );
 }

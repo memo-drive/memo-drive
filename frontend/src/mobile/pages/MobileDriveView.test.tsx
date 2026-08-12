@@ -74,6 +74,7 @@ describe("MobileDriveView", () => {
           onOpenActions={() => undefined}
           onCloseActions={() => undefined}
           onMove={() => undefined}
+		  onVersionHistory={() => undefined}
           onRename={() => undefined}
           onDelete={() => undefined}
         />
@@ -85,10 +86,33 @@ describe("MobileDriveView", () => {
     expect(html).toContain("href=\"/download/file-1\"");
     expect(html).toContain("下载");
     expect(html).toContain("移动到");
+		expect(html).toContain("版本历史");
     expect(html).toContain("重命名");
     expect(html).toContain("移到回收站");
     expect(html).not.toContain("分享");
   });
+
+	it("offers Copy and ZIP download in a Folder action sheet", () => {
+		const folder = makeFile({ id: "folder-1", name: "Docs", is_dir: true });
+		const html = renderToString(
+			<MemoryRouter>
+				<MobileDriveView
+					currentPath="/"
+					files={[folder]}
+					actionFile={folder}
+					actionDownloadHref="/api/files/folder-1/download?archive=zip"
+					onOpenActions={() => undefined}
+					onCloseActions={() => undefined}
+					onCopy={() => undefined}
+				/>
+			</MemoryRouter>,
+		);
+
+		expect(html).toContain("下载为 ZIP");
+		expect(html).toContain("复制到");
+		expect(html).toContain("archive=zip");
+		expect(html).not.toContain("版本历史");
+	});
 
   it("renders a lightweight delete confirmation prompt for the selected File", () => {
     const file = makeFile({ id: "file-1", name: "Memo.pdf" });

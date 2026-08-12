@@ -13,6 +13,8 @@ interface MobileDriveViewProps {
   currentPath: string;
   files: DriveFile[];
   loading?: boolean;
+  loadingMore?: boolean;
+  hasMore?: boolean;
   enteringFolderId?: string | null;
   error?: string;
   searchDraft?: string;
@@ -48,6 +50,8 @@ interface MobileDriveViewProps {
   onOpenActions?: (file: DriveFile) => void;
   onCloseActions?: () => void;
   onMove?: (file: DriveFile) => void;
+	onCopy?: (file: DriveFile) => void;
+	onVersionHistory?: (file: DriveFile) => void;
   onRename?: (file: DriveFile) => void;
   onDelete?: (file: DriveFile) => void;
   onCancelDelete?: () => void;
@@ -61,12 +65,15 @@ interface MobileDriveViewProps {
   onSelectAll?: () => void;
   onBatchMove?: () => void;
   onBatchDelete?: () => void;
+  onEndReached?: () => void;
 }
 
 export function MobileDriveView({
   currentPath,
   files,
   loading = false,
+  loadingMore = false,
+  hasMore = false,
   enteringFolderId = null,
   error = "",
   searchDraft = "",
@@ -102,6 +109,8 @@ export function MobileDriveView({
   onOpenActions,
   onCloseActions,
   onMove,
+	onCopy,
+	onVersionHistory,
   onRename,
   onDelete,
   onCancelDelete,
@@ -115,6 +124,7 @@ export function MobileDriveView({
   onSelectAll,
   onBatchMove,
   onBatchDelete,
+  onEndReached,
 }: MobileDriveViewProps) {
   const { t } = useTranslation();
   const hasSearchDraft = searchDraft.trim().length > 0;
@@ -208,6 +218,9 @@ export function MobileDriveView({
             height="100%"
             estimateSize={68}
             overscan={6}
+            hasMore={hasMore}
+            isLoading={loadingMore}
+            onEndReached={onEndReached}
             getItemKey={(file) => file.id}
             renderItem={(file) => (
               <MobileFileCard
@@ -258,14 +271,28 @@ export function MobileDriveView({
               </button>
             </header>
             <div className={styles.sheetActions}>
-              {!actionFile.is_dir && actionDownloadHref ? (
-                <a href={actionDownloadHref} download={actionFile.name}>
+			  {actionDownloadHref ? (
+				<a href={actionDownloadHref} download={actionFile.is_dir ? `${actionFile.name}.zip` : actionFile.name}>
                   <span className="material-symbols-outlined" aria-hidden>
                     download
                   </span>
-                  {t("common.download")}
-                </a>
-              ) : null}
+				  {t(actionFile.is_dir ? "common.downloadAsZIP" : "common.download")}
+				</a>
+			  ) : null}
+			  {onCopy ? (
+				<button type="button" onClick={() => onCopy(actionFile)}>
+				  <span className="material-symbols-outlined" aria-hidden>
+					content_copy
+				  </span>
+				  {t("common.copyTo")}
+				</button>
+			  ) : null}
+			  {!actionFile.is_dir && onVersionHistory ? (
+				<button type="button" onClick={() => onVersionHistory(actionFile)}>
+				  <span className="material-symbols-outlined" aria-hidden>history</span>
+				  {t("fileVersion.menu")}
+				</button>
+			  ) : null}
               <button type="button" onClick={() => onMove?.(actionFile)}>
                 <span className="material-symbols-outlined" aria-hidden>
                   drive_file_move

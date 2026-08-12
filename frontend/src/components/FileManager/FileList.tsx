@@ -15,17 +15,28 @@ interface Props {
 	selectedId?: string;
 	enteringFolderId?: string | null;
 	folderNavigationDisabled?: boolean;
+	hasMore?: boolean;
+	isLoadingMore?: boolean;
 	onOpenFolder: (file: DriveFile) => void;
 	onSelect: (file: DriveFile) => void;
 	onDelete: (file: DriveFile) => void;
 	onEdit?: (file: DriveFile) => void;
 	onRename: (file: DriveFile) => void;
 	onMove: (file: DriveFile) => void;
+	onCopy?: (file: DriveFile) => void;
+	onVersionHistory?: (file: DriveFile) => void;
 	onDownload: (file: DriveFile) => void;
+	onEndReached?: () => void;
 }
 
 export function canEditMarkdownFile(file: DriveFile): boolean {
 	return !file.is_dir && isMarkdownFile(file);
+}
+
+export type FileMenuAction = "copy" | "version_history" | "download" | "download_zip";
+
+export function fileMenuActions(file: DriveFile): FileMenuAction[] {
+	return file.is_dir ? ["copy", "download_zip"] : ["copy", "version_history", "download"];
 }
 
 export function FileList({
@@ -33,13 +44,18 @@ export function FileList({
 	selectedId,
 	enteringFolderId = null,
 	folderNavigationDisabled = false,
+	hasMore = false,
+	isLoadingMore = false,
 	onOpenFolder,
 	onSelect,
 	onDelete,
 	onEdit,
 	onRename,
 	onMove,
+	onCopy,
+	onVersionHistory,
 	onDownload,
+	onEndReached,
 }: Props) {
 	const { t } = useTranslation();
 
@@ -81,6 +97,9 @@ export function FileList({
 					estimateSize={73}
 					overscan={8}
 					role="rowgroup"
+					hasMore={hasMore}
+					isLoading={isLoadingMore}
+					onEndReached={onEndReached}
 					getItemKey={(file) => file.id}
 					renderItem={(file) => (
 						<FileRow
@@ -93,6 +112,8 @@ export function FileList({
 							onDownload={onDownload}
 							onEdit={onEdit}
 							onMove={onMove}
+							onCopy={onCopy}
+							onVersionHistory={onVersionHistory}
 							onOpenFolder={onOpenFolder}
 							onRename={onRename}
 							onSelect={onSelect}
@@ -123,6 +144,8 @@ interface FileRowProps {
 	onEdit?: (file: DriveFile) => void;
 	onRename: (file: DriveFile) => void;
 	onMove: (file: DriveFile) => void;
+	onCopy?: (file: DriveFile) => void;
+	onVersionHistory?: (file: DriveFile) => void;
 	onDownload: (file: DriveFile) => void;
 	selected: boolean;
 	t: (key: string, options?: Record<string, unknown>) => string;
@@ -137,6 +160,8 @@ function FileRow({
 	onDownload,
 	onEdit,
 	onMove,
+	onCopy,
+	onVersionHistory,
 	onOpenFolder,
 	onRename,
 	onSelect,
@@ -144,6 +169,7 @@ function FileRow({
 	t,
 }: FileRowProps) {
 	const presentation = filePresentation(file);
+	const actions = fileMenuActions(file);
 	return (
 		<div
 			className={`${styles.tableRow} ${selected ? styles.tableRowSelected : ""} ${fileListBusy ? styles.tableRowDisabled : ""}`}
@@ -239,7 +265,31 @@ function FileRow({
 								</span>{" "}
 								{t("common.moveTo")}
 							</button>
-							{!file.is_dir && (
+							{onCopy && actions.includes("copy") ? (
+								<button
+									className={styles.menuItem}
+									onClick={(e: any) => {
+										e.stopPropagation();
+										onCopy(file);
+									}}
+								>
+									<span className="material-symbols-outlined text-[18px]">content_copy</span>{" "}
+									{t("common.copyTo")}
+								</button>
+							) : null}
+							{onVersionHistory && actions.includes("version_history") ? (
+								<button
+									className={styles.menuItem}
+									onClick={(e: any) => {
+										e.stopPropagation();
+										onVersionHistory(file);
+									}}
+								>
+									<span className="material-symbols-outlined text-[18px]">history</span>{" "}
+									{t("fileVersion.menu")}
+								</button>
+							) : null}
+							{actions.some((action) => action === "download" || action === "download_zip") ? (
 								<button
 									className={styles.menuItem}
 									onClick={(e: any) => {
@@ -250,9 +300,9 @@ function FileRow({
 									<span className="material-symbols-outlined text-[18px]">
 										download
 									</span>{" "}
-									{t("common.download")}
+									{t(actions.includes("download_zip") ? "common.downloadAsZIP" : "common.download")}
 								</button>
-							)}
+							) : null}
 							<button
 								className={styles.menuItemDanger}
 								onClick={(e: any) => {

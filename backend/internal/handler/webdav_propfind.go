@@ -305,10 +305,7 @@ func webDAVQuotaProperties(usage *service.StorageUsage) []webDAVXMLProperty {
 	if usage == nil {
 		return webDAVQuotaNameProperties()
 	}
-	available := usage.TotalBytes - usage.UsedBytes
-	if available < 0 {
-		available = 0
-	}
+	available := usage.UploadAvailableBytes
 	return []webDAVXMLProperty{
 		{Name: "quota-used-bytes", Value: fmt.Sprintf("%d", usage.UsedBytes)},
 		{Name: "quota-available-bytes", Value: fmt.Sprintf("%d", available)},

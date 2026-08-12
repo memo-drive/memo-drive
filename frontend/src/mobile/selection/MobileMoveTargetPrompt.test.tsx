@@ -28,6 +28,25 @@ describe("MobileMoveTargetPrompt", () => {
     expect(html).toContain("移到这里");
     expect(html).toContain("disabled=\"\"");
   });
+
+  it("offers another cursor page when more target Folders are available", () => {
+    const html = renderToString(
+      <MobileMoveTargetPrompt
+        open
+        title="移动文件"
+        currentDir="/"
+        dirs={[makeFolder()]}
+        hasMore
+        onClose={() => undefined}
+        onMoveHere={() => undefined}
+        onEnterDir={() => undefined}
+        onGoToDir={() => undefined}
+        onLoadMore={() => undefined}
+      />,
+    );
+
+    expect(html).toContain("加载更多");
+  });
 });
 
 function makeFolder(overrides: Partial<DriveFile> = {}): DriveFile {

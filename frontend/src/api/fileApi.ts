@@ -3,20 +3,34 @@ import type {
 	BatchFileResult,
 	CreateMarkdownResponse,
 	DriveFile,
+	FileConflictPreflightResponse,
+	FileCopyInput,
+	FileCopyResult,
+	FileVersionListResponse,
+	FileVersionRestoreResponse,
 	FileQueryRequest,
 	FileQueryResponse,
 	FileSearchResponse,
+	FolderListPage,
+	FolderListSort,
 	MarkdownContentResponse,
 	MediaMeta,
 	PhotoMonthIndexResponse,
 	PhotoTimelineRequest,
-  StorageUsage,
+	StorageUsage,
 } from "../types";
 
-export async function listFiles(path: string, sort = "created_at") {
-  return httpClient.get<{ files: DriveFile[] }>(
-    `/files?path=${encodeURIComponent(path)}&sort=${encodeURIComponent(sort)}`,
-  );
+export async function listFiles(
+  path: string,
+  options: { sort?: FolderListSort; cursor?: string; limit?: number } = {},
+) {
+  const parts = [
+    `path=${encodeURIComponent(path)}`,
+    `sort=${encodeURIComponent(options.sort ?? "created_at")}`,
+  ];
+  if (options.cursor) parts.push(`cursor=${encodeURIComponent(options.cursor)}`);
+  if (options.limit !== undefined) parts.push(`limit=${encodeURIComponent(String(options.limit))}`);
+  return httpClient.get<FolderListPage>(`/files?${parts.join("&")}`);
 }
 
 export async function getStorageUsage() {
@@ -31,6 +45,13 @@ export async function createMarkdownFile(path: string, name: string) {
   return httpClient.post<CreateMarkdownResponse>("/files/markdown", { path, name });
 }
 
+export async function preflightFileConflicts(path: string, names: string[]) {
+  return httpClient.post<FileConflictPreflightResponse>("/files/conflicts", {
+    path,
+    names,
+  });
+}
+
 export async function renameFile(id: string, name: string) {
   return httpClient.put<DriveFile>(`/files/${id}`, { name });
 }
@@ -39,8 +60,33 @@ export async function moveFile(id: string, path: string) {
   return httpClient.put<DriveFile>(`/files/${id}`, { path });
 }
 
+export async function copyFile(id: string, input: FileCopyInput) {
+	return httpClient.post<FileCopyResult>(`/files/${encodeURIComponent(id)}/copy`, {
+		path: input.path,
+		name: input.name,
+		conflict_policy: input.conflictPolicy,
+	});
+}
+
 export async function getFile(id: string) {
   return httpClient.get<DriveFile>(`/files/${id}`);
+}
+
+export async function listFileVersions(id: string) {
+	return httpClient.get<FileVersionListResponse>(`/files/${encodeURIComponent(id)}/versions`);
+}
+
+export async function restoreFileVersion(fileID: string, versionID: string) {
+	return httpClient.post<FileVersionRestoreResponse>(
+		`/files/${encodeURIComponent(fileID)}/versions/${encodeURIComponent(versionID)}/restore`,
+		{},
+	);
+}
+
+export async function deleteFileVersion(fileID: string, versionID: string) {
+	return httpClient.delete<void>(
+		`/files/${encodeURIComponent(fileID)}/versions/${encodeURIComponent(versionID)}`,
+	);
 }
 
 export async function getMarkdownContent(id: string) {
@@ -94,7 +140,7 @@ export async function getDownloadText(id: string): Promise<string> {
   const headers = new Headers();
   const token = getToken();
   if (token) headers.set("Authorization", `Bearer ${token}`);
-  const response = await fetch(url, { headers });
+	const response = await fetch(url, { headers, credentials: "include" });
   if (!response.ok) {
     const message = await response.text().catch(() => response.statusText);
     throw new Error(message || response.statusText);
@@ -137,6 +183,16 @@ export async function emptyTrash() {
 
 export function downloadUrl(id: string) {
   return httpClient.assetUrl(`/files/${id}/download`);
+}
+
+export function folderZIPDownloadUrl(id: string) {
+	return httpClient.assetUrl(`/files/${encodeURIComponent(id)}/download?archive=zip`);
+}
+
+export function fileVersionDownloadUrl(fileID: string, versionID: string) {
+	return httpClient.assetUrl(
+		`/files/${encodeURIComponent(fileID)}/versions/${encodeURIComponent(versionID)}/download`,
+	);
 }
 
 export function thumbnailUrl(id: string) {

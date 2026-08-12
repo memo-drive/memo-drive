@@ -170,7 +170,11 @@ export function completeDriveMarkdownCreate(): DriveMarkdownDraft {
 }
 
 export function startDriveMove(file: DriveFile): DriveMoveDraft {
-  return { target: file };
+	return { target: file };
+}
+
+export function startDriveVersionHistory(file: DriveFile): { target: DriveFile } | null {
+	return file.is_dir ? null : { target: file };
 }
 
 export function completeDriveMove(): DriveMoveCompletedState {
