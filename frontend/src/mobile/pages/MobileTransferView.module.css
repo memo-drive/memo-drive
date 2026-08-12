@@ -103,7 +103,8 @@
 }
 
 .meta,
-.error {
+.error,
+.resolvedName {
   margin: 0;
 }
 
@@ -118,6 +119,11 @@
   font-size: var(--font-size-sm);
 }
 
+.resolvedName {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
 .actions {
   display: flex;
   flex-wrap: wrap;
@@ -125,7 +131,7 @@
 }
 
 .actions button {
-  min-height: 2.35rem;
+  min-height: 2.75rem;
   border: 1px solid rgba(7, 93, 168, 0.16);
   border-radius: var(--radius-sm);
   padding: 0 0.8rem;
@@ -155,4 +161,34 @@
   background: rgba(255, 255, 255, 0.7);
   font-size: var(--font-size-body);
   text-align: center;
+}
+.directorySummary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.5rem 0.75rem;
+  padding: 0.9rem;
+  border: var(--border-subtle);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+}
+
+.directorySummary > div:first-child {
+  display: grid;
+  min-width: 0;
+}
+
+.directorySummary span {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-xs);
+}
+
+.directorySummary .progressTrack {
+  grid-column: 1;
+}
+
+.directorySummary > b {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  align-self: center;
+  color: var(--color-accent);
 }

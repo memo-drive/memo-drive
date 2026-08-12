@@ -1,4 +1,4 @@
-import type { UploadSession } from "../types";
+import type { FileConflictPolicy, UploadSession } from "../types";
 import {
   uploadedBytesForChunks,
   uploadPercentForBytes,
@@ -22,6 +22,9 @@ export type ActiveTransferStatus = Extract<
 export interface TransferTask {
   id: string;
   fileName: string;
+  requestedName?: string;
+  resolvedName?: string;
+  overwritePolicy?: FileConflictPolicy;
   fileSize: number;
   destPath: string;
   direction: "upload";
@@ -33,16 +36,29 @@ export interface TransferTask {
   chunkSize: number;
   speed: number;
   error?: string;
+  errorCode?: string;
+  conflictRetryable?: boolean;
   createdAt: number;
   updatedAt: number;
   expiresAt?: string;
   file?: File;
+  directoryBatchId?: string;
+  relativePath?: string;
 }
 
 type ExistingTransferSnapshot = Partial<
   Pick<
     TransferTask,
-    "file" | "status" | "speed" | "error" | "createdAt" | "updatedAt"
+    | "file"
+    | "status"
+    | "speed"
+    | "error"
+    | "errorCode"
+    | "conflictRetryable"
+    | "createdAt"
+    | "updatedAt"
+    | "directoryBatchId"
+    | "relativePath"
   >
 >;
 
@@ -121,6 +137,9 @@ export function transferTaskFromSession(
   return {
     id: session.id,
     fileName: session.file_name,
+    requestedName: session.requested_name || session.file_name,
+    resolvedName: session.resolved_name || session.file_name,
+    overwritePolicy: session.overwrite_policy,
     fileSize: session.file_size,
     destPath: session.dest_path,
     direction: "upload",
@@ -137,23 +156,83 @@ export function transferTaskFromSession(
     chunkSize: session.chunk_size,
     speed: existing?.speed ?? 0,
     error: existing?.error,
+    errorCode: existing?.errorCode,
+    conflictRetryable: existing?.conflictRetryable,
     createdAt: session.created_at
       ? new Date(session.created_at).getTime()
       : existing?.createdAt ?? Date.now(),
     updatedAt: existing?.updatedAt ?? Date.now(),
     expiresAt: session.expires_at,
     file: existing?.file,
+    directoryBatchId: existing?.directoryBatchId,
+    relativePath: existing?.relativePath,
   };
+}
+
+export interface DirectoryTransferContext {
+  batchId: string;
+  relativePath: string;
+}
+
+export interface DirectoryTransferSummary {
+  batchId: string;
+  name: string;
+  fileCount: number;
+  completedCount: number;
+  failedCount: number;
+  uploadedBytes: number;
+  totalBytes: number;
+  percent: number;
+  status: "uploading" | "done" | "partial";
+}
+
+export function directoryTransferSummaries(
+  tasks: TransferTask[],
+): DirectoryTransferSummary[] {
+  const grouped = new Map<string, TransferTask[]>();
+  for (const task of tasks) {
+    if (!task.directoryBatchId) continue;
+    const group = grouped.get(task.directoryBatchId) ?? [];
+    group.push(task);
+    grouped.set(task.directoryBatchId, group);
+  }
+  return [...grouped.entries()].map(([batchId, group]) => {
+    const completedCount = group.filter((task) => task.status === "done").length;
+    const failedCount = group.filter((task) =>
+      task.status === "failed" || task.status === "cancelled" || task.status === "expired",
+    ).length;
+    const totalBytes = group.reduce((sum, task) => sum + task.fileSize, 0);
+    const uploadedBytes = group.reduce(
+      (sum, task) => sum + Math.min(task.uploadedBytes, task.fileSize),
+      0,
+    );
+    const allTerminal = completedCount + failedCount === group.length;
+    return {
+      batchId,
+      name: group[0].relativePath?.split("/")[0] || group[0].fileName,
+      fileCount: group.length,
+      completedCount,
+      failedCount,
+      uploadedBytes,
+      totalBytes,
+      percent: totalBytes > 0 ? Math.round((uploadedBytes / totalBytes) * 100) : 0,
+      status: allTerminal ? (failedCount > 0 ? "partial" : "done") : "uploading",
+    };
+  });
 }
 
 export function preparingTransferTaskFromFile(
   file: File,
   destPath: string,
   now = Date.now(),
+  directory?: DirectoryTransferContext,
 ): TransferTask {
   return {
     id: `${LOCAL_UPLOAD_TASK_PREFIX}${now}:${file.name}:${file.size}`,
     fileName: file.name,
+    requestedName: file.name,
+    resolvedName: file.name,
+    overwritePolicy: "reject",
     fileSize: file.size,
     destPath,
     direction: "upload",
@@ -167,5 +246,7 @@ export function preparingTransferTaskFromFile(
     createdAt: now,
     updatedAt: now,
     file,
+    directoryBatchId: directory?.batchId,
+    relativePath: directory?.relativePath,
   };
 }

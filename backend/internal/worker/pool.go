@@ -9,6 +9,9 @@ import (
 // ErrStopped is returned when attempting to submit a job to a stopped pool.
 var ErrStopped = errors.New("worker pool stopped")
 
+// ErrFull is returned when the bounded worker queue cannot accept more work.
+var ErrFull = errors.New("worker queue full")
+
 // Pool is a fixed-size goroutine pool that accepts functions for asynchronous execution.
 // Callers submit jobs with Submit and shut down with Stop. Stop waits for all
 // in-flight jobs to complete.
@@ -52,8 +55,13 @@ func (p *Pool) Submit(job func()) error {
 	}
 	p.wg.Add(1)
 	p.mu.Unlock()
-	p.jobs <- job
-	return nil
+	select {
+	case p.jobs <- job:
+		return nil
+	default:
+		p.wg.Done()
+		return ErrFull
+	}
 }
 
 // Stop initiates graceful shutdown: it prevents new submissions, waits for

@@ -102,6 +102,31 @@ describe("MobileTransferView", () => {
     expect(html).not.toContain("4.0 KB / 4.0 KB");
     expect(html).not.toContain("progressTrack");
   });
+
+  it("shows resolved names and retry actions for completion conflicts", () => {
+    const html = renderToString(
+      <MobileTransferView
+        tasks={[
+          makeTask({
+            id: "conflict-1",
+            fileName: "Memo.pdf",
+            requestedName: "Memo.pdf",
+            resolvedName: "Memo (1).pdf",
+            status: "failed",
+            conflictRetryable: true,
+            errorCode: "path_conflict",
+          }),
+        ]}
+        onRetryConflict={() => undefined}
+        onRemove={() => undefined}
+      />,
+    );
+
+    expect(html).toContain("Memo (1).pdf");
+    expect(html).toContain("原名称：Memo.pdf");
+    expect(html).toContain("保留两者后重试");
+    expect(html).toContain("替换后重试");
+  });
 });
 
 function makeTask(overrides: Partial<TransferTask> = {}): TransferTask {

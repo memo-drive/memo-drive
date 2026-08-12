@@ -5,8 +5,10 @@
     "confirm": "Confirm",
     "delete": "Delete",
     "download": "Download",
+		"downloadAsZIP": "Download as ZIP",
     "rename": "Rename",
     "moveTo": "Move to...",
+		"copyTo": "Copy to",
     "restore": "Restore",
     "purge": "Permanently Delete",
     "create": "Create",
@@ -23,6 +25,8 @@
     "subtitle": "Continue to your personal workspace",
     "password": "Password",
     "login": "Login",
+	"sessions": "Sessions",
+	"logoutAll": "Logout all devices",
     "private": "Private",
     "secure": "Secure",
     "encrypted": "Encrypted"
@@ -31,6 +35,21 @@
     "title": "Settings",
     "language": "Language",
     "comingSoon": "Settings page coming soon"
+  },
+  "storageUsage": {
+    "title": "Storage",
+    "description": "Upload capacity accounts for logical quota, disk reserve, and temporary space.",
+    "quota": "{{value}} quota",
+    "sidebarAvailable": "{{value}} upload space",
+    "uploadAvailable": "Available for uploads",
+    "active": "Files",
+    "trash": "Trash",
+    "temp": "Temporary files",
+    "diskAvailable": "Actual disk available",
+    "lowTitle": "Storage is running low",
+    "lowBody": "New uploads may be rejected. Empty Trash or remove files you no longer need.",
+    "cleanTrash": "Clean up Trash",
+    "loadFailed": "Could not load storage information"
   },
   "layout": {
     "tagline": "AI-Native Personal Cloud Drive",
@@ -183,6 +202,7 @@
     "newFolder": "New Folder",
     "newMarkdown": "New Markdown",
     "upload": "Upload",
+    "uploadFolder": "Upload folder",
     "folderName": "Folder name",
     "folderNamePlaceholder": "Enter folder name",
     "markdownName": "Markdown file name",
@@ -253,6 +273,7 @@
     "title": "Move {{name}}",
     "currentLocation": "Current location",
     "loadingDirs": "Loading directories...",
+    "loadMore": "Load more",
     "emptyDirs": "No subfolders in this directory",
     "alreadyHere": "File is already in this directory",
     "cannotMoveToSelf": "Cannot move a folder into itself or a subfolder",
@@ -261,6 +282,12 @@
     "success": "Moved successfully",
     "failed": "Failed to move"
   },
+	"copyDialog": {
+		"title": "Copy {{name}}",
+		"copyHere": "Copy here",
+		"success": "Copied successfully",
+		"failed": "Copy failed"
+	},
   "searchResultList": {
     "searching": "Searching...",
     "foundResults": "{{count}} found",
@@ -272,12 +299,28 @@
     "matchContent": "Content",
     "matchLabel": "Filter"
   },
+  "uploadConflict": {
+    "title": "A file with this name already exists",
+    "progress": "Conflict {{current}} of {{total}}",
+    "description": "Choose how this upload should be handled in the destination folder.",
+    "keepBothHint": "Keep both will save this file as",
+    "renameFallback": "An available name will be generated",
+    "applyToRemaining": "Use this choice for remaining conflicts",
+    "keepBoth": "Keep both",
+    "replace": "Replace existing file",
+    "skip": "Skip this file",
+    "replaceWarning": "Replace updates the existing file in place; the old content is not moved to Trash.",
+    "skippedSummary": "Skipped {{count}} files with conflicting names",
+    "preflightFailed": "Could not check for file name conflicts. Try again."
+  },
   "transfer": {
+    "directoryFiles": "{{completed}} / {{total}} files complete",
     "title": "Transfers",
     "subtitle": "Manage file upload tasks with pause, cancel, and resume support.",
     "direction": "Upload",
     "tabActive": "Active",
     "tabHistory": "History",
+    "tabProcessing": "Processing",
     "syncing": "Syncing transfer records...",
     "emptyActive": "No active transfers",
     "emptyHistory": "No transfer history",
@@ -291,6 +334,10 @@
     "cancelSuccess": "Upload cancelled",
     "removeFailed": "Failed to remove transfer record",
     "resumeFailed": "Failed to resume transfer",
+    "retryFailed": "Failed to retry upload",
+    "retryKeepBoth": "Keep both and retry",
+    "retryReplace": "Replace and retry",
+    "resolvedName": "Requested: {{requested}} · Saved as: {{resolved}}",
     "sessionExpiry": "Session expires {{time}}",
     "preparingUpload": "Preparing upload",
     "etaSeconds": "~{{seconds}}s",
@@ -492,5 +539,56 @@
     "selectSameFile": "Please select a file with the same name and size",
     "cannotResume": "Cannot resume transfer, current status is {{status}}",
     "cancelled": "upload cancelled"
+  },
+  "fileVersion": {
+    "menu": "Version history",
+    "title": "Version history for {{name}}",
+    "empty": "No historical versions",
+    "loading": "Loading version history",
+    "loadFailed": "Failed to load version history",
+    "versionNumber": "Version {{number}}",
+    "checksumRecorded": "Checksum recorded",
+    "checksumMissing": "Checksum missing",
+    "restore": "Restore",
+    "restoreSuccess": "Version restored",
+    "restoreFailed": "Failed to restore version",
+    "deleteConfirm": "Permanently delete version {{number}}? This cannot be undone.",
+    "deleteFailed": "Failed to delete version",
+    "source": {
+      "upload_replace": "Upload replace",
+      "webdav_put": "WebDAV PUT",
+      "markdown_save": "Markdown save",
+      "copy_replace": "Copy replace",
+      "version_restore": "Version restore"
+    }
+  },
+  "pipelineTask": {
+    "title": "File processing Tasks",
+    "empty": "No processing Tasks",
+    "loading": "Loading processing Tasks",
+    "loadFailed": "Failed to load processing Tasks",
+    "loadMore": "Load more",
+    "loadingMore": "Loading more",
+    "retryList": "Reload",
+    "filterLabel": "Filter by processing status",
+    "filter": {
+      "all": "All",
+      "pending": "Waiting",
+      "processing": "Processing",
+      "failed": "Failed",
+      "done": "Completed"
+    },
+    "progress": "Processing progress for {{name}}",
+    "retry": "Process again",
+    "retryNamed": "Process {{name}} again",
+    "retryCount": "Retried {{count}} times",
+    "retrySuccess": "A new processing Task was created",
+    "retryFailed": "Failed to process again",
+    "status": {
+      "pending": "Waiting",
+      "processing": "Processing",
+      "done": "Completed",
+      "failed": "Failed"
+    }
   }
 }

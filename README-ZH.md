@@ -10,7 +10,13 @@ MemoDrive 是一个私有的、单用户的智能云盘。通过结合个人网�
 - 可配置的存储选项：支持自定义存储根目录、SQLite 数据库路径、上传临时目录以及缩略图目录。
 - 文件管理核心：文件列表、创建文件夹、重命名/移动 API、回收站软删/还原/永久删除，以及支持 HTTP Range 的断点下载。
 - 大文件分片上传：支持显式 Upload Session 状态、上传会话记录、断点续传、完成后自动合并，以及真实传输页进度、暂停/继续、取消和历史清理。
-- 异步 File Indexing Pipeline：文件上传后创建持久 Pipeline Task，进入有界 Worker Pool，支持启动恢复、panic 失败标记和优雅关闭。
+- 目录上传：Desktop 支持“上传文件夹”和递归拖拽，Mobile 在浏览器支持时显示目录选择；服务端独立校验相对路径、分层创建 Folder、逐项报告失败，并在 Transfer 中同时展示目录聚合进度与单 File 明细。
+- 上传冲突统一使用 `reject | rename | replace`，支持大小写不敏感批量预检、确定性重命名建议、requested/resolved target 持久化和结构化 API 错误；App Upload create/replace 现已通过同文件系统 staging、可恢复 Mutation Journal、原子 SQLite transaction、启动恢复和有界并发 rename 重试完成提交。
+- File 与 Folder 可通过 `POST /api/files/:id/copy` 复制；递归 Folder Copy 使用独立 storage object、有界并发 rename、可恢复 Copy Operation、独立 Pipeline Task，并由 Desktop、Mobile 和 WebDAV COPY 共用。Folder `replace` 首版明确不支持，请使用 `reject` 或 `rename`。
+- Folder 可通过 `GET|HEAD /api/files/:id/download?archive=zip` 流式下载 ZIP；支持 UTF-8 相对 entry、空目录、Zip Slip 校验、取消、坏对象预检和节点/未压缩字节限制，不生成完整临时 ZIP。
+- 存储容量保护：支持逻辑配额、真实磁盘可用空间、安全余量和临时空间上限；App Upload 与 WebDAV 在写入及提交阶段重复校验，容量不足统一返回 `507 insufficient_storage`，Desktop Settings 与 Mobile Me 展示分类占用和可上传空间。
+- 离线备份与恢复：`memodrive-admin` 提供 `backup`、`verify`、`restore`、`integrity` 和 `reindex --all`，包含可校验 manifest、SQLite 一致性快照、流式 SHA-256、恢复前后完整性检查和真实 Pipeline 重建。
+- 异步 File Indexing Pipeline：文件上传后创建持久 Pipeline Task，进入有界 Worker Pool，支持启动恢复、panic 失败标记和优雅关闭；Desktop 与 Mobile Transfer 可查看最近处理任务、安全的失败摘要，并在保留历史审计记录的前提下重新处理失败任务。
 - 媒体元信息提取：支持图片尺寸提取、JPEG EXIF 解析及缩略图生成。
 - 音视频元信息提取：环境支持时自动调用 `ffprobe` 提取时长等元信息。
 - 媒体文本入库：图片 OCR 默认开启并在安装 Tesseract 时自动提取文字；音频/视频转录可选接入 whisper.cpp 或 OpenAI 兼容 Whisper 接口。
@@ -254,7 +260,22 @@ cp .env.example .env
 |------|------|
 | `ADMIN_PASSWORD` | 登录密码。留空则关闭鉴权（生产环境不推荐）。 |
 | `JWT_SECRET` | JWT 签名密钥。**生产环境必须修改**，可用以下命令生成：`openssl rand -hex 32` |
+| `APP_ENV` | `development` 或 `production`；生产模式启用严格的启动安全门禁。 |
+| `CORS_ALLOWED_ORIGINS` | 逗号分隔的浏览器 Origin allowlist；生产环境留空表示仅同源。 |
+| `TRUSTED_PROXY_CIDRS` | 允许提供 `X-Forwarded-For` 的代理 CIDR；留空时忽略转发地址。 |
 | `OPENAI_API_KEY` | （可选）OpenAI 兼容 API Key。未设置时自动降级到本地 Ollama。 |
+| `STORAGE_QUOTA_BYTES` | （可选）active File 逻辑配额；`0` 表示不额外限制。 |
+| `STORAGE_RESERVED_BYTES` | 普通写入必须保留的真实磁盘安全余量，默认 1 GiB。 |
+| `STORAGE_TEMP_LIMIT_BYTES` | upload temp 与 staging 总上限；`0` 表示按配额/文件系统动态计算。 |
+| `DIRECTORY_UPLOAD_MAX_ENTRIES` | 单次目录准备最多 File 数，默认 10000。 |
+| `DIRECTORY_UPLOAD_MAX_DEPTH` | 相对路径最大 segment 数（含 File 名），默认 32。 |
+| `DIRECTORY_UPLOAD_MAX_PATH_BYTES` | 单个相对路径最大 UTF-8 字节数，默认 1024。 |
+| `FOLDER_COPY_MAX_NODES` | 单次递归 Folder Copy 的根节点与后代节点总上限，默认 10000。 |
+| `FOLDER_ZIP_MAX_NODES` | 单次 Folder ZIP 的根节点与后代节点总上限，默认 10000。 |
+| `FOLDER_ZIP_MAX_UNCOMPRESSED_BYTES` | 单次 Folder ZIP 的 File 未压缩总字节上限，默认 20 GiB。 |
+| `FILE_VERSIONING_ENABLED` | replace、Markdown 保存、Copy replace 或版本恢复前创建 File Version，默认 `true`；关闭后已有版本仍可读取。 |
+| `FILE_VERSION_MAX_COUNT` | 每个 File 最多保留的历史版本数，默认 20。 |
+| `FILE_VERSION_RETENTION_DAYS` | File Version 按时间保留的天数，默认 90；Janitor 始终至少保留最近一个历史版本。 |
 
 **2. 预建数据目录**（使用 `start.sh` 时自动完成，手动启动时需执行）
 
@@ -285,7 +306,60 @@ make docker-up
 | 桌面 Web | `http://localhost:3000` |
 | 移动 H5 | `http://localhost:3000/m` |
 
-> **安全提示：** 若 `JWT_SECRET` 仍为默认值或 `ADMIN_PASSWORD` 为空，后端启动时会输出警告日志，可用 `docker compose logs backend` 查看。
+> **安全提示：** development 会对默认 JWT secret、空密码或 wildcard CORS 输出警告；production 会直接拒绝这些配置，并要求声明 HTTPS Edge。可用 `docker compose logs backend` 查看。
+
+API 对登录失败、普通读取、写入、分块上传和 AI/Search 使用独立固定时间窗限流，默认值见 `.env.example`。超限响应为结构化错误 `rate_limited`、HTTP `429`，并携带 `Retry-After`。已鉴权请求按 JWT subject 计数；登录失败默认按直连 IP 计数，只有直连代理命中 `TRUSTED_PROXY_CIDRS` 时才读取 `X-Forwarded-For`。
+
+浏览器登录使用 `HttpOnly` Session Cookie，资源 URL 不再携带主 JWT。Cookie 的作用域是 `/api`，采用 `SameSite=Lax`，production 下同时启用 `Secure`；浏览器发起写请求时还必须携带 `X-MemoDrive-CSRF: 1`。外部 API Client 仍可使用登录响应中的 Bearer Token，Bearer 写请求不要求该 CSRF Header。`POST /api/auth/logout` 默认退出当前设备，传入 `{"scope":"all"}` 可退出全部设备；密码或 `JWT_SECRET` 轮换会使现有 Session 失效。升级不会修改已有 File，但升级前签发、没有 Session ID 的旧 JWT 需要重新登录一次。浏览器 Cookie 模式要求前端与 API 保持同站部署；跨站集成应使用 Bearer Token。
+
+普通 Folder 列表使用 Cursor 分页：`GET /api/files?path=/Docs&sort=name&limit=100&cursor=...`，响应保留 `files` 并增加 `next_cursor`、`has_more`。默认每页 100，最大 500；支持 `name`、`size`、`created_at`、`updated_at`，所有排序都保持 Folder-first，并用 File ID 作为稳定 tie-break。Cursor 是绑定 Folder Path、sort 和版本的不透明值，不能跨查询复用。翻页采用 keyset best-effort 语义：删除锚点不影响继续，Cursor 之前新增或改变排序位置的 File 需要刷新 Folder 后才能看到。
+
+## 离线备份、校验与恢复
+
+`memodrive-admin` 的 v1 备份是离线一致性备份。执行 `backup`、`restore`、`integrity` 或 `reindex` 前先停止 API Server；如果 Server 仍持有 writer lock，命令会拒绝执行。Chroma 索引和 Ollama 模型不进入备份，前者可通过 `reindex --all` 重建。
+
+本地构建管理工具：
+
+```bash
+make build-backend
+```
+
+生成目录备份并可选生成 ZIP64 归档：
+
+```bash
+./backend/bin/memodrive-admin backup \
+  --env-file .env \
+  --output ./backups/backup-2026-08-07 \
+  --archive ./backups/backup-2026-08-07.zip
+
+./backend/bin/memodrive-admin verify \
+  --backup ./backups/backup-2026-08-07
+```
+
+恢复默认只允许空目标。`--force` 会先保留旧目标，恢复内容在临时目录通过完整性检查后才切换：
+
+```bash
+./backend/bin/memodrive-admin restore \
+  --backup ./backups/backup-2026-08-07 \
+  --target-root ./restored/files \
+  --target-db ./restored/db/memodrive.db
+
+./backend/bin/memodrive-admin integrity --env-file .env
+./backend/bin/memodrive-admin reindex --all --env-file .env
+```
+
+Docker 镜像也包含 `/app/memodrive-admin`。备份目录需要额外挂载到容器：
+
+```bash
+docker compose stop backend
+docker compose run --rm --no-deps \
+  -v "$PWD/backups:/backups" \
+  backend /app/memodrive-admin backup \
+  --output /backups/backup-$(date -u +%Y%m%dT%H%M%SZ)
+docker compose start backend
+```
+
+所有命令输出 JSON；退出码 `0` 表示成功、`1` 表示执行或校验失败、`2` 表示参数错误。建议至少每周备份，保留 4～8 个已全量 verify 的版本，并将一份复制到不同磁盘或主机；每季度执行一次恢复到新目录的演练。
 
 ## WebDAV 访问
 
@@ -407,6 +481,8 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
 - 移动端登录通过 `/login?redirect=...` 保持闭环，即使首次 `/` 请求直接到达前端，未登录手机用户登录后也会回到 `/m`
 - 云服务器防火墙/安全组应只向公网开放 `80/tcp` 与 `443/tcp`；不要向公网开放 `3000/tcp`、`8080/tcp`、`8000/tcp`、`11434/tcp`。
 
+生产 compose 覆盖配置会设置 `APP_ENV=production` 与 `EDGE_HTTPS_ENABLED=true`。后者只是明确声明由内置 Edge 终止 TLS，不会让 Go Server 自行加载证书。若 JWT 仍为默认值、密码为空且未声明 `TRUSTED_NETWORK_ONLY=true`、未声明 HTTPS，或 CORS 包含 `*`，后端会拒绝启动。
+
 **部署检查清单：**
 
 1. **在 `.env` 设置强密钥：**
@@ -426,6 +502,12 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
    VITE_API_BASE_URL=/api
    ```
    > 前端与 API 同域时，`/api` 始终有效。仅在前后端跨域部署时才需写完整 URL。
+
+   若浏览器前端来自独立 Origin，请配置完整的协议、域名和端口：
+   ```bash
+   CORS_ALLOWED_ORIGINS=https://app.example.com
+   ```
+   `TRUSTED_PROXY_CIDRS` 只应填写自己控制、且直接连接后端的代理网段；未配置时 MemoDrive 会忽略 `X-Forwarded-For`，避免伪造客户端 IP。
 
 4. **验证部署：**
    ```bash

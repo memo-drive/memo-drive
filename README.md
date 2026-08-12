@@ -10,7 +10,13 @@ English | [中文](./README-ZH.md)
 - Configurable storage root, SQLite database path, upload temp path, and thumbnail path.
 - File listing, folder creation, rename/move API, Trash soft-delete/restore/purge, and download with HTTP Range support.
 - Chunked upload with explicit Upload Session states, resumable session records, merge-on-complete, and a real Transfer page for progress, pause/resume, cancel, and history cleanup.
-- Async File Indexing Pipeline with durable Pipeline Tasks, bounded worker concurrency, startup recovery, panic failure marking, and graceful shutdown.
+- Directory upload with Desktop folder selection and recursive drag-and-drop, capability-gated Mobile selection, independent server-side relative-path validation, hierarchical Folder preparation, per-entry failures, and directory plus individual File progress in Transfer.
+- Upload conflict contracts with `reject | rename | replace`, case-insensitive batch preflight, deterministic rename suggestions, persisted requested/resolved targets, and structured API errors. App Upload create/replace now commits through same-filesystem staging, a recoverable Mutation Journal, atomic SQLite transactions, startup recovery, and bounded concurrent rename retries.
+- File and recursive Folder Copy through `POST /api/files/:id/copy`, with independent storage objects, bounded concurrent rename, recoverable Folder Copy operations, independent Pipeline Tasks, shared Desktop/Mobile behavior, and WebDAV COPY reuse. Folder `replace` is intentionally unsupported; use `reject` or `rename`.
+- Streaming Folder ZIP downloads through `GET|HEAD /api/files/:id/download?archive=zip`, with UTF-8 relative entries, empty-folder preservation, Zip Slip validation, cancellation, bad-object preflight, and configurable node/uncompressed-byte limits without a complete temporary archive.
+- Storage capacity protection with logical quota, real filesystem availability, reserved safety space, and temporary-space limits. App Upload and WebDAV recheck admission before writes and commits, return `507 insufficient_storage` consistently, and expose categorized usage plus upload availability in Desktop Settings and Mobile Me.
+- Offline backup and recovery through `memodrive-admin backup`, `verify`, `restore`, `integrity`, and `reindex --all`, with a verifiable manifest, consistent SQLite snapshot, streaming SHA-256, pre/post-restore integrity checks, and real Pipeline rebuilding.
+- Async File Indexing Pipeline with durable Pipeline Tasks, bounded worker concurrency, startup recovery, panic failure marking, and graceful shutdown. Desktop and Mobile Transfer surfaces list recent processing Tasks, expose sanitized failures, and let users retry failed attempts without losing audit history.
 - Image metadata extraction with dimensions, JPEG EXIF, and thumbnail generation.
 - Video/audio metadata extraction through `ffprobe` when available.
 - Media text indexing: image OCR is enabled by default via Tesseract when available; audio/video transcription is optional via whisper.cpp or OpenAI-compatible Whisper APIs.
@@ -255,7 +261,22 @@ Open `.env` and set at minimum:
 |----------|-------------|
 | `ADMIN_PASSWORD` | Login password. Leave empty to disable authentication (not recommended in production). |
 | `JWT_SECRET` | Secret key for signing JWTs. **Must be changed** before production deployment. Generate one with: `openssl rand -hex 32` |
+| `APP_ENV` | `development` or `production`; production enables strict startup security gates. |
+| `CORS_ALLOWED_ORIGINS` | Comma-separated browser origin allowlist. Empty means same-origin only in production. |
+| `TRUSTED_PROXY_CIDRS` | Proxy CIDRs allowed to supply `X-Forwarded-For`; empty means forwarded addresses are ignored. |
 | `OPENAI_API_KEY` | (Optional) OpenAI-compatible API key. If unset, falls back to local Ollama. |
+| `STORAGE_QUOTA_BYTES` | (Optional) Logical quota for active Files; `0` adds no logical limit. |
+| `STORAGE_RESERVED_BYTES` | Real disk safety reserve unavailable to ordinary writes; defaults to 1 GiB. |
+| `STORAGE_TEMP_LIMIT_BYTES` | Combined upload-temp and staging limit; `0` derives it from quota/filesystem capacity. |
+| `DIRECTORY_UPLOAD_MAX_ENTRIES` | Maximum Files in one directory prepare request; defaults to 10000. |
+| `DIRECTORY_UPLOAD_MAX_DEPTH` | Maximum relative-path segments including the File name; defaults to 32. |
+| `DIRECTORY_UPLOAD_MAX_PATH_BYTES` | Maximum UTF-8 bytes in one relative path; defaults to 1024. |
+| `FOLDER_COPY_MAX_NODES` | Maximum root + descendant nodes in one recursive Folder Copy; defaults to 10000. |
+| `FOLDER_ZIP_MAX_NODES` | Maximum root + descendant nodes in one Folder ZIP; defaults to 10000. |
+| `FOLDER_ZIP_MAX_UNCOMPRESSED_BYTES` | Maximum uncompressed File bytes in one Folder ZIP; defaults to 20 GiB. |
+| `FILE_VERSIONING_ENABLED` | Create a File Version before replacement, Markdown save, Copy replace, or version restore; defaults to `true`. Existing versions stay readable when disabled. |
+| `FILE_VERSION_MAX_COUNT` | Maximum historical versions retained per File; defaults to 20. |
+| `FILE_VERSION_RETENTION_DAYS` | Age-based File Version retention; defaults to 90 days. Janitor always keeps the newest historical version. |
 
 **2. Pre-create data directories** (only needed if not using `start.sh`)
 
@@ -286,7 +307,60 @@ Then open:
 | Desktop Web | `http://localhost:3000` |
 | Mobile H5 | `http://localhost:3000/m` |
 
-> **Security note:** If `JWT_SECRET` is still the default value or `ADMIN_PASSWORD` is empty, the backend will log a warning on startup. Check the logs with `docker compose logs backend`.
+> **Security note:** Development logs warnings for the default JWT secret, empty password, or wildcard CORS. Production refuses to start with those settings and also requires the HTTPS edge declaration. Check logs with `docker compose logs backend`.
+
+API requests use independent fixed-window limits for login failures, normal reads, writes, chunked uploads, and AI/search. Defaults are documented in `.env.example`; limited responses use structured error code `rate_limited`, HTTP `429`, and `Retry-After`. Authenticated traffic is keyed by JWT subject. Login failures are keyed by the direct peer IP unless that peer is included in `TRUSTED_PROXY_CIDRS`.
+
+Browser login uses an `HttpOnly` session cookie, so resource URLs no longer carry the primary JWT. The cookie is scoped to `/api`, uses `SameSite=Lax`, and is also `Secure` in production; unsafe browser requests must send `X-MemoDrive-CSRF: 1`. External API clients can continue using the Bearer token returned by login, and Bearer writes do not require that CSRF header. `POST /api/auth/logout` logs out the current device by default; send `{"scope":"all"}` to log out every device. Rotating the password or `JWT_SECRET` invalidates existing sessions. This upgrade does not change stored Files, but JWTs issued before server-side sessions existed must log in once again. Cookie mode expects the frontend and API to be same-site; cross-site integrations should use Bearer authentication.
+
+Ordinary Folder listings use cursor pagination: `GET /api/files?path=/Docs&sort=name&limit=100&cursor=...` preserves `files` and adds `next_cursor` plus `has_more`. Pages default to 100 items and are capped at 500. Supported sorts are `name`, `size`, `created_at`, and `updated_at`; every order is Folder-first and uses File ID as the stable tie-break. Cursors are opaque and bound to the Folder Path, sort, and cursor version, so they cannot be reused across queries. Pagination has best-effort keyset semantics: deleting the anchor does not stop traversal, while Files inserted or moved before the cursor become visible after refreshing the Folder.
+
+## Offline Backup, Verification, and Restore
+
+`memodrive-admin` v1 backups are offline-consistent. Stop the API Server before running `backup`, `restore`, `integrity`, or `reindex`; commands refuse to run while the Server holds the writer lock. Chroma indexes and Ollama models are not backed up. Rebuild Chroma and other derived data with `reindex --all`.
+
+Build the administrative binary:
+
+```bash
+make build-backend
+```
+
+Create a directory backup and, optionally, an additional ZIP64 archive:
+
+```bash
+./backend/bin/memodrive-admin backup \
+  --env-file .env \
+  --output ./backups/backup-2026-08-07 \
+  --archive ./backups/backup-2026-08-07.zip
+
+./backend/bin/memodrive-admin verify \
+  --backup ./backups/backup-2026-08-07
+```
+
+Restore requires empty targets by default. With `--force`, old targets are preserved until the staged restore passes integrity checks and is switched into place:
+
+```bash
+./backend/bin/memodrive-admin restore \
+  --backup ./backups/backup-2026-08-07 \
+  --target-root ./restored/files \
+  --target-db ./restored/db/memodrive.db
+
+./backend/bin/memodrive-admin integrity --env-file .env
+./backend/bin/memodrive-admin reindex --all --env-file .env
+```
+
+The Docker image also contains `/app/memodrive-admin`. Mount a host backup directory when invoking it:
+
+```bash
+docker compose stop backend
+docker compose run --rm --no-deps \
+  -v "$PWD/backups:/backups" \
+  backend /app/memodrive-admin backup \
+  --output /backups/backup-$(date -u +%Y%m%dT%H%M%SZ)
+docker compose start backend
+```
+
+Every command emits JSON. Exit code `0` means success, `1` means execution or verification failure, and `2` means invalid arguments. A practical baseline is a weekly backup, 4–8 fully verified retained copies, one copy on another disk or host, and a restore-to-new-directory drill every quarter.
 
 ## WebDAV Access
 
@@ -408,6 +482,8 @@ The prod deployment is designed around this boundary:
 - Keeps mobile login closed-loop through `/login?redirect=...`, so unauthenticated phone users return to `/m` after login even if the first `/` request reached the frontend directly
 - Keep your cloud firewall/security group restricted to public `80/tcp` and `443/tcp`; block direct public access to `3000/tcp`, `8080/tcp`, `8000/tcp`, and `11434/tcp`.
 
+The production compose override sets `APP_ENV=production` and `EDGE_HTTPS_ENABLED=true`. The latter is an explicit declaration that the bundled edge terminates TLS; it does not enable TLS inside the Go server. Startup fails if the JWT secret is still the default, the password is empty without `TRUSTED_NETWORK_ONLY=true`, HTTPS is undeclared, or CORS contains `*`.
+
 **Setup checklist:**
 
 1. **Set strong secrets in `.env`:**
@@ -427,6 +503,12 @@ The prod deployment is designed around this boundary:
    VITE_API_BASE_URL=/api
    ```
    > When frontend and API share the same domain via the edge nginx, `/api` always works. Only set a full URL if you're serving frontend and backend from different domains.
+
+   For a separate browser origin, add its exact scheme, host, and port:
+   ```bash
+   CORS_ALLOWED_ORIGINS=https://app.example.com
+   ```
+   Configure `TRUSTED_PROXY_CIDRS` only with the backend-facing CIDR of proxies you operate. MemoDrive otherwise ignores `X-Forwarded-For` to prevent spoofing.
 
 4. **Validate the deployment:**
    ```bash

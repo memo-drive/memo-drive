@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button, message } from "../../components/base";
+import { PipelineTaskPanel } from "../../components/PipelineTask/PipelineTaskPanel";
 import { useChunkedUpload } from "../../hooks/useChunkedUpload";
 import {
+  directoryTransferSummaries,
   isActiveTransferStatus,
   transferStatusLabelKey,
 } from "../../stores/transferProjection";
@@ -10,7 +12,7 @@ import { useTransferStore } from "../../stores/transferStore";
 import type { TransferStatus, TransferTask } from "../../stores/transferStore";
 import styles from "./index.module.css";
 
-type TabKey = "active" | "history";
+type TabKey = "active" | "history" | "processing";
 
 const SIZE_UNITS = ["B", "KB", "MB", "GB", "TB"];
 
@@ -63,12 +65,17 @@ function TransferCard({
   item,
   onPause,
   onResume,
+  onRetryConflict,
   onCancel,
   onRemove,
 }: {
   item: TransferTask;
   onPause: (id: string) => void;
   onResume: (task: TransferTask) => void;
+  onRetryConflict: (
+    task: TransferTask,
+    policy: "rename" | "replace",
+  ) => void;
   onCancel: (id: string) => void;
   onRemove: (id: string) => void;
 }) {
@@ -76,13 +83,23 @@ function TransferCard({
   const speed = formatSpeed(item.speed);
   const remaining = remainingText(item, t);
   const showProgress = item.status !== "done";
+  const requestedName = item.requestedName ?? item.fileName;
+  const resolvedName = item.resolvedName ?? item.fileName;
   return (
     <div className={styles.transferItem}>
       <div className={styles.itemIcon}>
         <span className="material-symbols-outlined">upload</span>
       </div>
       <div className={styles.itemInfo}>
-        <div className={styles.itemName}>{item.fileName}</div>
+        <div className={styles.itemName}>{resolvedName}</div>
+        {requestedName !== resolvedName && (
+          <div className={styles.resolvedName}>
+            {t("transfer.resolvedName", {
+              requested: requestedName,
+              resolved: resolvedName,
+            })}
+          </div>
+        )}
         <div className={styles.itemMeta}>
           <span>{t("transfer.direction")}</span>
           <span>{formatSize(item.fileSize)}</span>
@@ -133,6 +150,22 @@ function TransferCard({
               </button>
             </>
           )}
+          {item.status === "failed" && item.conflictRetryable && (
+            <>
+              <button
+                className={styles.actionBtn}
+                onClick={() => onRetryConflict(item, "rename")}
+              >
+                {t("transfer.retryKeepBoth")}
+              </button>
+              <button
+                className={styles.actionBtn}
+                onClick={() => onRetryConflict(item, "replace")}
+              >
+                {t("transfer.retryReplace")}
+              </button>
+            </>
+          )}
           {!isActiveTransferStatus(item.status) && (
             <button className={styles.actionBtn} onClick={() => onRemove(item.id)}>
               {t("transfer.actionRemove")}
@@ -149,9 +182,14 @@ export function TransferPage() {
   const [tab, setTab] = useState<TabKey>("active");
   const resumeInputRef = useRef<HTMLInputElement | null>(null);
   const resumeTargetRef = useRef<TransferTask | null>(null);
+  const conflictInputRef = useRef<HTMLInputElement | null>(null);
+  const conflictTargetRef = useRef<{
+    task: TransferTask;
+    policy: "rename" | "replace";
+  } | null>(null);
   const { tasks, loadingHistory, loadSessions, removeTask, clearDone } =
     useTransferStore();
-  const { pause, resume, cancel } = useChunkedUpload(() => undefined);
+  const { pause, resume, retryConflict, cancel } = useChunkedUpload(() => undefined);
 
   useEffect(() => {
     void loadSessions();
@@ -160,6 +198,7 @@ export function TransferPage() {
   const activeList = tasks.filter((task) => isActiveTransferStatus(task.status));
   const historyList = tasks.filter((task) => !isActiveTransferStatus(task.status));
   const list = tab === "active" ? activeList : historyList;
+  const directorySummaries = directoryTransferSummaries(tasks);
 
   function handleResume(task: TransferTask) {
     if (task.file) {
@@ -183,6 +222,35 @@ export function TransferPage() {
     } finally {
       if (resumeInputRef.current) {
         resumeInputRef.current.value = "";
+      }
+    }
+  }
+
+  function handleConflictRetry(
+    task: TransferTask,
+    policy: "rename" | "replace",
+  ) {
+    if (task.file) {
+      void retryConflict(task, policy).catch((err) => {
+        message.error(err instanceof Error ? err.message : t("transfer.retryFailed"));
+      });
+      return;
+    }
+    conflictTargetRef.current = { task, policy };
+    conflictInputRef.current?.click();
+  }
+
+  async function handleConflictFile(files: FileList | null) {
+    const target = conflictTargetRef.current;
+    conflictTargetRef.current = null;
+    if (!target || !files || files.length === 0) return;
+    try {
+      await retryConflict(target.task, target.policy, files[0]);
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : t("transfer.retryFailed"));
+    } finally {
+      if (conflictInputRef.current) {
+        conflictInputRef.current.value = "";
       }
     }
   }
@@ -229,10 +297,41 @@ export function TransferPage() {
         hidden
         onChange={(event) => handleResumeFile(event.target.files)}
       />
+      <input
+        ref={conflictInputRef}
+        type="file"
+        hidden
+        onChange={(event) => void handleConflictFile(event.target.files)}
+      />
+
+      {tab !== "processing" && directorySummaries.length > 0 ? (
+        <div className={styles.directoryGroups}>
+          {directorySummaries.map((group) => (
+            <section key={group.batchId} className={styles.directoryGroup}>
+              <div>
+                <strong>{group.name}</strong>
+                <span>
+                  {t("transfer.directoryFiles", {
+                    completed: group.completedCount,
+                    total: group.fileCount,
+                  })}
+                </span>
+              </div>
+              <div className={styles.progressWrap}>
+                <div className={styles.progressBar}>
+                  <div className={styles.progressFill} style={{ width: `${group.percent}%` }} />
+                </div>
+                <div className={styles.progressPercent}>{group.percent}%</div>
+              </div>
+            </section>
+          ))}
+        </div>
+      ) : null}
 
       <div className={styles.tabs}>
         <button
           className={`${styles.tab} ${tab === "active" ? styles.tabActive : ""}`}
+          aria-pressed={tab === "active"}
           onClick={() => setTab("active")}
         >
           {t("transfer.tabActive")}
@@ -240,15 +339,27 @@ export function TransferPage() {
         </button>
         <button
           className={`${styles.tab} ${tab === "history" ? styles.tabActive : ""}`}
+          aria-pressed={tab === "history"}
           onClick={() => setTab("history")}
         >
           {t("transfer.tabHistory")}
           {historyList.length > 0 && ` (${historyList.length})`}
         </button>
+        <button
+          className={`${styles.tab} ${tab === "processing" ? styles.tabActive : ""}`}
+          aria-pressed={tab === "processing"}
+          onClick={() => setTab("processing")}
+        >
+          {t("transfer.tabProcessing")}
+        </button>
       </div>
 
       <section className={styles.card}>
-        {loadingHistory && list.length === 0 ? (
+        {tab === "processing" ? (
+          <div className={styles.pipelinePanel}>
+            <PipelineTaskPanel />
+          </div>
+        ) : loadingHistory && list.length === 0 ? (
           <div className={styles.empty}>
             <span className={`material-symbols-outlined ${styles.emptyIcon}`}>
               sync
@@ -271,6 +382,7 @@ export function TransferPage() {
               item={item}
               onPause={pause}
               onResume={handleResume}
+              onRetryConflict={handleConflictRetry}
               onCancel={handleCancel}
               onRemove={handleRemove}
             />

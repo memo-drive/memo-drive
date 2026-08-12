@@ -3,6 +3,7 @@ package service
 import (
 	"bytes"
 	"context"
+	"errors"
 	"log"
 	"os"
 	"path/filepath"
@@ -86,6 +87,64 @@ func TestReconcilerPeriodicSweepCleansWebDAVTemp(t *testing.T) {
 	}
 }
 
+func TestReconcilerPeriodicSweepCleansExpiredTerminalFileMutation(t *testing.T) {
+	cfg, db := newReconcilerTestStore(t)
+	cfg.Storage.UploadTTL = -time.Hour
+	stagingRel := filepath.ToSlash(filepath.Join(".staging", "expired-mutation"))
+	stagingPath := filepath.Join(cfg.Storage.Root, filepath.FromSlash(stagingRel))
+	if err := os.MkdirAll(stagingPath, 0o755); err != nil {
+		t.Fatalf("create mutation staging: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stagingPath, "rollback"), []byte("old"), 0o644); err != nil {
+		t.Fatalf("write mutation rollback: %v", err)
+	}
+	if err := db.CreateFileMutation(context.Background(), &model.FileMutation{
+		ID:               "expired-mutation",
+		Kind:             model.FileMutationKindUploadReplace,
+		State:            model.FileMutationStateFailed,
+		VirtualPath:      "/report.txt",
+		TargetFileID:     "report",
+		StagedPath:       filepath.ToSlash(filepath.Join(stagingRel, "content")),
+		OldStoragePath:   filepath.ToSlash(filepath.Join(stagingRel, "rollback")),
+		FinalStoragePath: "report.txt",
+		Error:            "rolled back",
+	}); err != nil {
+		t.Fatalf("create terminal mutation: %v", err)
+	}
+
+	reconciler := NewReconciler(cfg, db, nil, NewFileService(cfg, db, nil))
+	if err := reconciler.PeriodicSweep(context.Background()); err != nil {
+		t.Fatalf("PeriodicSweep returned error: %v", err)
+	}
+	if exists(stagingPath) {
+		t.Fatal("expected expired terminal mutation staging to be removed")
+	}
+}
+
+func TestReconcilerPeriodicSweepCleansExpiredUnjournaledStaging(t *testing.T) {
+	cfg, db := newReconcilerTestStore(t)
+	cfg.Storage.UploadTTL = time.Hour
+	orphan := filepath.Join(cfg.Storage.Root, ".staging", "orphan-mutation")
+	if err := os.MkdirAll(orphan, 0o755); err != nil {
+		t.Fatalf("create orphan staging: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(orphan, "content"), []byte("partial"), 0o644); err != nil {
+		t.Fatalf("write orphan staging content: %v", err)
+	}
+	expired := time.Now().Add(-2 * time.Hour)
+	if err := os.Chtimes(orphan, expired, expired); err != nil {
+		t.Fatalf("age orphan staging: %v", err)
+	}
+
+	reconciler := NewReconciler(cfg, db, nil, NewFileService(cfg, db, nil))
+	if err := reconciler.PeriodicSweep(context.Background()); err != nil {
+		t.Fatalf("PeriodicSweep returned error: %v", err)
+	}
+	if exists(orphan) {
+		t.Fatal("expected expired unjournaled staging to be removed")
+	}
+}
+
 func TestReconcilerRecoverOnBootRequeuesThroughPipeline(t *testing.T) {
 	cfg, db := newPipelineTestStore(t)
 	cfg.Pipeline.Workers = 1
@@ -121,14 +180,156 @@ func TestReconcilerRecoverOnBootRequeuesThroughPipeline(t *testing.T) {
 	}
 	defer provider.releaseEmbeds()
 
-	updated, err := db.GetTask(context.Background(), recoveredTask.ID)
+	updated, err := pipeline.GetTask(context.Background(), recoveredTask.ID)
 	if err != nil {
 		t.Fatalf("get recovered task: %v", err)
 	}
-	if updated.RetryCount != 1 {
-		t.Fatalf("expected recovered task retry count 1, got %d", updated.RetryCount)
+	if updated.Status != model.TaskStatusFailed || updated.RetryCount != 0 || updated.Error == nil {
+		t.Fatalf("expected original stuck Task to remain as failed audit history, got %#v", updated)
 	}
-	assertTaskStaysStatus(t, pipeline, recoveredTask.ID, model.TaskStatusPending, 150*time.Millisecond)
+	page, err := pipeline.ListTasks(context.Background(), "", recoveredFile.ID, "", 10)
+	if err != nil {
+		t.Fatalf("list recovered File Tasks: %v", err)
+	}
+	var retry *model.TaskListItem
+	for i := range page.Items {
+		if page.Items[i].RetryOfTaskID == recoveredTask.ID {
+			retry = &page.Items[i]
+			break
+		}
+	}
+	if retry == nil || retry.RetryCount != 1 {
+		t.Fatalf("expected linked recovery Task with retry_count 1, got %#v", page.Items)
+	}
+	assertTaskStaysStatus(t, pipeline, retry.ID, model.TaskStatusPending, 150*time.Millisecond)
+}
+
+func TestReconcilerRecoverOnBootRollsBackUncommittedFileMutationIdempotently(t *testing.T) {
+	cfg, db := newReconcilerTestStore(t)
+	file := &model.File{
+		ID:          "replace-target",
+		Name:        "report.txt",
+		Path:        "/",
+		StoragePath: "report.txt",
+		Size:        3,
+		MimeType:    "text/plain",
+		Status:      model.FileStatusReady,
+	}
+	if err := db.CreateFile(context.Background(), file); err != nil {
+		t.Fatalf("create target File: %v", err)
+	}
+	finalPath := filepath.Join(cfg.Storage.Root, file.StoragePath)
+	if err := os.WriteFile(finalPath, []byte("new"), 0o644); err != nil {
+		t.Fatalf("write uncommitted content: %v", err)
+	}
+	stagingRel := filepath.ToSlash(filepath.Join(".staging", "mutation-recover"))
+	rollbackRel := filepath.ToSlash(filepath.Join(stagingRel, "rollback"))
+	rollbackPath := filepath.Join(cfg.Storage.Root, filepath.FromSlash(rollbackRel))
+	if err := os.MkdirAll(filepath.Dir(rollbackPath), 0o755); err != nil {
+		t.Fatalf("create mutation staging: %v", err)
+	}
+	if err := os.WriteFile(rollbackPath, []byte("old"), 0o644); err != nil {
+		t.Fatalf("write rollback content: %v", err)
+	}
+	mutation := &model.FileMutation{
+		ID:               "mutation-recover",
+		Kind:             model.FileMutationKindUploadReplace,
+		State:            model.FileMutationStateFSApplied,
+		VirtualPath:      "/report.txt",
+		TargetFileID:     file.ID,
+		StagedPath:       filepath.ToSlash(filepath.Join(stagingRel, "content")),
+		OldStoragePath:   rollbackRel,
+		FinalStoragePath: file.StoragePath,
+	}
+	if err := db.CreateFileMutation(context.Background(), mutation); err != nil {
+		t.Fatalf("create interrupted mutation: %v", err)
+	}
+
+	reconciler := NewReconciler(cfg, db, nil, NewFileService(cfg, db, nil))
+	for attempt := 1; attempt <= 2; attempt++ {
+		if err := reconciler.RecoverOnBoot(context.Background()); err != nil {
+			t.Fatalf("RecoverOnBoot attempt %d: %v", attempt, err)
+		}
+		content, err := os.ReadFile(finalPath)
+		if err != nil {
+			t.Fatalf("read recovered File attempt %d: %v", attempt, err)
+		}
+		if string(content) != "old" {
+			t.Fatalf("expected old content after recovery attempt %d, got %q", attempt, content)
+		}
+	}
+}
+
+func TestReconcilerRecoverOnBootRemovesInterruptedFolderCopyAndMarksItFailed(t *testing.T) {
+	cfg, db := newReconcilerTestStore(t)
+	files := NewFileService(cfg, db, nil)
+	root := &model.File{
+		ID: "partial-copy", Name: "Folder-copy", Path: "/", StoragePath: "Folder-copy",
+		IsDir: true, Status: model.FileStatusReady,
+	}
+	if err := os.MkdirAll(filepath.Join(cfg.Storage.Root, root.StoragePath), 0o755); err != nil {
+		t.Fatalf("create partial copy storage: %v", err)
+	}
+	if err := db.CreateFile(context.Background(), root); err != nil {
+		t.Fatalf("create partial copy root: %v", err)
+	}
+	if err := db.CreateFileCopyOperation(context.Background(), &model.FileCopyOperation{
+		ID:         "copy-operation",
+		SourceID:   "source-folder",
+		RootFileID: root.ID,
+		State:      model.FileCopyOperationStateRunning,
+	}); err != nil {
+		t.Fatalf("create interrupted Folder Copy operation: %v", err)
+	}
+
+	reconciler := NewReconciler(cfg, db, nil, files)
+	for attempt := 1; attempt <= 2; attempt++ {
+		if err := reconciler.RecoverOnBoot(context.Background()); err != nil {
+			t.Fatalf("RecoverOnBoot attempt %d: %v", attempt, err)
+		}
+		if _, err := files.Get(context.Background(), root.ID); !errors.Is(err, store.ErrNotFound) {
+			t.Fatalf("partial copy root after attempt %d = %v, want not found", attempt, err)
+		}
+	}
+	operation, err := db.GetFileCopyOperation(context.Background(), "copy-operation")
+	if err != nil {
+		t.Fatalf("get recovered Folder Copy operation: %v", err)
+	}
+	if operation.State != model.FileCopyOperationStateFailed || operation.Error == "" {
+		t.Fatalf("recovered Folder Copy operation = %#v, want failed with reason", operation)
+	}
+}
+
+func TestReconcilerRecoverOnBootFailsInterruptedMergingUploads(t *testing.T) {
+	cfg, db := newReconcilerTestStore(t)
+	session := &model.UploadSession{
+		ID:              "interrupted-upload",
+		FileName:        "report.txt",
+		RequestedName:   "report.txt",
+		ResolvedName:    "report.txt",
+		OverwritePolicy: string(ConflictReject),
+		FileSize:        3,
+		ChunkSize:       3,
+		UploadedChunks:  []int{0},
+		DestPath:        "/",
+		Status:          model.UploadStatusMerging,
+		ExpiresAt:       time.Now().Add(time.Hour),
+	}
+	if err := db.CreateUploadSession(context.Background(), session); err != nil {
+		t.Fatalf("create interrupted Upload Session: %v", err)
+	}
+
+	reconciler := NewReconciler(cfg, db, nil, NewFileService(cfg, db, nil))
+	if err := reconciler.RecoverOnBoot(context.Background()); err != nil {
+		t.Fatalf("RecoverOnBoot returned error: %v", err)
+	}
+	recovered, err := db.GetUploadSession(context.Background(), session.ID)
+	if err != nil {
+		t.Fatalf("get recovered Upload Session: %v", err)
+	}
+	if recovered.Status != model.UploadStatusFailed {
+		t.Fatalf("expected interrupted Upload Session to be failed, got %q", recovered.Status)
+	}
 }
 
 func TestReconcilerSweepThumbnailsRemovesOrphans(t *testing.T) {
@@ -206,6 +407,68 @@ func TestReconcilerSweepWebDAVTempKeepsUnexpiredFiles(t *testing.T) {
 	}
 	if !exists(active) {
 		t.Fatal("expected active WebDAV temp file to remain")
+	}
+}
+
+func TestReconcilerSweepStorageNeverMovesFileMutationStaging(t *testing.T) {
+	cfg, db := newReconcilerTestStore(t)
+	reconciler := NewReconciler(cfg, db, nil, NewFileService(cfg, db, nil))
+	staged := filepath.Join(cfg.Storage.Root, ".staging", "active-mutation", "content")
+	if err := os.MkdirAll(filepath.Dir(staged), 0o755); err != nil {
+		t.Fatalf("create active mutation staging: %v", err)
+	}
+	if err := os.WriteFile(staged, []byte("new"), 0o644); err != nil {
+		t.Fatalf("write active mutation content: %v", err)
+	}
+
+	moved, err := reconciler.SweepStorage(context.Background())
+	if err != nil {
+		t.Fatalf("SweepStorage returned error: %v", err)
+	}
+	if moved != 0 {
+		t.Fatalf("expected no staged files moved, got %d", moved)
+	}
+	if !exists(staged) {
+		t.Fatal("expected active File Mutation staging to remain")
+	}
+}
+
+func TestReconcilerSweepStorageKeepsRegisteredFileVersions(t *testing.T) {
+	files, db, root := newFileServiceTestHarness(t)
+	files.cfg.FileVersion.Enabled = true
+	file := createServiceTestFile(t, db, root, &model.File{
+		ID:          "storage-sweep-version",
+		Name:        "sweep.md",
+		Path:        "/",
+		StoragePath: "sweep.md",
+		Size:        3,
+		MimeType:    "text/markdown",
+		Status:      model.FileStatusReady,
+	}, "old")
+	base, err := files.MarkdownContent(context.Background(), file.ID)
+	if err != nil {
+		t.Fatalf("read Markdown before save: %v", err)
+	}
+	if _, err := files.UpdateMarkdownContent(context.Background(), file.ID, "new", base.UpdatedAt); err != nil {
+		t.Fatalf("create File Version: %v", err)
+	}
+	versions, err := files.ListVersions(context.Background(), file.ID)
+	if err != nil || len(versions) != 1 {
+		t.Fatalf("list File Versions: versions=%#v err=%v", versions, err)
+	}
+	if _, err := NewReconciler(files.cfg, db, nil, files).SweepStorage(context.Background()); err != nil {
+		t.Fatalf("sweep storage: %v", err)
+	}
+	_, path, err := files.VersionDownload(context.Background(), file.ID, versions[0].ID)
+	if err != nil {
+		t.Fatalf("download registered File Version after storage sweep: %v", err)
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read registered File Version after storage sweep: %v", err)
+	}
+	if string(content) != "old" {
+		t.Fatalf("registered File Version content after storage sweep = %q, want old", content)
 	}
 }
 
@@ -291,6 +554,77 @@ func TestReconcilerSweepTrashPurgesExpiredItems(t *testing.T) {
 	}
 	if _, err := db.GetFileIncludeDeleted(context.Background(), file.ID); err == nil {
 		t.Fatal("expected DB row to be purged")
+	}
+}
+
+func TestReconcilerSweepsFileVersionsBeyondCountLimit(t *testing.T) {
+	files, db, root := newFileServiceTestHarness(t)
+	files.cfg.FileVersion.Enabled = true
+	files.cfg.FileVersion.MaxCount = 2
+	files.cfg.FileVersion.RetentionDays = 90
+	file := createServiceTestFile(t, db, root, &model.File{
+		ID:          "retained-note",
+		Name:        "retained.md",
+		Path:        "/",
+		StoragePath: "retained.md",
+		Size:        2,
+		MimeType:    "text/markdown",
+		Status:      model.FileStatusReady,
+	}, "v0")
+	for _, content := range []string{"v1", "v2", "v3"} {
+		base, err := files.MarkdownContent(context.Background(), file.ID)
+		if err != nil {
+			t.Fatalf("read Markdown before save %q: %v", content, err)
+		}
+		if _, err := files.UpdateMarkdownContent(context.Background(), file.ID, content, base.UpdatedAt); err != nil {
+			t.Fatalf("save Markdown %q: %v", content, err)
+		}
+	}
+	reconciler := NewReconciler(files.cfg, db, nil, files)
+	if err := reconciler.PeriodicSweep(context.Background()); err != nil {
+		t.Fatalf("sweep File Versions: %v", err)
+	}
+	versions, err := files.ListVersions(context.Background(), file.ID)
+	if err != nil {
+		t.Fatalf("list retained File Versions: %v", err)
+	}
+	if len(versions) != 2 || versions[0].VersionNo != 3 || versions[1].VersionNo != 2 {
+		t.Fatalf("retained File Versions = %#v, want version numbers 3 and 2", versions)
+	}
+}
+
+func TestReconcilerRetentionAlwaysKeepsNewestFileVersion(t *testing.T) {
+	files, db, root := newFileServiceTestHarness(t)
+	files.cfg.FileVersion.Enabled = true
+	files.cfg.FileVersion.MaxCount = 20
+	files.cfg.FileVersion.RetentionDays = 0
+	file := createServiceTestFile(t, db, root, &model.File{
+		ID:          "expiring-note",
+		Name:        "expiring.md",
+		Path:        "/",
+		StoragePath: "expiring.md",
+		Size:        2,
+		MimeType:    "text/markdown",
+		Status:      model.FileStatusReady,
+	}, "v0")
+	for _, content := range []string{"v1", "v2", "v3"} {
+		base, err := files.MarkdownContent(context.Background(), file.ID)
+		if err != nil {
+			t.Fatalf("read Markdown before save %q: %v", content, err)
+		}
+		if _, err := files.UpdateMarkdownContent(context.Background(), file.ID, content, base.UpdatedAt); err != nil {
+			t.Fatalf("save Markdown %q: %v", content, err)
+		}
+	}
+	if err := NewReconciler(files.cfg, db, nil, files).PeriodicSweep(context.Background()); err != nil {
+		t.Fatalf("sweep expired File Versions: %v", err)
+	}
+	versions, err := files.ListVersions(context.Background(), file.ID)
+	if err != nil {
+		t.Fatalf("list File Versions after retention: %v", err)
+	}
+	if len(versions) != 1 || versions[0].VersionNo != 3 {
+		t.Fatalf("retained File Versions = %#v, want only version 3", versions)
 	}
 }
 

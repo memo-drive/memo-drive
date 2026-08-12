@@ -5,8 +5,10 @@
     "confirm": "确认",
     "delete": "删除",
     "download": "下载",
+		"downloadAsZIP": "下载为 ZIP",
     "rename": "重命名",
     "moveTo": "移动到...",
+		"copyTo": "复制到",
     "restore": "恢复",
     "purge": "永久删除",
     "create": "创建",
@@ -23,6 +25,8 @@
     "subtitle": "继续你的个人工作空间",
     "password": "密码",
     "login": "登录",
+	"sessions": "登录设备",
+	"logoutAll": "退出所有设备",
     "private": "私有",
     "secure": "安全",
     "encrypted": "加密"
@@ -31,6 +35,21 @@
     "title": "设置",
     "language": "语言",
     "comingSoon": "设置页面即将上线"
+  },
+  "storageUsage": {
+    "title": "存储空间",
+    "description": "容量限制同时考虑逻辑配额、磁盘安全余量和临时空间。",
+    "quota": "配额 {{value}}",
+    "sidebarAvailable": "可上传 {{value}}",
+    "uploadAvailable": "可用于上传",
+    "active": "文件",
+    "trash": "回收站",
+    "temp": "临时文件",
+    "diskAvailable": "磁盘实际剩余",
+    "lowTitle": "可用空间不足",
+    "lowBody": "新上传可能被拒绝，请清理回收站或删除不需要的文件。",
+    "cleanTrash": "前往清理回收站",
+    "loadFailed": "无法加载存储空间信息"
   },
   "layout": {
     "tagline": "AI 原生个人云盘",
@@ -183,6 +202,7 @@
     "newFolder": "新建文件夹",
     "newMarkdown": "新建 Markdown",
     "upload": "上传",
+    "uploadFolder": "上传文件夹",
     "folderName": "文件夹名称",
     "folderNamePlaceholder": "输入文件夹名称",
     "markdownName": "Markdown 文件名",
@@ -253,6 +273,7 @@
     "title": "移动 {{name}}",
     "currentLocation": "当前位置",
     "loadingDirs": "正在加载目录...",
+    "loadMore": "加载更多",
     "emptyDirs": "这个目录下没有子文件夹",
     "alreadyHere": "文件已经在这个目录中",
     "cannotMoveToSelf": "不能把目录移动到它自己或子目录中",
@@ -261,6 +282,12 @@
     "success": "已移动",
     "failed": "移动失败"
   },
+	"copyDialog": {
+		"title": "复制 {{name}}",
+		"copyHere": "复制到这里",
+		"success": "复制成功",
+		"failed": "复制失败"
+	},
   "searchResultList": {
     "searching": "正在搜索...",
     "foundResults": "找到 {{count}} 条",
@@ -272,12 +299,28 @@
     "matchContent": "内容",
     "matchLabel": "筛选"
   },
+  "uploadConflict": {
+    "title": "发现同名文件",
+    "progress": "正在处理第 {{current}} / {{total}} 个冲突",
+    "description": "目标文件夹中已存在同名文件，请选择本次上传的处理方式。",
+    "keepBothHint": "保留两者将保存为",
+    "renameFallback": "自动生成可用名称",
+    "applyToRemaining": "对剩余冲突使用相同选择",
+    "keepBoth": "保留两者",
+    "replace": "替换现有文件",
+    "skip": "跳过此文件",
+    "replaceWarning": "替换会更新现有文件内容；原文件不会移入回收站。",
+    "skippedSummary": "已跳过 {{count}} 个同名文件",
+    "preflightFailed": "检查同名文件失败，请稍后重试"
+  },
   "transfer": {
+    "directoryFiles": "已完成 {{completed}} / {{total}} 个文件",
     "title": "传输",
     "subtitle": "管理文件上传任务，支持暂停、取消和断点续传。",
     "direction": "上传",
     "tabActive": "传输中",
     "tabHistory": "已完成",
+    "tabProcessing": "文件处理",
     "syncing": "正在同步传输记录...",
     "emptyActive": "暂无传输任务",
     "emptyHistory": "暂无历史记录",
@@ -291,6 +334,10 @@
     "cancelSuccess": "上传已取消",
     "removeFailed": "删除传输记录失败",
     "resumeFailed": "续传失败",
+    "retryFailed": "重新上传失败",
+    "retryKeepBoth": "保留两者后重试",
+    "retryReplace": "替换后重试",
+    "resolvedName": "原名称：{{requested}} · 保存为：{{resolved}}",
     "sessionExpiry": "会话到期 {{time}}",
     "preparingUpload": "准备上传",
     "etaSeconds": "约 {{seconds}} 秒",
@@ -492,5 +539,56 @@
     "selectSameFile": "请选择同名且大小一致的原文件",
     "cannotResume": "无法续传，当前状态为 {{status}}",
     "cancelled": "upload cancelled"
+  },
+  "fileVersion": {
+    "menu": "版本历史",
+    "title": "{{name}} 的版本历史",
+    "empty": "暂无历史版本",
+    "loading": "正在加载版本历史",
+    "loadFailed": "加载版本历史失败",
+    "versionNumber": "版本 {{number}}",
+    "checksumRecorded": "校验和已记录",
+    "checksumMissing": "缺少校验和",
+    "restore": "恢复",
+    "restoreSuccess": "版本已恢复",
+    "restoreFailed": "恢复版本失败",
+    "deleteConfirm": "确定永久删除版本 {{number}} 吗？此操作无法撤销。",
+    "deleteFailed": "删除版本失败",
+    "source": {
+      "upload_replace": "上传替换",
+      "webdav_put": "WebDAV 写入",
+      "markdown_save": "Markdown 保存",
+      "copy_replace": "复制替换",
+      "version_restore": "版本恢复"
+    }
+  },
+  "pipelineTask": {
+    "title": "文件处理任务",
+    "empty": "暂无处理任务",
+    "loading": "正在加载处理任务",
+    "loadFailed": "加载处理任务失败",
+    "loadMore": "加载更多",
+    "loadingMore": "正在加载更多",
+    "retryList": "重新加载",
+    "filterLabel": "按处理状态筛选",
+    "filter": {
+      "all": "全部",
+      "pending": "等待处理",
+      "processing": "正在处理",
+      "failed": "处理失败",
+      "done": "处理完成"
+    },
+    "progress": "{{name}} 的处理进度",
+    "retry": "重新处理",
+    "retryNamed": "重新处理 {{name}}",
+    "retryCount": "重试 {{count}} 次",
+    "retrySuccess": "已创建新的处理任务",
+    "retryFailed": "重新处理失败",
+    "status": {
+      "pending": "等待处理",
+      "processing": "正在处理",
+      "done": "处理完成",
+      "failed": "处理失败"
+    }
   }
 }

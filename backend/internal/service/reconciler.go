@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"log"
 	"os"
 	"path/filepath"
@@ -20,30 +21,50 @@ const (
 // Reconciler performs background maintenance: recovering stuck pipeline tasks,
 // cleaning up orphaned files, and purging expired trash entries.
 type Reconciler struct {
-	cfg      *config.Config
-	store    *store.Store
-	pipeline *PipelineService
-	files    *FileService
+	cfg       *config.Config
+	store     *store.Store
+	pipeline  *PipelineService
+	files     *FileService
+	mutations *FileMutationService
 }
 
 // SweepStats tracks the results of a periodic reconciler sweep.
 type SweepStats struct {
-	TasksRecovered    int
-	TasksFailed       int
-	FilesFailed       int
-	ThumbnailsRemoved int
-	WebDAVTempRemoved int
-	StorageMoved      int
-	TrashPurged       int
+	TasksRecovered      int
+	TasksFailed         int
+	FilesFailed         int
+	ThumbnailsRemoved   int
+	WebDAVTempRemoved   int
+	StorageMoved        int
+	TrashPurged         int
+	MutationsRemoved    int
+	StagingRemoved      int
+	FileVersionsRemoved int
 }
 
 // NewReconciler creates a new Reconciler.
 func NewReconciler(cfg *config.Config, store *store.Store, pipeline *PipelineService, files *FileService) *Reconciler {
-	return &Reconciler{cfg: cfg, store: store, pipeline: pipeline, files: files}
+	return &Reconciler{
+		cfg:       cfg,
+		store:     store,
+		pipeline:  pipeline,
+		files:     files,
+		mutations: NewFileMutationService(cfg, store),
+	}
 }
 
 func (r *Reconciler) RecoverOnBoot(ctx context.Context) error {
 	started := time.Now()
+	if err := r.mutations.Recover(ctx); err != nil {
+		return err
+	}
+	if err := r.recoverFolderCopies(ctx); err != nil {
+		return err
+	}
+	uploadsFailed, err := r.store.FailMergingUploadSessions(ctx)
+	if err != nil {
+		return err
+	}
 	stats, err := r.recoverTasks(ctx, time.Now().Add(time.Second))
 	if err != nil {
 		return err
@@ -53,8 +74,39 @@ func (r *Reconciler) RecoverOnBoot(ctx context.Context) error {
 		return err
 	}
 	stats.FilesFailed += filesFailed
-	log.Printf("level=info component=reconciler event=recover_complete tasks_recovered=%d tasks_failed=%d files_failed=%d duration_ms=%d",
-		stats.TasksRecovered, stats.TasksFailed, stats.FilesFailed, time.Since(started).Milliseconds())
+	log.Printf("level=info component=reconciler event=recover_complete tasks_recovered=%d tasks_failed=%d files_failed=%d uploads_failed=%d duration_ms=%d",
+		stats.TasksRecovered, stats.TasksFailed, stats.FilesFailed, uploadsFailed, time.Since(started).Milliseconds())
+	return nil
+}
+
+func (r *Reconciler) recoverFolderCopies(ctx context.Context) error {
+	operations, err := r.store.ListRunningFileCopyOperations(ctx)
+	if err != nil {
+		return err
+	}
+	for i := range operations {
+		operation := &operations[i]
+		if operation.RootFileID != "" {
+			if err := r.files.SoftDelete(ctx, operation.RootFileID); err != nil && !errors.Is(err, store.ErrNotFound) {
+				return err
+			}
+			if _, err := r.store.GetFileIncludeDeleted(ctx, operation.RootFileID); err == nil {
+				if err := r.files.Purge(ctx, operation.RootFileID); err != nil {
+					return err
+				}
+			} else if !errors.Is(err, store.ErrNotFound) {
+				return err
+			}
+		}
+		if err := r.store.UpdateFileCopyOperationState(
+			ctx,
+			operation.ID,
+			model.FileCopyOperationStateFailed,
+			"rolled back during startup recovery",
+		); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -93,15 +145,60 @@ func (r *Reconciler) PeriodicSweep(ctx context.Context) error {
 			stats.StorageMoved = moved
 		}
 	}
+	mutationTTL := r.cfg.Storage.UploadTTL
+	if mutationTTL == 0 {
+		mutationTTL = time.Hour
+	}
+	mutationsRemoved, err := r.mutations.SweepTerminal(ctx, time.Now().Add(-mutationTTL), maxJanitorRemovals)
+	if err != nil {
+		log.Printf("level=warn component=janitor event=file_mutation_sweep_failed err=%q", err)
+	} else {
+		stats.MutationsRemoved = mutationsRemoved
+	}
+	stagingRemoved, err := r.mutations.SweepOrphanStaging(ctx, time.Now().Add(-mutationTTL), maxJanitorRemovals)
+	if err != nil {
+		log.Printf("level=warn component=janitor event=orphan_staging_sweep_failed err=%q", err)
+	} else {
+		stats.StagingRemoved = stagingRemoved
+	}
 	trashPurged, err := r.SweepTrash(ctx)
 	if err != nil {
 		log.Printf("level=warn component=janitor event=trash_sweep_failed err=%q", err)
 	} else {
 		stats.TrashPurged = trashPurged
 	}
-	log.Printf("level=info component=janitor event=sweep_complete tasks_recovered=%d tasks_failed=%d files_failed=%d thumbnails_removed=%d webdav_temp_removed=%d storage_moved=%d trash_purged=%d duration_ms=%d",
-		stats.TasksRecovered, stats.TasksFailed, stats.FilesFailed, stats.ThumbnailsRemoved, stats.WebDAVTempRemoved, stats.StorageMoved, stats.TrashPurged, time.Since(started).Milliseconds())
+	versionsRemoved, err := r.SweepFileVersions(ctx)
+	if err != nil {
+		log.Printf("level=warn component=janitor event=file_version_sweep_failed err=%q", err)
+	} else {
+		stats.FileVersionsRemoved = versionsRemoved
+	}
+	log.Printf("level=info component=janitor event=sweep_complete tasks_recovered=%d tasks_failed=%d files_failed=%d thumbnails_removed=%d webdav_temp_removed=%d storage_moved=%d mutations_removed=%d staging_removed=%d trash_purged=%d file_versions_removed=%d duration_ms=%d",
+		stats.TasksRecovered, stats.TasksFailed, stats.FilesFailed, stats.ThumbnailsRemoved, stats.WebDAVTempRemoved, stats.StorageMoved, stats.MutationsRemoved, stats.StagingRemoved, stats.TrashPurged, stats.FileVersionsRemoved, time.Since(started).Milliseconds())
 	return nil
+}
+
+func (r *Reconciler) SweepFileVersions(ctx context.Context) (int, error) {
+	if r.cfg == nil || r.files == nil || r.cfg.FileVersion.MaxCount <= 0 {
+		return 0, nil
+	}
+	cutoff := time.Now().Add(-time.Duration(r.cfg.FileVersion.RetentionDays) * 24 * time.Hour)
+	versions, err := r.store.ListFileVersionsForRetention(ctx, r.cfg.FileVersion.MaxCount, cutoff, maxJanitorRemovals)
+	if err != nil {
+		return 0, err
+	}
+	removed := 0
+	for i := range versions {
+		if ctx.Err() != nil {
+			return removed, ctx.Err()
+		}
+		if err := r.files.DeleteVersion(ctx, versions[i].FileID, versions[i].ID); err != nil {
+			log.Printf("level=warn component=janitor event=file_version_remove_failed file_id=%s version_id=%s err=%q", versions[i].FileID, versions[i].ID, err)
+			continue
+		}
+		removed++
+	}
+	return removed, nil
 }
 
 func (r *Reconciler) recoverTasks(ctx context.Context, olderThan time.Time) (SweepStats, error) {
@@ -111,7 +208,7 @@ func (r *Reconciler) recoverTasks(ctx context.Context, olderThan time.Time) (Swe
 		return stats, err
 	}
 	for _, task := range tasks {
-		file, err := r.store.GetFile(ctx, task.FileID)
+		_, err := r.store.GetFile(ctx, task.FileID)
 		if err != nil {
 			msg := "stuck task file is missing"
 			_ = r.store.MarkTaskFailed(ctx, task.ID, msg)
@@ -127,9 +224,6 @@ func (r *Reconciler) recoverTasks(ctx context.Context, olderThan time.Time) (Swe
 			log.Printf("level=warn component=reconciler event=task_retry_exhausted task_id=%s file_id=%s retry_count=%d", task.ID, task.FileID, task.RetryCount)
 			continue
 		}
-		if err := r.store.IncrementTaskRetry(ctx, task.ID); err != nil {
-			return stats, err
-		}
 		if r.pipeline == nil {
 			msg := "task cannot be requeued because pipeline is unavailable"
 			_ = r.store.MarkTaskFailed(ctx, task.ID, msg)
@@ -137,16 +231,19 @@ func (r *Reconciler) recoverTasks(ctx context.Context, olderThan time.Time) (Swe
 			stats.TasksFailed++
 			continue
 		}
-		if err := r.pipeline.Requeue(ctx, task.ID, file); err != nil {
-			msg := "task cannot be requeued"
-			_ = r.store.MarkTaskFailed(ctx, task.ID, msg)
+		recoveryReason := "task replaced by a new attempt during startup recovery"
+		if err := r.store.MarkTaskFailed(ctx, task.ID, recoveryReason); err != nil {
+			return stats, err
+		}
+		retry, err := r.pipeline.RetryTask(ctx, task.ID)
+		if err != nil {
 			_ = r.store.UpdateFileStatus(ctx, task.FileID, model.FileStatusFailed)
 			stats.TasksFailed++
 			log.Printf("level=warn component=reconciler event=requeue_failed task_id=%s file_id=%s err=%q", task.ID, task.FileID, err)
 			continue
 		}
 		stats.TasksRecovered++
-		log.Printf("level=info component=reconciler event=requeued_task old_task_id=%s file_id=%s retry_count=%d", task.ID, task.FileID, task.RetryCount+1)
+		log.Printf("level=info component=reconciler event=requeued_task old_task_id=%s new_task_id=%s file_id=%s retry_count=%d", task.ID, retry.ID, task.FileID, retry.RetryCount)
 	}
 	return stats, nil
 }
@@ -277,6 +374,7 @@ func (r *Reconciler) SweepStorage(ctx context.Context) (int, error) {
 	}
 	root := r.cfg.Storage.Root
 	trash := filepath.Join(root, ".trash")
+	staging := filepath.Join(root, ".staging")
 	moved := 0
 	err = filepath.WalkDir(root, func(path string, d os.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -286,7 +384,7 @@ func (r *Reconciler) SweepStorage(ctx context.Context) (int, error) {
 			return filepath.SkipAll
 		}
 		if d.IsDir() {
-			if path == trash {
+			if path == trash || path == staging {
 				return filepath.SkipDir
 			}
 			return nil

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { UploadSession } from "../types";
 import {
+  directoryTransferSummaries,
   preparingTransferTaskFromFile,
   isActiveTransferStatus,
   isLocalTransferTaskID,
@@ -51,6 +52,9 @@ describe("transferProjection", () => {
     expect(task).toMatchObject({
       id: "upload-1",
       fileName: "Memo.pdf",
+      requestedName: "Memo.pdf",
+      resolvedName: "Memo (1).pdf",
+      overwritePolicy: "rename",
       fileSize: 4096,
       destPath: "/Docs",
       direction: "upload",
@@ -77,6 +81,9 @@ describe("transferProjection", () => {
     expect(task).toMatchObject({
       id: "local-upload:12345:IMG_8196.jpeg:5",
       fileName: "IMG_8196.jpeg",
+      requestedName: "IMG_8196.jpeg",
+      resolvedName: "IMG_8196.jpeg",
+      overwritePolicy: "reject",
       fileSize: 5,
       destPath: "/Camera",
       direction: "upload",
@@ -94,12 +101,63 @@ describe("transferProjection", () => {
     expect(transferStatusLabelKey(task.status)).toBe("transfer.status.preparing");
     expect(isLocalTransferTaskID(task.id)).toBe(true);
   });
+
+  it("preserves directory batch context across Upload Session projection", () => {
+    const file = new File(["a"], "a.txt");
+    const preparing = preparingTransferTaskFromFile(file, "/Docs/Project", 123, {
+      batchId: "batch-1",
+      relativePath: "Project/a.txt",
+    });
+
+    expect(preparing).toMatchObject({
+      directoryBatchId: "batch-1",
+      relativePath: "Project/a.txt",
+    });
+    expect(transferTaskFromSession(makeSession("uploading"), preparing)).toMatchObject({
+      directoryBatchId: "batch-1",
+      relativePath: "Project/a.txt",
+    });
+  });
+
+  it("derives directory progress from the existing File transfer tasks", () => {
+    const first = preparingTransferTaskFromFile(
+      new File(["1234"], "a.txt"),
+      "/Docs/Project",
+      1,
+      { batchId: "batch-1", relativePath: "Project/a.txt" },
+    );
+    const second = preparingTransferTaskFromFile(
+      new File(["123456"], "b.txt"),
+      "/Docs/Project",
+      2,
+      { batchId: "batch-1", relativePath: "Project/b.txt" },
+    );
+    first.status = "done";
+    first.uploadedBytes = 4;
+    second.status = "uploading";
+    second.uploadedBytes = 3;
+
+    expect(directoryTransferSummaries([first, second])).toEqual([{
+      batchId: "batch-1",
+      name: "Project",
+      fileCount: 2,
+      completedCount: 1,
+      failedCount: 0,
+      uploadedBytes: 7,
+      totalBytes: 10,
+      percent: 70,
+      status: "uploading",
+    }]);
+  });
 });
 
 function makeSession(status: UploadSession["status"]): UploadSession {
   return {
     id: "upload-1",
     file_name: "Memo.pdf",
+    requested_name: "Memo.pdf",
+    resolved_name: "Memo (1).pdf",
+    overwrite_policy: "rename",
     file_size: 4096,
     chunk_size: 1024,
     uploaded_chunks: [0, 1],

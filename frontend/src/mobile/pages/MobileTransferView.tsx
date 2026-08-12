@@ -1,5 +1,6 @@
 import { useTranslation } from "react-i18next";
 import {
+  directoryTransferSummaries,
   isActiveTransferStatus,
   transferStatusLabelKey,
 } from "../../stores/transferProjection";
@@ -13,6 +14,10 @@ interface MobileTransferViewProps {
   loading?: boolean;
   onPause?: (id: string) => void;
   onResume?: (task: TransferTask) => void;
+  onRetryConflict?: (
+    task: TransferTask,
+    policy: "rename" | "replace",
+  ) => void;
   onCancel?: (id: string) => void;
   onRemove?: (id: string) => void;
   onClearDone?: () => void;
@@ -23,12 +28,14 @@ export function MobileTransferView({
   loading = false,
   onPause,
   onResume,
+  onRetryConflict,
   onCancel,
   onRemove,
   onClearDone,
 }: MobileTransferViewProps) {
   const { t } = useTranslation();
   const hasDone = tasks.some((task) => !isActiveTransferStatus(task.status));
+  const directorySummaries = directoryTransferSummaries(tasks);
 
   if (loading && tasks.length === 0) {
     return <div className={styles.state}>{t("transfer.syncing")}</div>;
@@ -40,6 +47,23 @@ export function MobileTransferView({
 
   return (
     <div className={styles.list}>
+      {directorySummaries.map((group) => (
+        <section key={group.batchId} className={styles.directorySummary}>
+          <div>
+            <strong>{group.name}</strong>
+            <span>
+              {t("transfer.directoryFiles", {
+                completed: group.completedCount,
+                total: group.fileCount,
+              })}
+            </span>
+          </div>
+          <div className={styles.progressTrack}>
+            <span style={{ width: `${group.percent}%` }} />
+          </div>
+          <b>{group.percent}%</b>
+        </section>
+      ))}
       {hasDone && onClearDone ? (
         <button className={styles.clearButton} type="button" onClick={onClearDone}>
           <span className="material-symbols-outlined" aria-hidden>
@@ -50,6 +74,8 @@ export function MobileTransferView({
       ) : null}
       {tasks.map((task) => {
         const isDone = task.status === "done";
+        const requestedName = task.requestedName ?? task.fileName;
+        const resolvedName = task.resolvedName ?? task.fileName;
         const fileSizeText = formatBytes(task.fileSize);
         const uploadedBytes = transferUploadedBytes(task);
         const speed = formatTransferSpeed(task.speed);
@@ -63,7 +89,7 @@ export function MobileTransferView({
                 upload
               </span>
               <div>
-                <h2>{task.fileName}</h2>
+                <h2>{resolvedName}</h2>
                 <p>{task.destPath}</p>
               </div>
               <strong>{t(transferStatusLabelKey(task.status))}</strong>
@@ -85,6 +111,14 @@ export function MobileTransferView({
                 </>
               )}
             </p>
+            {requestedName !== resolvedName ? (
+              <p className={styles.resolvedName}>
+                {t("transfer.resolvedName", {
+                  requested: requestedName,
+                  resolved: resolvedName,
+                })}
+              </p>
+            ) : null}
             {task.error ? <p className={styles.error}>{task.error}</p> : null}
             <div className={styles.actions}>
               {task.status === "uploading" ? (
@@ -104,6 +138,22 @@ export function MobileTransferView({
                   </button>
                   <button type="button" onClick={() => onCancel?.(task.id)}>
                     {t("transfer.actionCancel")}
+                  </button>
+                </>
+              ) : null}
+              {task.status === "failed" && task.conflictRetryable ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => onRetryConflict?.(task, "rename")}
+                  >
+                    {t("transfer.retryKeepBoth")}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onRetryConflict?.(task, "replace")}
+                  >
+                    {t("transfer.retryReplace")}
                   </button>
                 </>
               ) : null}

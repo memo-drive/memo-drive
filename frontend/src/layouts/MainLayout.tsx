@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { clearToken } from "../api/client";
+import { httpClient } from "../api/client";
 import { getStorageUsage } from "../api/fileApi";
 import { Button } from "../components/base";
 import type { StorageUsage } from "../types";
 import { formatBytes } from "../utils/formatBytes";
+import { storageUsagePresentation } from "../utils/storageUsage";
 import styles from "./MainLayout.module.css";
 
 const navLinkBase =
@@ -34,18 +35,14 @@ export function MainLayout() {
     };
   }, []);
 
-  const handleLogout = () => {
-    clearToken();
-    navigate("/login", { replace: true });
-  };
+	const handleLogout = async () => {
+		await httpClient.logout("current");
+		navigate("/login", { replace: true });
+	};
 
-  const storagePercent =
-    storageUsage && storageUsage.total_bytes > 0
-      ? Math.min(
-          100,
-          Math.max(0, (storageUsage.used_bytes / storageUsage.total_bytes) * 100),
-        )
-      : 0;
+  const storagePresentation = storageUsage
+    ? storageUsagePresentation(storageUsage)
+    : null;
 
   return (
     <div className={styles.appShell}>
@@ -139,16 +136,23 @@ export function MainLayout() {
                 <span>{t("layout.storage")}</span>
               </div>
               <div className={styles.storageUsageText}>
-                {t("layout.storageUsage", {
-                  used: formatBytes(storageUsage.used_bytes),
-                  total: formatBytes(storageUsage.total_bytes),
+                {t("storageUsage.sidebarAvailable", {
+                  value: formatBytes(storageUsage.upload_available_bytes),
                 })}
               </div>
-              {storageUsage.total_bytes > 0 && (
-                <div className={styles.storageUsageTrack}>
+              {storagePresentation &&
+                storagePresentation.uploadCapacity > 0 && (
+                <div
+                  className={styles.storageUsageTrack}
+                  role="progressbar"
+                  aria-label={t("storageUsage.title")}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={Math.round(storagePresentation.usedPercent)}
+                >
                   <div
                     className={styles.storageUsageFill}
-                    style={{ width: `${storagePercent}%` }}
+                    style={{ width: `${storagePresentation.usedPercent}%` }}
                   />
                 </div>
               )}
@@ -179,6 +183,7 @@ export function MainLayout() {
                 variant="ghost"
                 className="!p-2"
                 onClick={() => navigate("/settings")}
+                aria-label={t("settings.title")}
               >
                 <span className="material-symbols-outlined">
                   settings
