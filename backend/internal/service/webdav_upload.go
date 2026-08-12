@@ -14,10 +14,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/memodrive/backend/internal/indexing"
 	"github.com/memodrive/backend/internal/model"
 	"github.com/memodrive/backend/internal/store"
-	"github.com/memodrive/backend/internal/vectordb"
 )
 
 type WebDAVCreateFileInput struct {
@@ -61,7 +59,7 @@ func (s *WebDAVService) putFile(ctx context.Context, input WebDAVCreateFileInput
 	} else if err != nil && !errors.Is(err, store.ErrNotFound) {
 		return nil, err
 	}
-	file, err := s.CreateFile(ctx, input)
+	file, err := s.createFileLocked(ctx, input)
 	if err != nil {
 		return nil, err
 	}
@@ -69,6 +67,16 @@ func (s *WebDAVService) putFile(ctx context.Context, input WebDAVCreateFileInput
 }
 
 func (s *WebDAVService) CreateFile(ctx context.Context, input WebDAVCreateFileInput) (*model.File, error) {
+	if err := validateWebDAVVirtualPath(input.VirtualPath); err != nil {
+		return nil, err
+	}
+	input.VirtualPath = CleanVirtualPath(input.VirtualPath)
+	unlock := s.lockPaths(input.VirtualPath)
+	defer unlock()
+	return s.createFileLocked(ctx, input)
+}
+
+func (s *WebDAVService) createFileLocked(ctx context.Context, input WebDAVCreateFileInput) (*model.File, error) {
 	started := time.Now()
 	if err := validateWebDAVVirtualPath(input.VirtualPath); err != nil {
 		return nil, err
@@ -107,12 +115,7 @@ func (s *WebDAVService) CreateFile(ctx context.Context, input WebDAVCreateFileIn
 	if err != nil {
 		return nil, err
 	}
-	cleanupTemp := true
-	defer func() {
-		if cleanupTemp {
-			_ = os.Remove(tempPath)
-		}
-	}()
+	defer func() { _ = os.Remove(tempPath) }()
 	stat, err := os.Stat(tempPath)
 	if err != nil {
 		return nil, err
@@ -126,25 +129,7 @@ func (s *WebDAVService) CreateFile(ctx context.Context, input WebDAVCreateFileIn
 
 	fileID := uuid.NewString()
 	storageRel := s.buildStorageRel(fileID, parent.VirtualPath, name)
-	absPath := filepath.Join(s.cfg.Storage.Root, filepath.FromSlash(storageRel))
-	if err := os.MkdirAll(filepath.Dir(absPath), 0o755); err != nil {
-		return nil, err
-	}
-	if err := moveWebDAVUploadIntoPlace(tempPath, absPath); err != nil {
-		return nil, err
-	}
-	cleanupTemp = false
-	cleanupStored := true
-	defer func() {
-		if cleanupStored {
-			_ = os.Remove(absPath)
-		}
-	}()
-
 	mimeType := strings.TrimSpace(input.ContentType)
-	if mimeType == "" {
-		mimeType = detectMime(absPath, name)
-	}
 	file := &model.File{
 		ID:          fileID,
 		Name:        name,
@@ -155,18 +140,26 @@ func (s *WebDAVService) CreateFile(ctx context.Context, input WebDAVCreateFileIn
 		Status:      model.FileStatusUploaded,
 		ChunkCount:  1,
 	}
-	if err := s.store.CreateFile(ctx, file); err != nil {
-		if errors.Is(err, store.ErrPathConflict) {
+	result, err := s.mutations.applyLocked(ctx, FileMutationInput{
+		Kind: model.FileMutationKindUploadCreate,
+		File: file,
+	}, func(writer io.Writer) error {
+		source, err := os.Open(tempPath)
+		if err != nil {
+			return err
+		}
+		defer source.Close()
+		_, err = io.Copy(writer, source)
+		return err
+	})
+	if err != nil {
+		var conflict *FileConflictError
+		if errors.As(err, &conflict) {
 			return nil, ErrPathConflict
 		}
 		return nil, err
 	}
-	cleanupStored = false
-	if s.pipeline != nil {
-		if _, err := s.pipeline.Enqueue(ctx, file); err != nil {
-			log.Printf("level=warn component=webdav event=pipeline_enqueue_failed file_id=%s name=%q err=%q", file.ID, file.Name, err)
-		}
-	}
+	file = result.File
 	log.Printf("level=info component=webdav event=put_create_complete file_id=%s path=%q name=%q storage_path=%q size=%d duration_ms=%d",
 		file.ID, file.Path, file.Name, file.StoragePath, file.Size, time.Since(started).Milliseconds())
 	return file, nil
@@ -186,12 +179,7 @@ func (s *WebDAVService) overwriteFile(ctx context.Context, input WebDAVCreateFil
 	if err != nil {
 		return nil, err
 	}
-	cleanupTemp := true
-	defer func() {
-		if cleanupTemp {
-			_ = os.Remove(tempPath)
-		}
-	}()
+	defer func() { _ = os.Remove(tempPath) }()
 	stat, err := os.Stat(tempPath)
 	if err != nil {
 		return nil, err
@@ -203,77 +191,53 @@ func (s *WebDAVService) overwriteFile(ctx context.Context, input WebDAVCreateFil
 		return nil, err
 	}
 
-	absPath := filepath.Join(s.cfg.Storage.Root, filepath.FromSlash(existing.StoragePath))
-	if err := os.MkdirAll(filepath.Dir(absPath), 0o755); err != nil {
-		return nil, err
-	}
-	if err := moveWebDAVUploadIntoPlace(tempPath, absPath); err != nil {
-		return nil, err
-	}
-	cleanupTemp = false
-
 	mimeType := strings.TrimSpace(input.ContentType)
-	if mimeType == "" {
-		mimeType = detectMime(absPath, existing.Name)
-	}
-	if err := s.store.UpdateFileContent(ctx, existing.ID, stat.Size(), mimeType, model.FileStatusUploaded, 0); err != nil {
-		return nil, err
-	}
-	if err := s.cleanupPreviousIndex(ctx, existing); err != nil {
-		return nil, err
-	}
-	file, err := s.store.GetFile(ctx, existing.ID)
-	if err != nil {
-		return nil, err
-	}
-	if s.pipeline != nil {
-		if _, err := s.pipeline.Enqueue(ctx, file); err != nil {
-			log.Printf("level=warn component=webdav event=pipeline_enqueue_failed file_id=%s name=%q err=%q", file.ID, file.Name, err)
+	result, err := s.mutations.applyLocked(ctx, FileMutationInput{
+		Kind: model.FileMutationKindUploadReplace,
+		File: &model.File{
+			ID:          existing.ID,
+			Name:        existing.Name,
+			Path:        existing.Path,
+			StoragePath: existing.StoragePath,
+			Size:        stat.Size(),
+			MimeType:    mimeType,
+			Status:      model.FileStatusUploaded,
+			ChunkCount:  0,
+		},
+		TargetFile:    existing,
+		VersionSource: model.FileVersionSourceWebDAVPut,
+	}, func(writer io.Writer) error {
+		source, err := os.Open(tempPath)
+		if err != nil {
+			return err
 		}
+		defer source.Close()
+		_, err = io.Copy(writer, source)
+		return err
+	})
+	if err != nil {
+		var conflict *FileConflictError
+		if errors.As(err, &conflict) {
+			return nil, ErrPathConflict
+		}
+		return nil, err
 	}
+	file := result.File
 	log.Printf("level=info component=webdav event=put_overwrite_complete file_id=%s path=%q name=%q storage_path=%q size=%d duration_ms=%d",
 		file.ID, file.Path, file.Name, file.StoragePath, file.Size, time.Since(started).Milliseconds())
 	return file, nil
 }
-
-func (s *WebDAVService) cleanupPreviousIndex(ctx context.Context, file *model.File) error {
-	if file == nil || file.IsDir {
-		return nil
-	}
-	if file.ChunkCount > 0 && s.pipeline != nil && s.pipeline.vectorDB != nil {
-		ids := indexing.ChunkIDs(file.ID, file.ChunkCount)
-		if err := s.pipeline.vectorDB.Delete(ctx, vectordb.DefaultCollection, ids); err != nil {
-			log.Printf("level=warn component=webdav event=vector_cleanup_failed file_id=%s chunk_count=%d err=%q", file.ID, file.ChunkCount, err)
-		}
-	}
-	if err := s.store.DeleteChunksByFileID(ctx, file.ID); err != nil {
-		return err
-	}
-	return s.store.DeleteMetadataByFileID(ctx, file.ID)
-}
-
 func (s *WebDAVService) checkUploadQuota(ctx context.Context, uploadSize int64, replacedBytes ...int64) error {
-	used, err := s.store.TotalActiveFileSize(ctx)
-	if err != nil {
-		return err
-	}
+	replaced := int64(0)
 	for _, bytes := range replacedBytes {
-		used -= bytes
+		replaced += bytes
 	}
-	if used < 0 {
-		used = 0
-	}
-	total, err := filesystemTotalBytes(s.cfg.Storage.Root)
-	if err != nil {
-		return err
-	}
-	if used >= total {
-		return ErrInsufficientStorage
-	}
-	if uploadSize > total-used {
-		return ErrInsufficientStorage
-	}
-	return nil
+	return s.capacity.Check(ctx, CapacityRequest{
+		LogicalBytes:         uploadSize,
+		ReplacedLogicalBytes: replaced,
+		PhysicalNeedBytes:    uploadSize,
+		TempNeedBytes:        uploadSize,
+	})
 }
 
 func (s *WebDAVService) writeUploadTemp(body io.Reader) (string, error) {

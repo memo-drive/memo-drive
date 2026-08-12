@@ -6,23 +6,25 @@ import (
 	"sync"
 )
 
-type webDAVPathLocks struct {
+var sharedFilePathLocks = newFilePathLocks()
+
+type filePathLocks struct {
 	mu     sync.Mutex
 	cond   *sync.Cond
 	active map[string]int
 }
 
-func newWebDAVPathLocks() *webDAVPathLocks {
-	locks := &webDAVPathLocks{active: map[string]int{}}
+func newFilePathLocks() *filePathLocks {
+	locks := &filePathLocks{active: map[string]int{}}
 	locks.cond = sync.NewCond(&locks.mu)
 	return locks
 }
 
-func (l *webDAVPathLocks) lock(paths ...string) func() {
+func (l *filePathLocks) lock(paths ...string) func() {
 	if l == nil {
 		return func() {}
 	}
-	paths = normalizeWebDAVLockPaths(paths)
+	paths = normalizeFileLockPaths(paths)
 	l.mu.Lock()
 	for l.hasConflict(paths) {
 		l.cond.Wait()
@@ -45,10 +47,10 @@ func (l *webDAVPathLocks) lock(paths ...string) func() {
 	}
 }
 
-func (l *webDAVPathLocks) hasConflict(paths []string) bool {
+func (l *filePathLocks) hasConflict(paths []string) bool {
 	for active := range l.active {
 		for _, candidate := range paths {
-			if webDAVLockPathsConflict(active, candidate) {
+			if fileLockPathsConflict(active, candidate) {
 				return true
 			}
 		}
@@ -63,11 +65,11 @@ func (s *WebDAVService) lockPaths(paths ...string) func() {
 	return s.locks.lock(paths...)
 }
 
-func normalizeWebDAVLockPaths(paths []string) []string {
+func normalizeFileLockPaths(paths []string) []string {
 	seen := map[string]struct{}{}
 	normalized := make([]string, 0, len(paths))
 	for _, p := range paths {
-		p = CleanVirtualPath(p)
+		p = strings.ToLower(CleanVirtualPath(p))
 		if _, ok := seen[p]; ok {
 			continue
 		}
@@ -78,9 +80,9 @@ func normalizeWebDAVLockPaths(paths []string) []string {
 	return normalized
 }
 
-func webDAVLockPathsConflict(a, b string) bool {
-	a = CleanVirtualPath(a)
-	b = CleanVirtualPath(b)
+func fileLockPathsConflict(a, b string) bool {
+	a = strings.ToLower(CleanVirtualPath(a))
+	b = strings.ToLower(CleanVirtualPath(b))
 	if a == "/" || b == "/" || a == b {
 		return true
 	}

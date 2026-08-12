@@ -25,7 +25,7 @@ type Store struct {
 // Open creates a new Store, applies pending migrations, and returns it ready for use.
 func Open(ctx context.Context, cfg *config.Config) (*Store, error) {
 	started := time.Now()
-	db, err := sql.Open("sqlite3", fmt.Sprintf("%s?_foreign_keys=on&_busy_timeout=5000&parseTime=true", cfg.Storage.DBPath))
+	db, err := sql.Open("sqlite3", fmt.Sprintf("%s?_foreign_keys=on&_busy_timeout=5000&_txlock=immediate&parseTime=true", cfg.Storage.DBPath))
 	if err != nil {
 		return nil, err
 	}
@@ -152,6 +152,113 @@ ALTER TABLE files ADD COLUMN last_viewed_at DATETIME;
 		return err
 	}
 	if err := s.migrateActiveFilePathUnique(ctx); err != nil {
+		return err
+	}
+	if err := s.applyOnce(ctx, "016_upload_conflict_policy", `
+ALTER TABLE upload_sessions ADD COLUMN overwrite_policy TEXT NOT NULL DEFAULT 'reject';
+ALTER TABLE upload_sessions ADD COLUMN resolved_name TEXT;
+ALTER TABLE upload_sessions ADD COLUMN existing_file_id TEXT;
+`); err != nil {
+		return err
+	}
+	if err := s.applyOnce(ctx, "017_file_mutations", `
+CREATE TABLE IF NOT EXISTS file_mutations (
+    id TEXT PRIMARY KEY,
+    kind TEXT NOT NULL,
+    state TEXT NOT NULL,
+    virtual_path TEXT NOT NULL,
+    target_file_id TEXT,
+    staged_path TEXT NOT NULL,
+    old_storage_path TEXT,
+    final_storage_path TEXT,
+    error TEXT,
+    created_at DATETIME NOT NULL,
+    updated_at DATETIME NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_file_mutations_state_updated
+ON file_mutations(state, updated_at);
+`); err != nil {
+		return err
+	}
+	if err := s.applyOnce(ctx, "018_auth_sessions", `
+CREATE TABLE IF NOT EXISTS auth_sessions (
+    id TEXT PRIMARY KEY,
+    subject TEXT NOT NULL,
+    credential_fingerprint TEXT NOT NULL,
+    created_at DATETIME NOT NULL,
+    expires_at DATETIME NOT NULL,
+    revoked_at DATETIME
+);
+CREATE INDEX IF NOT EXISTS idx_auth_sessions_subject_active
+ON auth_sessions(subject, revoked_at, expires_at);
+	`); err != nil {
+		return err
+	}
+	if err := s.applyOnce(ctx, "019_file_copy_operations", `
+CREATE TABLE IF NOT EXISTS file_copy_operations (
+    id TEXT PRIMARY KEY,
+    source_file_id TEXT NOT NULL,
+    root_file_id TEXT,
+    state TEXT NOT NULL,
+    error TEXT,
+    created_at DATETIME NOT NULL,
+    updated_at DATETIME NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_file_copy_operations_state_updated
+ON file_copy_operations(state, updated_at);
+	`); err != nil {
+		return err
+	}
+	if err := s.applyOnce(ctx, "020_file_versions", `
+CREATE TABLE IF NOT EXISTS file_versions (
+    id TEXT PRIMARY KEY,
+    file_id TEXT NOT NULL,
+    version_no INTEGER NOT NULL,
+    storage_path TEXT NOT NULL,
+    size INTEGER NOT NULL,
+    mime_type TEXT,
+    sha256 TEXT,
+    source TEXT NOT NULL,
+    created_at DATETIME NOT NULL,
+    FOREIGN KEY (file_id) REFERENCES files(id) ON DELETE CASCADE,
+    UNIQUE(file_id, version_no)
+);
+CREATE INDEX IF NOT EXISTS idx_file_versions_file_created
+ON file_versions(file_id, created_at DESC);
+	`); err != nil {
+		return err
+	}
+	if err := s.applyOnce(ctx, "021_task_retries", `
+ALTER TABLE tasks ADD COLUMN retry_of_task_id TEXT REFERENCES tasks(id);
+CREATE INDEX IF NOT EXISTS idx_tasks_created_id
+ON tasks(created_at DESC, id DESC);
+CREATE INDEX IF NOT EXISTS idx_tasks_status_file_created
+ON tasks(status, file_id, created_at DESC, id DESC);
+CREATE INDEX IF NOT EXISTS idx_tasks_retry_of
+ON tasks(retry_of_task_id);
+	`); err != nil {
+		return err
+	}
+	if err := s.applyOnce(ctx, "022_active_task_unique", `
+WITH ranked AS (
+    SELECT id,
+           ROW_NUMBER() OVER (PARTITION BY file_id ORDER BY created_at DESC, id DESC) AS active_rank
+    FROM tasks
+    WHERE status IN ('pending', 'processing')
+)
+UPDATE tasks
+SET status = 'failed',
+    progress = 100,
+    error = CASE
+        WHEN error IS NULL OR error = '' THEN 'superseded during active Task uniqueness migration'
+        ELSE error
+    END,
+    updated_at = CURRENT_TIMESTAMP
+WHERE id IN (SELECT id FROM ranked WHERE active_rank > 1);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_active_file
+ON tasks(file_id)
+WHERE status IN ('pending', 'processing');
+	`); err != nil {
 		return err
 	}
 	return nil
@@ -323,9 +430,15 @@ func (s *Store) applyOnce(ctx context.Context, id, sqlText string) error {
 		if stmt == "" {
 			continue
 		}
-		if strings.HasPrefix(strings.ToUpper(stmt), "ALTER TABLE FILES ADD COLUMN") {
-			column := strings.Fields(stmt)[5]
-			if s.columnExists(ctx, "files", column) {
+		fields := strings.Fields(stmt)
+		if len(fields) >= 6 &&
+			strings.EqualFold(fields[0], "ALTER") &&
+			strings.EqualFold(fields[1], "TABLE") &&
+			strings.EqualFold(fields[3], "ADD") &&
+			strings.EqualFold(fields[4], "COLUMN") {
+			table := strings.Trim(fields[2], "`\"[]")
+			column := strings.Trim(fields[5], "`\"[]")
+			if s.columnExists(ctx, table, column) {
 				continue
 			}
 		}

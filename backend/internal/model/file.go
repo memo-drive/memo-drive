@@ -41,13 +41,17 @@ type FileMetadata struct {
 // Each session records which chunks have been received, allowing resumable uploads.
 // Sessions expire after the configured TTL and are cleaned up by a background job.
 type UploadSession struct {
-	ID             string    `json:"id"`
-	FileName       string    `json:"file_name"`
-	FileSize       int64     `json:"file_size"`
-	ChunkSize      int64     `json:"chunk_size"`
-	UploadedChunks []int     `json:"uploaded_chunks"`
-	DestPath       string    `json:"dest_path"`
-	Status         string    `json:"status"`
-	CreatedAt      time.Time `json:"created_at"`
-	ExpiresAt      time.Time `json:"expires_at"`
+	ID              string    `json:"id"`
+	FileName        string    `json:"file_name"`
+	RequestedName   string    `json:"requested_name"`
+	ResolvedName    string    `json:"resolved_name"`
+	OverwritePolicy string    `json:"overwrite_policy"`
+	ExistingFileID  string    `json:"existing_file_id,omitempty"`
+	FileSize        int64     `json:"file_size"`
+	ChunkSize       int64     `json:"chunk_size"`
+	UploadedChunks  []int     `json:"uploaded_chunks"`
+	DestPath        string    `json:"dest_path"`
+	Status          string    `json:"status"`
+	CreatedAt       time.Time `json:"created_at"`
+	ExpiresAt       time.Time `json:"expires_at"`
 }

@@ -19,10 +19,13 @@ import (
 var (
 	ErrNotFound      = errors.New("not found")
 	ErrInvalidCursor = errors.New("invalid cursor")
+	ErrInvalidSort   = errors.New("invalid sort")
 	ErrPathConflict  = errors.New("path conflict")
 )
 
 const (
+	defaultFolderPageLimit = 100
+	maxFolderPageLimit     = 500
 	defaultFileSearchLimit = 50
 	maxFileSearchLimit     = 500
 	defaultFileQueryLimit  = 50
@@ -78,6 +81,15 @@ type fileQueryCursor struct {
 	ID    string `json:"id"`
 }
 
+type folderPageCursor struct {
+	Version int    `json:"v"`
+	Path    string `json:"path"`
+	Sort    string `json:"sort"`
+	IsDir   bool   `json:"is_dir"`
+	Value   string `json:"value"`
+	ID      string `json:"id"`
+}
+
 func (f FileSearchFilter) HasStructuredFilters() bool {
 	return strings.TrimSpace(f.MimePrefix) != "" || len(f.Extensions) > 0 || f.DateFrom != nil || f.DateTo != nil
 }
@@ -112,36 +124,184 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 }
 
 func (s *Store) ListFiles(ctx context.Context, dirPath, sort string) ([]model.File, error) {
-	orderBy := "is_dir DESC, name COLLATE NOCASE ASC"
-	switch sort {
-	case "size":
-		orderBy = "is_dir DESC, size DESC, name COLLATE NOCASE ASC"
-	case "created_at":
-		orderBy = "created_at DESC"
-	case "updated_at":
-		orderBy = "updated_at DESC"
-	}
-
-	rows, err := s.db.QueryContext(ctx, fmt.Sprintf(`
-SELECT %s
-FROM files
-WHERE path = ?
-  AND deleted_at IS NULL
-ORDER BY %s`, fileColumns, orderBy), dirPath)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var files []model.File
-	for rows.Next() {
-		file, err := scanFile(rows)
+	files := make([]model.File, 0)
+	cursor := ""
+	for {
+		page, nextCursor, hasMore, err := s.ListFilesPage(ctx, dirPath, sort, cursor, maxFolderPageLimit)
 		if err != nil {
 			return nil, err
 		}
+		files = append(files, page...)
+		if !hasMore {
+			return files, nil
+		}
+		if nextCursor == "" {
+			return nil, errors.New("folder page reported more items without a cursor")
+		}
+		cursor = nextCursor
+	}
+}
+
+// ListFilesPage returns one bounded page of direct Folder children.
+func (s *Store) ListFilesPage(ctx context.Context, dirPath, sort, rawCursor string, limit int) ([]model.File, string, bool, error) {
+	var err error
+	sort, err = normalizeFolderPageSort(sort)
+	if err != nil {
+		return nil, "", false, err
+	}
+	limit = normalizeFolderPageLimit(limit)
+	orderBy := "is_dir DESC, name COLLATE NOCASE ASC, id ASC"
+	switch sort {
+	case "name":
+	case "size":
+		orderBy = "is_dir DESC, size DESC, id ASC"
+	case "created_at":
+		orderBy = "is_dir DESC, created_at DESC, id ASC"
+	case "updated_at":
+		orderBy = "is_dir DESC, updated_at DESC, id ASC"
+	}
+
+	clauses := []string{"path = ?", "deleted_at IS NULL"}
+	args := []any{dirPath}
+	if rawCursor != "" {
+		cursorClause, cursorArgs, err := folderPageCursorClause(dirPath, sort, rawCursor)
+		if err != nil {
+			return nil, "", false, err
+		}
+		clauses = append(clauses, cursorClause)
+		args = append(args, cursorArgs...)
+	}
+	args = append(args, limit+1)
+	rows, err := s.db.QueryContext(ctx, fmt.Sprintf(`
+SELECT %s
+FROM files
+WHERE %s
+ORDER BY %s
+LIMIT ?`, fileColumns, strings.Join(clauses, "\n  AND "), orderBy), args...)
+	if err != nil {
+		return nil, "", false, err
+	}
+	defer rows.Close()
+
+	files := make([]model.File, 0, limit+1)
+	for rows.Next() {
+		file, err := scanFile(rows)
+		if err != nil {
+			return nil, "", false, err
+		}
 		files = append(files, file)
 	}
-	return files, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, "", false, err
+	}
+	hasMore := len(files) > limit
+	nextCursor := ""
+	if hasMore {
+		files = files[:limit]
+		nextCursor, err = encodeFolderPageCursor(dirPath, sort, files[len(files)-1])
+		if err != nil {
+			return nil, "", false, err
+		}
+	}
+	return files, nextCursor, hasMore, nil
+}
+
+func normalizeFolderPageLimit(limit int) int {
+	if limit <= 0 {
+		return defaultFolderPageLimit
+	}
+	if limit > maxFolderPageLimit {
+		return maxFolderPageLimit
+	}
+	return limit
+}
+
+func normalizeFolderPageSort(sort string) (string, error) {
+	sort = strings.TrimSpace(strings.ToLower(sort))
+	if sort == "" {
+		return "name", nil
+	}
+	switch sort {
+	case "name", "size", "created_at", "updated_at":
+		return sort, nil
+	default:
+		return "", fmt.Errorf("%w: %q", ErrInvalidSort, sort)
+	}
+}
+
+func encodeFolderPageCursor(dirPath, sort string, file model.File) (string, error) {
+	cursor := folderPageCursor{
+		Version: 1,
+		Path:    dirPath,
+		Sort:    sort,
+		IsDir:   file.IsDir,
+		Value:   fileQueryCursorValue(sort, file),
+		ID:      file.ID,
+	}
+	payload, err := json.Marshal(cursor)
+	if err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(payload), nil
+}
+
+func folderPageCursorClause(dirPath, sort, rawCursor string) (string, []any, error) {
+	cursor, err := decodeFolderPageCursor(rawCursor)
+	if err != nil {
+		return "", nil, err
+	}
+	if cursor.Version != 1 || cursor.Path != dirPath || cursor.Sort != sort {
+		return "", nil, ErrInvalidCursor
+	}
+	var position string
+	var args []any
+	switch sort {
+	case "name":
+		position = "(name COLLATE NOCASE > ? OR (name = ? COLLATE NOCASE AND id > ?))"
+		args = []any{cursor.Value, cursor.Value, cursor.ID}
+	case "size":
+		size, err := strconv.ParseInt(cursor.Value, 10, 64)
+		if err != nil {
+			return "", nil, fmt.Errorf("%w: size: %v", ErrInvalidCursor, err)
+		}
+		position = "(size < ? OR (size = ? AND id > ?))"
+		args = []any{size, size, cursor.ID}
+	case "created_at":
+		createdAt, err := time.Parse(time.RFC3339Nano, cursor.Value)
+		if err != nil {
+			return "", nil, fmt.Errorf("%w: created_at: %v", ErrInvalidCursor, err)
+		}
+		position = "(created_at < ? OR (created_at = ? AND id > ?))"
+		args = []any{createdAt, createdAt, cursor.ID}
+	case "updated_at":
+		updatedAt, err := time.Parse(time.RFC3339Nano, cursor.Value)
+		if err != nil {
+			return "", nil, fmt.Errorf("%w: updated_at: %v", ErrInvalidCursor, err)
+		}
+		position = "(updated_at < ? OR (updated_at = ? AND id > ?))"
+		args = []any{updatedAt, updatedAt, cursor.ID}
+	default:
+		return "", nil, ErrInvalidCursor
+	}
+	if cursor.IsDir {
+		return "((is_dir = 1 AND " + position + ") OR is_dir = 0)", args, nil
+	}
+	return "(is_dir = 0 AND " + position + ")", args, nil
+}
+
+func decodeFolderPageCursor(value string) (folderPageCursor, error) {
+	payload, err := base64.RawURLEncoding.DecodeString(strings.TrimSpace(value))
+	if err != nil {
+		return folderPageCursor{}, fmt.Errorf("%w: %v", ErrInvalidCursor, err)
+	}
+	var cursor folderPageCursor
+	if err := json.Unmarshal(payload, &cursor); err != nil {
+		return folderPageCursor{}, fmt.Errorf("%w: %v", ErrInvalidCursor, err)
+	}
+	if cursor.ID == "" || cursor.Value == "" {
+		return folderPageCursor{}, ErrInvalidCursor
+	}
+	return cursor, nil
 }
 
 func (s *Store) QueryFiles(ctx context.Context, filter FileQueryFilter) ([]model.File, string, bool, error) {
@@ -441,6 +601,18 @@ WHERE is_dir = 0
 	return total, nil
 }
 
+func (s *Store) TotalTrashFileSize(ctx context.Context) (int64, error) {
+	var total int64
+	if err := s.db.QueryRowContext(ctx, `
+SELECT COALESCE(SUM(size), 0)
+FROM files
+WHERE is_dir = 0
+  AND deleted_at IS NOT NULL`).Scan(&total); err != nil {
+		return 0, err
+	}
+	return total, nil
+}
+
 func (s *Store) ListDescendants(ctx context.Context, virtualPath string) ([]model.File, error) {
 	virtualPath = cleanFileSearchPath(virtualPath)
 	if virtualPath == "" {
@@ -610,8 +782,33 @@ WHERE status = ? AND deleted_at IS NULL`, fileColumns), status)
 	return files, rows.Err()
 }
 
+// ListFilesForReindex returns every active non-directory file in stable order.
+func (s *Store) ListFilesForReindex(ctx context.Context) ([]model.File, error) {
+	rows, err := s.db.QueryContext(ctx, fmt.Sprintf(`
+SELECT %s
+FROM files
+WHERE deleted_at IS NULL AND is_dir = 0
+ORDER BY id`, fileColumns))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var files []model.File
+	for rows.Next() {
+		file, err := scanFile(rows)
+		if err != nil {
+			return nil, err
+		}
+		files = append(files, file)
+	}
+	return files, rows.Err()
+}
+
 func (s *Store) ListStoragePaths(ctx context.Context) (map[string]struct{}, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT storage_path FROM files WHERE is_dir = 0`)
+	rows, err := s.db.QueryContext(ctx, `
+SELECT storage_path FROM files WHERE is_dir = 0
+UNION
+SELECT storage_path FROM file_versions`)
 	if err != nil {
 		return nil, err
 	}
@@ -843,8 +1040,8 @@ func (s *Store) CreateTask(ctx context.Context, task *model.Task) error {
 	task.CreatedAt = now
 	task.UpdatedAt = now
 	_, err := s.db.ExecContext(ctx, `
-INSERT INTO tasks (id, file_id, type, status, progress, error, retry_count, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+INSERT INTO tasks (id, file_id, type, status, progress, error, retry_count, retry_of_task_id, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, NULLIF(?, ''), ?, ?)`,
 		task.ID,
 		task.FileID,
 		task.Type,
@@ -852,10 +1049,11 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		task.Progress,
 		nullableString(task.Error),
 		task.RetryCount,
+		task.RetryOfTaskID,
 		task.CreatedAt,
 		task.UpdatedAt,
 	)
-	return err
+	return normalizeActiveTaskConflict(err)
 }
 
 func (s *Store) UpdateTask(ctx context.Context, id, status string, progress int, errText *string) error {
@@ -863,7 +1061,7 @@ func (s *Store) UpdateTask(ctx context.Context, id, status string, progress int,
 UPDATE tasks
 SET status = ?, progress = ?, error = ?, updated_at = ?
 WHERE id = ?`, status, progress, nullableString(errText), time.Now().UTC(), id)
-	return affected(result, err)
+	return affected(result, normalizeActiveTaskConflict(err))
 }
 
 func (s *Store) MarkTaskFailed(ctx context.Context, id string, msg string) error {
@@ -880,7 +1078,7 @@ WHERE id = ?`, time.Now().UTC(), id)
 
 func (s *Store) ListStuckTasks(ctx context.Context, olderThan time.Time) ([]model.Task, error) {
 	rows, err := s.db.QueryContext(ctx, `
-SELECT id, file_id, type, status, progress, error, retry_count, created_at, updated_at
+SELECT id, file_id, type, status, progress, error, retry_count, retry_of_task_id, created_at, updated_at
 FROM tasks
 WHERE status IN (?, ?) AND updated_at < ?
 ORDER BY updated_at ASC`, model.TaskStatusPending, model.TaskStatusProcessing, olderThan.UTC())
@@ -917,7 +1115,7 @@ LIMIT 1`, fileID, model.TaskStatusPending, model.TaskStatusProcessing).Scan(&exi
 
 func (s *Store) GetTask(ctx context.Context, id string) (*model.Task, error) {
 	row := s.db.QueryRowContext(ctx, `
-SELECT id, file_id, type, status, progress, error, retry_count, created_at, updated_at
+SELECT id, file_id, type, status, progress, error, retry_count, retry_of_task_id, created_at, updated_at
 FROM tasks
 WHERE id = ?`, id)
 	task, err := scanTask(row)
@@ -937,8 +1135,11 @@ func (s *Store) CreateUploadSession(ctx context.Context, session *model.UploadSe
 	}
 	session.CreatedAt = time.Now().UTC()
 	_, err = s.db.ExecContext(ctx, `
-INSERT INTO upload_sessions (id, file_name, file_size, chunk_size, uploaded_chunks, dest_path, status, created_at, expires_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+INSERT INTO upload_sessions (
+    id, file_name, file_size, chunk_size, uploaded_chunks, dest_path, status,
+    created_at, expires_at, overwrite_policy, resolved_name, existing_file_id
+)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?, ''))`,
 		session.ID,
 		session.FileName,
 		session.FileSize,
@@ -948,13 +1149,17 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		session.Status,
 		session.CreatedAt,
 		session.ExpiresAt,
+		session.OverwritePolicy,
+		session.ResolvedName,
+		session.ExistingFileID,
 	)
 	return err
 }
 
 func (s *Store) GetUploadSession(ctx context.Context, id string) (*model.UploadSession, error) {
 	row := s.db.QueryRowContext(ctx, `
-SELECT id, file_name, file_size, chunk_size, uploaded_chunks, dest_path, status, created_at, expires_at
+SELECT id, file_name, file_size, chunk_size, uploaded_chunks, dest_path, status, created_at, expires_at,
+       overwrite_policy, resolved_name, existing_file_id
 FROM upload_sessions
 WHERE id = ?`, id)
 	return scanUploadSession(row)
@@ -968,7 +1173,8 @@ func (s *Store) ListUploadSessions(ctx context.Context, limit int) ([]model.Uplo
 		limit = 500
 	}
 	rows, err := s.db.QueryContext(ctx, `
-SELECT id, file_name, file_size, chunk_size, uploaded_chunks, dest_path, status, created_at, expires_at
+SELECT id, file_name, file_size, chunk_size, uploaded_chunks, dest_path, status, created_at, expires_at,
+       overwrite_policy, resolved_name, existing_file_id
 FROM upload_sessions
 ORDER BY created_at DESC
 LIMIT ?`, limit)
@@ -999,6 +1205,32 @@ func (s *Store) UpdateUploadChunks(ctx context.Context, id string, chunks []int)
 
 func (s *Store) UpdateUploadStatus(ctx context.Context, id, status string) error {
 	result, err := s.db.ExecContext(ctx, `UPDATE upload_sessions SET status = ? WHERE id = ?`, status, id)
+	return affected(result, err)
+}
+
+func (s *Store) FailMergingUploadSessions(ctx context.Context) (int, error) {
+	result, err := s.db.ExecContext(ctx, `
+UPDATE upload_sessions
+SET status = ?
+WHERE status = ?`,
+		model.UploadStatusFailed,
+		model.UploadStatusMerging,
+	)
+	if err != nil {
+		return 0, err
+	}
+	count, err := result.RowsAffected()
+	return int(count), err
+}
+
+func (s *Store) UpdateUploadResolution(ctx context.Context, id, resolvedName, existingFileID string) error {
+	result, err := s.db.ExecContext(
+		ctx,
+		`UPDATE upload_sessions SET resolved_name = ?, existing_file_id = NULLIF(?, '') WHERE id = ?`,
+		resolvedName,
+		existingFileID,
+		id,
+	)
 	return affected(result, err)
 }
 
@@ -1042,7 +1274,10 @@ WHERE status NOT IN ('uploading', 'merging')`)
 }
 
 func (s *Store) DeleteExpiredUploadSessions(ctx context.Context, now time.Time) ([]string, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id FROM upload_sessions WHERE status = 'uploading' AND expires_at < ?`, now)
+	rows, err := s.db.QueryContext(ctx, `
+SELECT id
+FROM upload_sessions
+WHERE status IN ('uploading', 'failed') AND expires_at < ?`, now)
 	if err != nil {
 		return nil, err
 	}
@@ -1068,13 +1303,18 @@ func (s *Store) DeleteExpiredUploadSessions(ctx context.Context, now time.Time) 
 		quoted[i] = "?"
 		args[i] = id
 	}
-	_, err = s.db.ExecContext(ctx, fmt.Sprintf(`UPDATE upload_sessions SET status = 'expired' WHERE id IN (%s)`, strings.Join(quoted, ",")), args...)
+	_, err = s.db.ExecContext(ctx, fmt.Sprintf(`
+UPDATE upload_sessions
+SET status = 'expired'
+WHERE status IN ('uploading', 'failed') AND id IN (%s)`, strings.Join(quoted, ",")), args...)
 	return ids, err
 }
 
 func scanUploadSession(scanner fileScanner) (*model.UploadSession, error) {
 	var session model.UploadSession
 	var chunks string
+	var resolvedName sql.NullString
+	var existingFileID sql.NullString
 	if err := scanner.Scan(
 		&session.ID,
 		&session.FileName,
@@ -1085,6 +1325,9 @@ func scanUploadSession(scanner fileScanner) (*model.UploadSession, error) {
 		&session.Status,
 		&session.CreatedAt,
 		&session.ExpiresAt,
+		&session.OverwritePolicy,
+		&resolvedName,
+		&existingFileID,
 	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
@@ -1093,6 +1336,17 @@ func scanUploadSession(scanner fileScanner) (*model.UploadSession, error) {
 	}
 	if err := json.Unmarshal([]byte(chunks), &session.UploadedChunks); err != nil {
 		return nil, err
+	}
+	session.RequestedName = session.FileName
+	session.ResolvedName = session.FileName
+	if resolvedName.Valid && resolvedName.String != "" {
+		session.ResolvedName = resolvedName.String
+	}
+	if session.OverwritePolicy == "" {
+		session.OverwritePolicy = "reject"
+	}
+	if existingFileID.Valid {
+		session.ExistingFileID = existingFileID.String
 	}
 	return &session, nil
 }
@@ -1249,6 +1503,7 @@ func applyTrashFields(file *model.File, deletedAt sql.NullTime, originalPath, or
 func scanTask(scanner fileScanner) (model.Task, error) {
 	var task model.Task
 	var errText sql.NullString
+	var retryOfTaskID sql.NullString
 	if err := scanner.Scan(
 		&task.ID,
 		&task.FileID,
@@ -1257,6 +1512,7 @@ func scanTask(scanner fileScanner) (model.Task, error) {
 		&task.Progress,
 		&errText,
 		&task.RetryCount,
+		&retryOfTaskID,
 		&task.CreatedAt,
 		&task.UpdatedAt,
 	); err != nil {
@@ -1264,6 +1520,9 @@ func scanTask(scanner fileScanner) (model.Task, error) {
 	}
 	if errText.Valid {
 		task.Error = &errText.String
+	}
+	if retryOfTaskID.Valid {
+		task.RetryOfTaskID = retryOfTaskID.String
 	}
 	return task, nil
 }

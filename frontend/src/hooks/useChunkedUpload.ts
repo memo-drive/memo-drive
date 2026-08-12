@@ -6,10 +6,18 @@ import {
   initUpload,
   uploadChunk,
 } from "../api/uploadApi";
+import { HttpError } from "../api/HttpClient";
 import { useTransferStore } from "../stores/transferStore";
 import type { TransferTask } from "../stores/transferStore";
-import { preparingTransferTaskFromFile } from "../stores/transferProjection";
-import type { DriveFile, UploadSession } from "../types";
+import {
+  preparingTransferTaskFromFile,
+  type DirectoryTransferContext,
+} from "../stores/transferProjection";
+import type {
+  DriveFile,
+  FileConflictPolicy,
+  UploadSession,
+} from "../types";
 import {
   uploadedBytesForChunks,
   uploadPercentForBytes,
@@ -51,6 +59,9 @@ function taskFromUpload(file: File, session: UploadSession): TransferTask {
   return {
     id: session.id,
     fileName: file.name,
+    requestedName: session.requested_name || file.name,
+    resolvedName: session.resolved_name || session.file_name || file.name,
+    overwritePolicy: session.overwrite_policy,
     fileSize: file.size,
     destPath: session.dest_path,
     direction: "upload",
@@ -136,6 +147,8 @@ async function uploadRemainingChunks(
     totalChunks: total,
     percent: uploadPercentForBytes(initialUploadedBytes, file.size),
     error: undefined,
+    errorCode: undefined,
+    conflictRetryable: false,
   });
   callbacks.setProgress({
     fileName: file.name,
@@ -233,6 +246,9 @@ async function uploadRemainingChunks(
       speed: 0,
       file: undefined,
       error: undefined,
+      errorCode: undefined,
+      conflictRetryable: false,
+      resolvedName: completed.file.name,
     });
     callbacks.setProgress({
       fileName: file.name,
@@ -262,9 +278,14 @@ async function uploadRemainingChunks(
       throw new Error("upload cancelled");
     }
     const message = error instanceof Error ? error.message : "upload failed";
+    const errorCode = error instanceof HttpError ? error.code : undefined;
+    const conflictRetryable =
+      errorCode === "path_conflict" || errorCode === "name_exhausted";
     useTransferStore.getState().updateTask(session.id, {
       status: "failed",
       error: message,
+      errorCode,
+      conflictRetryable,
       uploadedBytes: currentUploadedBytes,
       speed: 0,
     });
@@ -301,19 +322,30 @@ export async function cancelUploadTask(id: string) {
 export function useChunkedUpload(onUploaded: (file: DriveFile) => void) {
   const [progress, setProgress] = useState<UploadProgress | null>(null);
 
-  async function upload(file: File, destPath: string) {
-    const preparingTask = preparingTransferTaskFromFile(file, destPath);
+  async function upload(
+    file: File,
+    destPath: string,
+    overwritePolicy: FileConflictPolicy = "reject",
+    directory?: DirectoryTransferContext,
+  ) {
+		const preparingTask = preparingTransferTaskFromFile(file, destPath, Date.now(), directory);
+    preparingTask.overwritePolicy = overwritePolicy;
     useTransferStore.getState().addTask(preparingTask);
     setProgress({ fileName: file.name, percent: 0, status: "uploading" });
     let session: UploadSession;
     try {
-      session = await initUpload(file, destPath);
+      session = await initUpload(file, destPath, overwritePolicy);
     } catch (error) {
+      const errorCode = error instanceof HttpError ? error.code : undefined;
+      const conflictRetryable =
+        errorCode === "path_conflict" || errorCode === "name_exhausted";
       useTransferStore.getState().updateTask(preparingTask.id, {
         status: "failed",
         error: error instanceof Error ? error.message : "upload failed",
+        errorCode,
+        conflictRetryable,
         speed: 0,
-        file: undefined,
+        file: conflictRetryable ? file : undefined,
       });
       setProgress({
         fileName: file.name,
@@ -351,11 +383,32 @@ export function useChunkedUpload(onUploaded: (file: DriveFile) => void) {
     return uploadRemainingChunks(sourceFile, session, { onUploaded, setProgress });
   }
 
+  async function retryConflict(
+    task: TransferTask,
+    overwritePolicy: Extract<FileConflictPolicy, "rename" | "replace">,
+    file?: File,
+  ) {
+    const sourceFile = file ?? task.file;
+    if (!sourceFile) {
+      throw new Error("upload.selectOriginalFile");
+    }
+    const requestedName = task.requestedName ?? task.fileName;
+    if (sourceFile.name !== requestedName || sourceFile.size !== task.fileSize) {
+      throw new Error("upload.selectSameFile");
+    }
+    await useTransferStore.getState().removeTask(task.id);
+		return upload(sourceFile, task.destPath, overwritePolicy, task.directoryBatchId && task.relativePath ? {
+			batchId: task.directoryBatchId,
+			relativePath: task.relativePath,
+		} : undefined);
+  }
+
   return {
     progress,
     upload,
     pause: pauseUploadTask,
     cancel: cancelUploadTask,
     resume,
+    retryConflict,
   };
 }

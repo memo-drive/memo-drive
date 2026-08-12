@@ -2,8 +2,11 @@ package service
 
 import (
 	"context"
+	"errors"
+	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"testing"
 	"time"
 
@@ -79,6 +82,46 @@ func TestUploadCompleteFailureAfterMergingMarksSessionFailed(t *testing.T) {
 	}
 	if updated.Status != model.UploadStatusFailed {
 		t.Fatalf("expected failed status, got %q", updated.Status)
+	}
+}
+
+func TestUploadCleanupExpiredRemovesFailedSessionChunks(t *testing.T) {
+	uploads, db, _ := newUploadServiceTestHarness(t)
+	session := &model.UploadSession{
+		ID:              "failed-upload",
+		FileName:        "failed.bin",
+		RequestedName:   "failed.bin",
+		ResolvedName:    "failed.bin",
+		OverwritePolicy: string(ConflictReject),
+		FileSize:        5,
+		ChunkSize:       5,
+		UploadedChunks:  []int{0},
+		DestPath:        "/",
+		Status:          model.UploadStatusFailed,
+		ExpiresAt:       time.Now().UTC().Add(-time.Minute),
+	}
+	if err := os.MkdirAll(uploads.sessionDir(session.ID), 0o755); err != nil {
+		t.Fatalf("create failed Upload Session dir: %v", err)
+	}
+	if err := os.WriteFile(uploads.chunkPath(session.ID, 0), []byte("hello"), 0o644); err != nil {
+		t.Fatalf("write failed Upload Session chunk: %v", err)
+	}
+	if err := db.CreateUploadSession(context.Background(), session); err != nil {
+		t.Fatalf("create failed Upload Session: %v", err)
+	}
+
+	if err := uploads.CleanupExpired(context.Background()); err != nil {
+		t.Fatalf("CleanupExpired returned error: %v", err)
+	}
+	if _, err := os.Stat(uploads.sessionDir(session.ID)); !os.IsNotExist(err) {
+		t.Fatalf("expected failed Upload Session temp removed, got %v", err)
+	}
+	updated, err := db.GetUploadSession(context.Background(), session.ID)
+	if err != nil {
+		t.Fatalf("get expired Upload Session: %v", err)
+	}
+	if updated.Status != model.UploadStatusExpired {
+		t.Fatalf("expected failed Upload Session to become expired, got %q", updated.Status)
 	}
 }
 
@@ -190,6 +233,247 @@ func TestUploadSaveChunkRejectsBytesBeyondExpectedChunkSize(t *testing.T) {
 	}
 }
 
+func TestUploadCompleteRechecksFullStagingCapacity(t *testing.T) {
+	uploads, _, cfg := newUploadServiceTestHarness(t)
+	cfg.Storage.TempLimitBytes = 100
+	session, err := uploads.Init(context.Background(), InitUploadInput{
+		FileName: "capacity.bin",
+		FileSize: 5,
+		DestPath: "/",
+	})
+	if err != nil {
+		t.Fatalf("init upload: %v", err)
+	}
+	if _, err := uploads.SaveChunk(
+		context.Background(),
+		session.ID,
+		0,
+		[]byte("12345"),
+	); err != nil {
+		t.Fatalf("save upload chunk: %v", err)
+	}
+
+	cfg.Storage.TempLimitBytes = 9
+	_, err = uploads.Complete(context.Background(), session.ID)
+	if !IsInsufficientStorage(err) {
+		t.Fatalf("Complete() error = %v, want insufficient staging storage", err)
+	}
+	current, getErr := uploads.GetSession(context.Background(), session.ID)
+	if getErr != nil {
+		t.Fatalf("get upload session: %v", getErr)
+	}
+	if current.Status != model.UploadStatusUploading {
+		t.Fatalf("status = %q, want retryable uploading state", current.Status)
+	}
+}
+
+func TestUploadSaveChunkStopsTemporaryGrowthAtLimit(t *testing.T) {
+	uploads, _, cfg := newUploadServiceTestHarness(t)
+	cfg.Storage.TempLimitBytes = 6
+	session, err := uploads.Init(context.Background(), InitUploadInput{
+		FileName: "limited.bin",
+		FileSize: 5,
+		DestPath: "/",
+	})
+	if err != nil {
+		t.Fatalf("init upload: %v", err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(cfg.Storage.TempDir, "other.tmp"),
+		[]byte("12"),
+		0o644,
+	); err != nil {
+		t.Fatalf("write competing temp file: %v", err)
+	}
+
+	_, err = uploads.SaveChunk(
+		context.Background(),
+		session.ID,
+		0,
+		[]byte("12345"),
+	)
+	if !IsInsufficientStorage(err) {
+		t.Fatalf("SaveChunk() error = %v, want insufficient temporary storage", err)
+	}
+	if _, statErr := os.Stat(uploads.chunkPath(session.ID, 0)); !os.IsNotExist(statErr) {
+		t.Fatalf("chunk file should not grow temp storage, stat error = %v", statErr)
+	}
+}
+
+func TestConcurrentRenameUploadsRetryTransactionConflicts(t *testing.T) {
+	uploads, _, cfg := newUploadServiceTestHarness(t)
+	sessions := make([]*model.UploadSession, 0, 2)
+	for i := 0; i < 2; i++ {
+		session, err := uploads.Init(context.Background(), InitUploadInput{
+			FileName:        "race.txt",
+			FileSize:        5,
+			DestPath:        "/",
+			OverwritePolicy: ConflictRename,
+		})
+		if err != nil {
+			t.Fatalf("init rename upload %d: %v", i, err)
+		}
+		if _, err := uploads.SaveChunk(context.Background(), session.ID, 0, []byte("hello")); err != nil {
+			t.Fatalf("save rename upload %d: %v", i, err)
+		}
+		sessions = append(sessions, session)
+	}
+
+	blockerStarted := make(chan struct{})
+	releaseBlocker := make(chan struct{})
+	blockerResult := make(chan error, 1)
+	go func() {
+		_, err := NewFileMutationService(cfg, uploads.store).Apply(
+			context.Background(),
+			FileMutationInput{
+				Kind: model.FileMutationKindUploadCreate,
+				File: &model.File{
+					ID:          "blocking-file",
+					Name:        "race.txt",
+					Path:        "/",
+					StoragePath: "blocking-race.txt",
+					Size:        7,
+					MimeType:    "text/plain",
+					Status:      model.FileStatusUploaded,
+					ChunkCount:  1,
+				},
+			},
+			func(writer io.Writer) error {
+				close(blockerStarted)
+				<-releaseBlocker
+				_, err := writer.Write([]byte("blocker"))
+				return err
+			},
+		)
+		blockerResult <- err
+	}()
+	<-blockerStarted
+
+	type completionResult struct {
+		completion *UploadCompletion
+		err        error
+	}
+	results := make(chan completionResult, len(sessions))
+	for _, session := range sessions {
+		sessionID := session.ID
+		go func() {
+			completion, err := uploads.Complete(context.Background(), sessionID)
+			results <- completionResult{completion: completion, err: err}
+		}()
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		allMerging := true
+		for _, session := range sessions {
+			current, err := uploads.GetSession(context.Background(), session.ID)
+			if err != nil {
+				t.Fatalf("get concurrent upload state: %v", err)
+			}
+			if current.Status != model.UploadStatusMerging {
+				allMerging = false
+				break
+			}
+		}
+		if allMerging {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("concurrent uploads did not reach merging state")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	close(releaseBlocker)
+	if err := <-blockerResult; err != nil {
+		t.Fatalf("commit blocking mutation: %v", err)
+	}
+
+	names := make([]string, 0, len(sessions))
+	for range sessions {
+		result := <-results
+		if result.err != nil {
+			t.Fatalf("complete concurrent rename upload: %v", result.err)
+		}
+		names = append(names, result.completion.File.Name)
+	}
+	sort.Strings(names)
+	want := []string{"race (1).txt", "race (2).txt"}
+	for i := range want {
+		if names[i] != want[i] {
+			t.Fatalf("expected concurrent rename results %v, got %v", want, names)
+		}
+	}
+}
+
+func TestFiftyConcurrentRejectUploadsKeepSingleActiveTarget(t *testing.T) {
+	uploads, db, _ := newUploadServiceTestHarness(t)
+	const uploadCount = 50
+	sessions := make([]*model.UploadSession, 0, uploadCount)
+	for i := 0; i < uploadCount; i++ {
+		session, err := uploads.Init(context.Background(), InitUploadInput{
+			FileName:        "same-target.txt",
+			FileSize:        5,
+			DestPath:        "/",
+			OverwritePolicy: ConflictReject,
+		})
+		if err != nil {
+			t.Fatalf("init upload %d: %v", i, err)
+		}
+		if _, err := uploads.SaveChunk(context.Background(), session.ID, 0, []byte("hello")); err != nil {
+			t.Fatalf("save upload %d: %v", i, err)
+		}
+		sessions = append(sessions, session)
+	}
+
+	start := make(chan struct{})
+	results := make(chan error, uploadCount)
+	for _, session := range sessions {
+		sessionID := session.ID
+		go func() {
+			<-start
+			_, err := uploads.Complete(context.Background(), sessionID)
+			results <- err
+		}()
+	}
+	close(start)
+
+	succeeded := 0
+	conflicted := 0
+	var unexpected []error
+	for range sessions {
+		err := <-results
+		if err == nil {
+			succeeded++
+			continue
+		}
+		var conflict *FileConflictError
+		if errors.As(err, &conflict) {
+			conflicted++
+			continue
+		}
+		unexpected = append(unexpected, err)
+	}
+	if len(unexpected) > 0 {
+		t.Fatalf("unexpected concurrent upload errors: %v", unexpected)
+	}
+	if succeeded != 1 || conflicted != uploadCount-1 {
+		t.Fatalf("expected 1 success and %d conflicts, got %d successes and %d conflicts",
+			uploadCount-1, succeeded, conflicted)
+	}
+	files, err := db.ListFiles(context.Background(), "/", "created_at")
+	if err != nil {
+		t.Fatalf("list active root Files: %v", err)
+	}
+	activeTargets := 0
+	for _, file := range files {
+		if file.Name == "same-target.txt" {
+			activeTargets++
+		}
+	}
+	if activeTargets != 1 {
+		t.Fatalf("expected one active Target Path, got %d", activeTargets)
+	}
+}
+
 func newUploadServiceTestHarness(t *testing.T) (*UploadService, *store.Store, *config.Config) {
 	t.Helper()
 	root := t.TempDir()
@@ -212,6 +496,14 @@ func newUploadServiceTestHarness(t *testing.T) (*UploadService, *store.Store, *c
 		t.Fatalf("open store: %v", err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
+	for _, folder := range []*model.File{
+		{ID: "notes-folder", Name: "Notes", Path: "/", StoragePath: "Notes", IsDir: true, Status: model.FileStatusReady},
+		{ID: "videos-folder", Name: "Videos", Path: "/", StoragePath: "Videos", IsDir: true, Status: model.FileStatusReady},
+	} {
+		if err := db.CreateFile(context.Background(), folder); err != nil {
+			t.Fatalf("create upload test Folder %s: %v", folder.Name, err)
+		}
+	}
 	files := NewFileService(cfg, db, nil)
 	pipeline := NewPipelineService(cfg, db, nil, nil, nil, nil)
 	t.Cleanup(func() {

@@ -1,12 +1,42 @@
 import { httpClient } from "./HttpClient";
 import type { UploadProgressUpdate } from "./HttpClient";
-import type { UploadCompleteResponse, UploadSession } from "../types";
+import type {
+  FileConflictPolicy,
+  DirectoryPrepareResponse,
+  UploadCompleteResponse,
+  UploadSession,
+} from "../types";
 
-export async function initUpload(file: File, destPath: string) {
+export interface LocalDirectoryUploadEntry {
+  clientId: string;
+  relativePath: string;
+  file: File;
+}
+
+export async function prepareDirectoryUpload(
+  destPath: string,
+  entries: LocalDirectoryUploadEntry[],
+) {
+  return httpClient.post<DirectoryPrepareResponse>("/upload/directory/prepare", {
+    dest_path: destPath,
+    entries: entries.map((entry) => ({
+      client_id: entry.clientId,
+      relative_path: entry.relativePath,
+      file_size: entry.file.size,
+    })),
+  });
+}
+
+export async function initUpload(
+  file: File,
+  destPath: string,
+  overwritePolicy: FileConflictPolicy = "reject",
+) {
   return httpClient.post<UploadSession>("/upload/init", {
     file_name: file.name,
     file_size: file.size,
     dest_path: destPath,
+    overwrite_policy: overwritePolicy,
   });
 }
 

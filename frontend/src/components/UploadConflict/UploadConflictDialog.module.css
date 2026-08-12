@@ -1,0 +1,99 @@
+.summary {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.summaryIcon {
+  display: inline-flex;
+  width: 48px;
+  height: 48px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  color: #075ea8;
+  background: #e8f3ff;
+  font-size: 24px;
+}
+
+.summary h3 {
+  overflow: hidden;
+  margin: 2px 0 4px;
+  color: rgba(0, 0, 0, 0.95);
+  font-size: 17px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.summary p {
+  margin: 0;
+  color: #55514d;
+  font-size: 14px;
+}
+
+.progress {
+  color: #075ea8 !important;
+  font-size: 12px !important;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.renameHint {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 18px;
+  border: 1px solid #d8e8f7;
+  border-radius: 10px;
+  padding: 12px 14px;
+  background: #f7fbff;
+  color: #55514d;
+  font-size: 13px;
+}
+
+.renameHint strong {
+  overflow: hidden;
+  color: #075ea8;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.applyRow {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+  color: rgba(0, 0, 0, 0.78);
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.applyRow input {
+  width: 18px;
+  height: 18px;
+  accent-color: #0075de;
+}
+
+.actions {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr auto;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.warning {
+  margin: 10px 0 0;
+  color: #7a3e00;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .applyRow,
+  .actions button {
+    transition: none;
+  }
+}

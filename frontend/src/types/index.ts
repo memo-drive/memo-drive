@@ -32,6 +32,16 @@ export interface CreateMarkdownResponse {
 export interface StorageUsage {
   used_bytes: number;
   total_bytes: number;
+  active_bytes: number;
+  trash_bytes: number;
+  version_bytes: number;
+  temp_bytes: number;
+  auxiliary_bytes: number;
+  filesystem_total_bytes: number;
+  filesystem_available_bytes: number;
+  quota_bytes: number;
+  reserved_bytes: number;
+  upload_available_bytes: number;
 }
 
 export interface FileMetadata {
@@ -62,9 +72,71 @@ export type UploadSessionStatus =
   | "expired"
   | "failed";
 
+export type FileConflictPolicy = "reject" | "rename" | "replace";
+
+export interface FileCopyInput {
+  path: string;
+  name?: string;
+  conflictPolicy: FileConflictPolicy;
+}
+
+export interface FileCopyResult {
+  file: DriveFile;
+	task_id?: string;
+  summary: {
+    files: number;
+    folders: number;
+  };
+}
+
+export type FileVersionSource =
+	| "upload_replace"
+	| "webdav_put"
+	| "markdown_save"
+	| "copy_replace"
+	| "version_restore";
+
+export interface FileVersion {
+	id: string;
+	file_id: string;
+	version_no: number;
+	size: number;
+	mime_type?: string;
+	sha256?: string;
+	checksum_status: "recorded" | "missing";
+	source: FileVersionSource;
+	created_at: string;
+}
+
+export interface FileVersionListResponse {
+	versions: FileVersion[];
+}
+
+export interface FileVersionRestoreResponse {
+	file: DriveFile;
+	task_id?: string;
+}
+
+export interface FileConflictPreflightItem {
+  requested_name: string;
+  normalized_name: string;
+  conflict: boolean;
+  existing_file_id?: string;
+  rename_suggestion?: string;
+  replace_allowed: boolean;
+}
+
+export interface FileConflictPreflightResponse {
+  items: FileConflictPreflightItem[];
+}
+
 export interface UploadSession {
   id: string;
   file_name: string;
+  requested_name: string;
+  resolved_name: string;
+  overwrite_policy: FileConflictPolicy;
+  existing_file_id?: string;
   file_size: number;
   chunk_size: number;
   uploaded_chunks: number[];
@@ -79,13 +151,76 @@ export interface UploadCompleteResponse {
   task_id: string;
 }
 
+export interface DirectoryPreparedFolder {
+  relative_path: string;
+  status: "created" | "existing";
+}
+
+export interface DirectoryPreparedEntryError {
+  code: string;
+  message: string;
+  retryable: boolean;
+  details: {
+    relative_path: string;
+    reason: string;
+    existing_file_id?: string;
+  };
+}
+
+export interface DirectoryPreparedEntry {
+  client_id: string;
+  relative_path: string;
+  dest_path?: string;
+  file_name?: string;
+  status: "ready" | "failed";
+  conflict: boolean;
+  existing_file_id?: string;
+  rename_suggestion?: string;
+  error?: DirectoryPreparedEntryError;
+}
+
+export interface DirectoryPrepareResponse {
+  batch_id: string;
+  folders: DirectoryPreparedFolder[];
+  entries: DirectoryPreparedEntry[];
+}
+
+export type PipelineTaskStatus = "pending" | "processing" | "done" | "failed";
+
 export interface Task {
   id: string;
   file_id: string;
   type: string;
-  status: string;
+  status: PipelineTaskStatus | string;
   progress: number;
   error?: string;
+  retry_count: number;
+  retry_of_task_id?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PipelineTaskFileSummary {
+  id: string;
+  name: string;
+  path: string;
+  size: number;
+  mime_type: string;
+  status: string;
+}
+
+export interface PipelineTaskListItem extends Task {
+  file: PipelineTaskFileSummary;
+}
+
+export interface PipelineTaskListPage {
+  items: PipelineTaskListItem[];
+  next_cursor: string;
+  has_more: boolean;
+}
+
+export interface PipelineTaskRetryResponse {
+  task: Task;
 }
 
 export interface SourceChunk {
@@ -201,6 +336,14 @@ export interface FileQueryRequest {
 
 export interface FileQueryResponse {
   items: DriveFile[];
+  next_cursor: string;
+  has_more: boolean;
+}
+
+export type FolderListSort = "name" | "size" | "created_at" | "updated_at";
+
+export interface FolderListPage {
+  files: DriveFile[];
   next_cursor: string;
   has_more: boolean;
 }
