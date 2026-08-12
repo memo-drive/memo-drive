@@ -1,8 +1,9 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Navigate, useLocation } from "react-router-dom";
-import { getToken, httpClient } from "../../api/client";
+import { httpClient } from "../../api/client";
 import { loginHrefForRedirect } from "./authRedirect";
+import { authStatusAllowsAccess } from "./authSession";
 
 interface Props {
   children: ReactNode;
@@ -16,13 +17,13 @@ export function AuthGuard({ children }: Props) {
   useEffect(() => {
     httpClient
       .checkAuth()
-      .then((res) => {
-        if (res.required && !getToken()) {
-          setStatus("unauthed");
-        } else {
-          setStatus("authed");
-        }
-      })
+		.then((res) => {
+			if (authStatusAllowsAccess(res)) {
+				setStatus("authed");
+			} else {
+				setStatus("unauthed");
+			}
+		})
       .catch(() => setStatus("unauthed"));
   }, []);
 

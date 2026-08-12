@@ -1,7 +1,7 @@
 import { FormEvent, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Navigate, useLocation, useNavigate } from "react-router-dom";
-import { getToken, httpClient } from "../../api/client";
+import { useLocation, useNavigate } from "react-router-dom";
+import { httpClient } from "../../api/client";
 import { redirectTargetFromLoginSearch } from "../../components/auth/authRedirect";
 import { Button } from "../../components/base";
 import styles from "./index.module.css";
@@ -14,11 +14,7 @@ export function LoginPage() {
   const [error, setError] = useState("");
   const redirectTarget = redirectTargetFromLoginSearch(location.search);
 
-  if (getToken()) {
-    return <Navigate to={redirectTarget} replace />;
-  }
-
-  const handleSubmit = async (e: FormEvent) => {
+	const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     try {
       await httpClient.login(password);

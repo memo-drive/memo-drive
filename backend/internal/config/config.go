@@ -5,6 +5,7 @@ package config
 import (
 	"errors"
 	"log"
+	"net"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -14,20 +15,32 @@ import (
 
 const defaultJWTSecret = "change-me-in-production"
 
+const (
+	// AppEnvDevelopment keeps local setup permissive while logging unsafe settings.
+	AppEnvDevelopment = "development"
+	// AppEnvProduction enables strict startup security gates.
+	AppEnvProduction = "production"
+)
+
 // Config is the root configuration structure containing all subsystem settings.
 type Config struct {
-	Server     ServerConfig
-	Storage    StorageConfig
-	Auth       AuthConfig
-	WebDAV     WebDAVConfig
-	Pipeline   PipelineConfig
-	LLM        LLMConfig
-	RAG        RAGConfig
-	OCR        OCRConfig
-	Transcribe TranscribeConfig
-	Video      VideoConfig
-	Janitor    JanitorConfig
-	Trash      TrashConfig
+	AppEnv      string
+	Server      ServerConfig
+	Storage     StorageConfig
+	Auth        AuthConfig
+	Security    SecurityConfig
+	CORS        CORSConfig
+	RateLimit   RateLimitConfig
+	WebDAV      WebDAVConfig
+	Pipeline    PipelineConfig
+	LLM         LLMConfig
+	RAG         RAGConfig
+	OCR         OCRConfig
+	Transcribe  TranscribeConfig
+	Video       VideoConfig
+	Janitor     JanitorConfig
+	Trash       TrashConfig
+	FileVersion FileVersionConfig
 }
 
 // ServerConfig holds HTTP server bind address settings.
@@ -38,13 +51,22 @@ type ServerConfig struct {
 
 // StorageConfig configures the file storage layer including paths, limits, and upload behavior.
 type StorageConfig struct {
-	Root         string
-	DBPath       string
-	TempDir      string
-	ThumbnailDir string
-	MaxFileSize  int64
-	ChunkSize    int64
-	UploadTTL    time.Duration
+	Root                          string
+	DBPath                        string
+	TempDir                       string
+	ThumbnailDir                  string
+	MaxFileSize                   int64
+	ChunkSize                     int64
+	UploadTTL                     time.Duration
+	QuotaBytes                    int64
+	ReservedBytes                 int64
+	TempLimitBytes                int64
+	DirectoryMaxDepth             int
+	DirectoryMaxPathBytes         int
+	DirectoryMaxEntries           int
+	FolderCopyMaxNodes            int
+	FolderZIPMaxNodes             int
+	FolderZIPMaxUncompressedBytes int64
 }
 
 // AuthConfig holds JWT-based authentication settings.
@@ -52,6 +74,29 @@ type AuthConfig struct {
 	Password  string
 	JWTSecret string
 	TokenTTL  time.Duration
+}
+
+// SecurityConfig controls explicit deployment security assumptions.
+type SecurityConfig struct {
+	TrustedNetworkOnly bool
+	EdgeHTTPSEnabled   bool
+	TrustedProxyCIDRs  []string
+}
+
+// CORSConfig controls which browser origins may call the API.
+type CORSConfig struct {
+	AllowedOrigins   []string
+	AllowCredentials bool
+}
+
+// RateLimitConfig sets request limits for one fixed time window.
+type RateLimitConfig struct {
+	Window         time.Duration
+	LoginFailures  int
+	ReadRequests   int
+	WriteRequests  int
+	UploadRequests int
+	AIRequests     int
 }
 
 // WebDAVConfig controls the optional WebDAV endpoint.
@@ -152,28 +197,110 @@ type TrashConfig struct {
 	RetentionDays    int
 }
 
+// FileVersionConfig controls historical content snapshots created by File replacements.
+type FileVersionConfig struct {
+	Enabled       bool
+	MaxCount      int
+	RetentionDays int
+}
+
 // Load reads configuration from environment variables and returns a validated Config.
 // It applies defaults for any unset variables and returns an error if required
 // values are invalid (e.g., non-positive chunk sizes).
 func Load() (*Config, error) {
+	return loadWithLookup(os.Getenv)
+}
+
+func loadWithLookup(lookup func(string) string) (*Config, error) {
+	envString := func(key, fallback string) string {
+		if value := lookup(key); value != "" {
+			return value
+		}
+		return fallback
+	}
+	envInt := func(key string, fallback int) int {
+		value, err := strconv.Atoi(lookup(key))
+		if err != nil {
+			return fallback
+		}
+		return value
+	}
+	envInt64 := func(key string, fallback int64) int64 {
+		value, err := strconv.ParseInt(lookup(key), 10, 64)
+		if err != nil {
+			return fallback
+		}
+		return value
+	}
+	envBool := func(key string, fallback bool) bool {
+		value := strings.TrimSpace(lookup(key))
+		if value == "" {
+			return fallback
+		}
+		parsed, err := strconv.ParseBool(value)
+		if err != nil {
+			return fallback
+		}
+		return parsed
+	}
+	envFloat32 := func(key string, fallback float32) float32 {
+		value, err := strconv.ParseFloat(lookup(key), 32)
+		if err != nil {
+			return fallback
+		}
+		return float32(value)
+	}
+	appEnv := envString("APP_ENV", AppEnvDevelopment)
+	defaultCORSOrigins := ""
+	if appEnv == AppEnvDevelopment {
+		defaultCORSOrigins = "http://localhost:5173,http://127.0.0.1:5173"
+	}
+
 	cfg := &Config{
+		AppEnv: appEnv,
 		Server: ServerConfig{
 			Host: envString("HOST", "0.0.0.0"),
 			Port: envString("PORT", "8080"),
 		},
 		Storage: StorageConfig{
-			Root:         envString("STORAGE_ROOT", "./data/files"),
-			DBPath:       databasePath(envString("DB_PATH", "./data/db")),
-			TempDir:      envString("UPLOAD_TEMP_DIR", "./data/tmp"),
-			ThumbnailDir: envString("THUMBNAIL_DIR", "./data/thumbnails"),
-			MaxFileSize:  envInt64("MAX_FILE_SIZE", 5*1024*1024*1024),
-			ChunkSize:    envInt64("UPLOAD_CHUNK_SIZE", 10*1024*1024),
-			UploadTTL:    time.Duration(envInt64("UPLOAD_TIMEOUT", 3600)) * time.Second,
+			Root:                          envString("STORAGE_ROOT", "./data/files"),
+			DBPath:                        databasePath(envString("DB_PATH", "./data/db")),
+			TempDir:                       envString("UPLOAD_TEMP_DIR", "./data/tmp"),
+			ThumbnailDir:                  envString("THUMBNAIL_DIR", "./data/thumbnails"),
+			MaxFileSize:                   envInt64("MAX_FILE_SIZE", 5*1024*1024*1024),
+			ChunkSize:                     envInt64("UPLOAD_CHUNK_SIZE", 10*1024*1024),
+			UploadTTL:                     time.Duration(envInt64("UPLOAD_TIMEOUT", 3600)) * time.Second,
+			QuotaBytes:                    envInt64("STORAGE_QUOTA_BYTES", 0),
+			ReservedBytes:                 envInt64("STORAGE_RESERVED_BYTES", 1024*1024*1024),
+			TempLimitBytes:                envInt64("STORAGE_TEMP_LIMIT_BYTES", 0),
+			DirectoryMaxDepth:             envInt("DIRECTORY_UPLOAD_MAX_DEPTH", 32),
+			DirectoryMaxPathBytes:         envInt("DIRECTORY_UPLOAD_MAX_PATH_BYTES", 1024),
+			DirectoryMaxEntries:           envInt("DIRECTORY_UPLOAD_MAX_ENTRIES", 10000),
+			FolderCopyMaxNodes:            envInt("FOLDER_COPY_MAX_NODES", 10000),
+			FolderZIPMaxNodes:             envInt("FOLDER_ZIP_MAX_NODES", 10000),
+			FolderZIPMaxUncompressedBytes: envInt64("FOLDER_ZIP_MAX_UNCOMPRESSED_BYTES", 20*1024*1024*1024),
 		},
 		Auth: AuthConfig{
 			Password:  envString("ADMIN_PASSWORD", ""),
 			JWTSecret: envString("JWT_SECRET", defaultJWTSecret),
 			TokenTTL:  time.Duration(envInt64("TOKEN_TTL_SECONDS", int64(7*24*time.Hour/time.Second))) * time.Second,
+		},
+		Security: SecurityConfig{
+			TrustedNetworkOnly: envBool("TRUSTED_NETWORK_ONLY", false),
+			EdgeHTTPSEnabled:   envBool("EDGE_HTTPS_ENABLED", false),
+			TrustedProxyCIDRs:  commaSeparatedValues(lookup("TRUSTED_PROXY_CIDRS")),
+		},
+		CORS: CORSConfig{
+			AllowedOrigins:   commaSeparatedValues(envString("CORS_ALLOWED_ORIGINS", defaultCORSOrigins)),
+			AllowCredentials: envBool("CORS_ALLOW_CREDENTIALS", false),
+		},
+		RateLimit: RateLimitConfig{
+			Window:         time.Duration(envInt64("RATE_LIMIT_WINDOW_SECONDS", 60)) * time.Second,
+			LoginFailures:  envInt("RATE_LIMIT_LOGIN_FAILURES", 5),
+			ReadRequests:   envInt("RATE_LIMIT_READ_REQUESTS", 600),
+			WriteRequests:  envInt("RATE_LIMIT_WRITE_REQUESTS", 120),
+			UploadRequests: envInt("RATE_LIMIT_UPLOAD_REQUESTS", 600),
+			AIRequests:     envInt("RATE_LIMIT_AI_REQUESTS", 30),
 		},
 		WebDAV: WebDAVConfig{
 			Enabled: envBool("WEBDAV_ENABLED", false),
@@ -251,12 +378,47 @@ func Load() (*Config, error) {
 			AutoPurgeEnabled: envBool("TRASH_AUTO_PURGE", true),
 			RetentionDays:    envInt("TRASH_RETENTION_DAYS", 30),
 		},
+		FileVersion: FileVersionConfig{
+			Enabled:       envBool("FILE_VERSIONING_ENABLED", true),
+			MaxCount:      envInt("FILE_VERSION_MAX_COUNT", 20),
+			RetentionDays: envInt("FILE_VERSION_RETENTION_DAYS", 90),
+		},
+	}
+	if cfg.AppEnv != AppEnvDevelopment && cfg.AppEnv != AppEnvProduction {
+		return nil, errors.New("APP_ENV must be development or production")
 	}
 	if cfg.Storage.ChunkSize <= 0 {
 		return nil, errors.New("UPLOAD_CHUNK_SIZE must be greater than zero")
 	}
 	if cfg.Storage.MaxFileSize <= 0 {
 		return nil, errors.New("MAX_FILE_SIZE must be greater than zero")
+	}
+	if cfg.Storage.QuotaBytes < 0 {
+		return nil, errors.New("STORAGE_QUOTA_BYTES must not be negative")
+	}
+	if cfg.Storage.ReservedBytes < 0 {
+		return nil, errors.New("STORAGE_RESERVED_BYTES must not be negative")
+	}
+	if cfg.Storage.TempLimitBytes < 0 {
+		return nil, errors.New("STORAGE_TEMP_LIMIT_BYTES must not be negative")
+	}
+	if cfg.Storage.DirectoryMaxDepth <= 0 {
+		return nil, errors.New("DIRECTORY_UPLOAD_MAX_DEPTH must be greater than zero")
+	}
+	if cfg.Storage.DirectoryMaxPathBytes <= 0 {
+		return nil, errors.New("DIRECTORY_UPLOAD_MAX_PATH_BYTES must be greater than zero")
+	}
+	if cfg.Storage.DirectoryMaxEntries <= 0 {
+		return nil, errors.New("DIRECTORY_UPLOAD_MAX_ENTRIES must be greater than zero")
+	}
+	if cfg.Storage.FolderCopyMaxNodes <= 0 {
+		return nil, errors.New("FOLDER_COPY_MAX_NODES must be greater than zero")
+	}
+	if cfg.Storage.FolderZIPMaxNodes <= 0 {
+		return nil, errors.New("FOLDER_ZIP_MAX_NODES must be greater than zero")
+	}
+	if cfg.Storage.FolderZIPMaxUncompressedBytes <= 0 {
+		return nil, errors.New("FOLDER_ZIP_MAX_UNCOMPRESSED_BYTES must be greater than zero")
 	}
 	if cfg.Pipeline.ChunkSize <= 0 {
 		return nil, errors.New("PIPELINE_CHUNK_SIZE must be greater than zero")
@@ -330,11 +492,57 @@ func Load() (*Config, error) {
 	if cfg.Trash.RetentionDays < 0 {
 		return nil, errors.New("TRASH_RETENTION_DAYS must not be negative")
 	}
+	if cfg.FileVersion.MaxCount <= 0 {
+		return nil, errors.New("FILE_VERSION_MAX_COUNT must be greater than zero")
+	}
+	if cfg.FileVersion.RetentionDays < 0 {
+		return nil, errors.New("FILE_VERSION_RETENTION_DAYS must not be negative")
+	}
+	if cfg.AppEnv == AppEnvProduction && cfg.Auth.JWTSecret == defaultJWTSecret {
+		return nil, errors.New("JWT_SECRET must not use the default value in production")
+	}
+	if cfg.AppEnv == AppEnvProduction && cfg.Auth.Password == "" && !cfg.Security.TrustedNetworkOnly {
+		return nil, errors.New("ADMIN_PASSWORD must not be empty in production")
+	}
+	if cfg.AppEnv == AppEnvProduction && !cfg.Security.EdgeHTTPSEnabled {
+		return nil, errors.New("EDGE_HTTPS_ENABLED must be true in production")
+	}
+	if cfg.AppEnv == AppEnvProduction && containsString(cfg.CORS.AllowedOrigins, "*") {
+		return nil, errors.New("CORS_ALLOWED_ORIGINS must not contain wildcard in production")
+	}
+	if cfg.CORS.AllowCredentials && containsString(cfg.CORS.AllowedOrigins, "*") {
+		return nil, errors.New("CORS_ALLOW_CREDENTIALS cannot be used with wildcard CORS_ALLOWED_ORIGINS")
+	}
+	for _, cidr := range cfg.Security.TrustedProxyCIDRs {
+		if _, _, err := net.ParseCIDR(cidr); err != nil {
+			return nil, errors.New("TRUSTED_PROXY_CIDRS must contain valid CIDR values")
+		}
+	}
+	if cfg.RateLimit.Window <= 0 {
+		return nil, errors.New("RATE_LIMIT_WINDOW_SECONDS must be greater than zero")
+	}
+	for _, limit := range []struct {
+		name  string
+		value int
+	}{
+		{"RATE_LIMIT_LOGIN_FAILURES", cfg.RateLimit.LoginFailures},
+		{"RATE_LIMIT_READ_REQUESTS", cfg.RateLimit.ReadRequests},
+		{"RATE_LIMIT_WRITE_REQUESTS", cfg.RateLimit.WriteRequests},
+		{"RATE_LIMIT_UPLOAD_REQUESTS", cfg.RateLimit.UploadRequests},
+		{"RATE_LIMIT_AI_REQUESTS", cfg.RateLimit.AIRequests},
+	} {
+		if limit.value <= 0 {
+			return nil, errors.New(limit.name + " must be greater than zero")
+		}
+	}
 	if cfg.Auth.JWTSecret == defaultJWTSecret {
 		log.Printf("level=warn component=config event=insecure_jwt_secret msg=\"JWT_SECRET is set to the default value — change it before deploying to production\"")
 	}
 	if cfg.Auth.Password == "" {
 		log.Printf("level=warn component=config event=no_admin_password msg=\"ADMIN_PASSWORD is empty — the server is accessible without login\"")
+	}
+	if cfg.AppEnv == AppEnvDevelopment && containsString(cfg.CORS.AllowedOrigins, "*") {
+		log.Printf("level=warn component=config event=insecure_cors_wildcard msg=\"CORS allows every origin in development\"")
 	}
 	return cfg, nil
 }
@@ -362,45 +570,21 @@ func databasePath(value string) string {
 	return filepath.Join(value, "memodrive.db")
 }
 
-func envString(key, fallback string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
+func commaSeparatedValues(value string) []string {
+	var values []string
+	for _, item := range strings.Split(value, ",") {
+		if item = strings.TrimSpace(item); item != "" {
+			values = append(values, item)
+		}
 	}
-	return fallback
+	return values
 }
 
-func envInt(key string, fallback int) int {
-	value, err := strconv.Atoi(os.Getenv(key))
-	if err != nil {
-		return fallback
+func containsString(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
 	}
-	return value
-}
-
-func envInt64(key string, fallback int64) int64 {
-	value, err := strconv.ParseInt(os.Getenv(key), 10, 64)
-	if err != nil {
-		return fallback
-	}
-	return value
-}
-
-func envBool(key string, fallback bool) bool {
-	value := strings.TrimSpace(os.Getenv(key))
-	if value == "" {
-		return fallback
-	}
-	parsed, err := strconv.ParseBool(value)
-	if err != nil {
-		return fallback
-	}
-	return parsed
-}
-
-func envFloat32(key string, fallback float32) float32 {
-	value, err := strconv.ParseFloat(os.Getenv(key), 32)
-	if err != nil {
-		return fallback
-	}
-	return float32(value)
+	return false
 }

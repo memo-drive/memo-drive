@@ -30,6 +30,8 @@ services:
     environment:
       HOST: 0.0.0.0
       PORT: 8080
+      APP_ENV: production
+      EDGE_HTTPS_ENABLED: "true"
 
   chroma:
     restart: unless-stopped

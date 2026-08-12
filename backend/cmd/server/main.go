@@ -16,6 +16,7 @@ import (
 	"github.com/memodrive/backend/internal/config"
 	"github.com/memodrive/backend/internal/handler"
 	"github.com/memodrive/backend/internal/llm"
+	"github.com/memodrive/backend/internal/maintenance"
 	appmw "github.com/memodrive/backend/internal/middleware"
 	"github.com/memodrive/backend/internal/parser"
 	"github.com/memodrive/backend/internal/service"
@@ -33,12 +34,17 @@ func main() {
 	if err != nil {
 		log.Fatalf("level=fatal component=config event=load_failed err=%q", err)
 	}
-	log.Printf("level=info component=config event=loaded host=%s port=%s storage_root=%q db_path=%q upload_chunk_size=%d pipeline_chunk_size=%d pipeline_chunk_overlap=%d pipeline_embed_batch_size=%d rag_top_k=%d rag_search_top_k=%d rag_max_context_chars=%d rag_min_score=%.3f ocr_enabled=%t transcribe_enabled=%t video_ocr=%t janitor_enabled=%t trash_auto_purge=%t trash_retention_days=%d",
-		cfg.Server.Host, cfg.Server.Port, cfg.Storage.Root, cfg.Storage.DBPath, cfg.Storage.ChunkSize, cfg.Pipeline.ChunkSize, cfg.Pipeline.ChunkOverlap, cfg.Pipeline.EmbedBatchSize, cfg.RAG.TopK, cfg.RAG.SearchTopK, cfg.RAG.MaxContextChars, cfg.RAG.MinScore, cfg.OCR.Enabled, cfg.Transcribe.Enabled, cfg.Video.OCREnabled, cfg.Janitor.Enabled, cfg.Trash.AutoPurgeEnabled, cfg.Trash.RetentionDays)
+	log.Printf("level=info component=config event=loaded app_env=%s host=%s port=%s storage_root=%q db_path=%q upload_chunk_size=%d storage_quota_bytes=%d storage_reserved_bytes=%d storage_temp_limit_bytes=%d directory_upload_max_entries=%d directory_upload_max_depth=%d directory_upload_max_path_bytes=%d pipeline_chunk_size=%d pipeline_chunk_overlap=%d pipeline_embed_batch_size=%d rag_top_k=%d rag_search_top_k=%d rag_max_context_chars=%d rag_min_score=%.3f ocr_enabled=%t transcribe_enabled=%t video_ocr=%t janitor_enabled=%t trash_auto_purge=%t trash_retention_days=%d file_versioning_enabled=%t file_version_max_count=%d file_version_retention_days=%d rate_limit_window_seconds=%d rate_limit_login=%d rate_limit_read=%d rate_limit_write=%d rate_limit_upload=%d rate_limit_ai=%d",
+		cfg.AppEnv, cfg.Server.Host, cfg.Server.Port, cfg.Storage.Root, cfg.Storage.DBPath, cfg.Storage.ChunkSize, cfg.Storage.QuotaBytes, cfg.Storage.ReservedBytes, cfg.Storage.TempLimitBytes, cfg.Storage.DirectoryMaxEntries, cfg.Storage.DirectoryMaxDepth, cfg.Storage.DirectoryMaxPathBytes, cfg.Pipeline.ChunkSize, cfg.Pipeline.ChunkOverlap, cfg.Pipeline.EmbedBatchSize, cfg.RAG.TopK, cfg.RAG.SearchTopK, cfg.RAG.MaxContextChars, cfg.RAG.MinScore, cfg.OCR.Enabled, cfg.Transcribe.Enabled, cfg.Video.OCREnabled, cfg.Janitor.Enabled, cfg.Trash.AutoPurgeEnabled, cfg.Trash.RetentionDays, cfg.FileVersion.Enabled, cfg.FileVersion.MaxCount, cfg.FileVersion.RetentionDays, int(cfg.RateLimit.Window/time.Second), cfg.RateLimit.LoginFailures, cfg.RateLimit.ReadRequests, cfg.RateLimit.WriteRequests, cfg.RateLimit.UploadRequests, cfg.RateLimit.AIRequests)
 	if err := cfg.EnsureDirs(); err != nil {
 		log.Fatalf("level=fatal component=config event=directories_failed err=%q", err)
 	}
 	log.Printf("level=info component=config event=directories_ready storage_root=%q temp_dir=%q thumbnail_dir=%q", cfg.Storage.Root, cfg.Storage.TempDir, cfg.Storage.ThumbnailDir)
+	writerLock, err := maintenance.AcquireWriterLock(cfg.Storage.DBPath)
+	if err != nil {
+		log.Fatalf("level=fatal component=maintenance event=writer_lock_failed err=%q", err)
+	}
+	defer writerLock.Close()
 	db, err := store.Open(ctx, cfg)
 	if err != nil {
 		log.Fatalf("level=fatal component=store event=open_failed err=%q", err)
@@ -78,15 +84,19 @@ func main() {
 	app := fiber.New(httpConfig(cfg))
 	app.Use(recover.New())
 	app.Use(logger.New(httpLoggerConfig()))
-	app.Use(appmw.CORS())
+	app.Use(appmw.CORS(cfg.CORS))
 	app.Use("/api", appmw.BodyLimit(bufferedUploadBodyLimit(cfg)))
 	handler.RegisterWebDAV(app, cfg, webDAVService)
 
 	api := app.Group("/api")
 	handler.RegisterHealth(api)
-	handler.NewAuthHandler(cfg).Register(api)
+	rateLimiter := appmw.NewRateLimiter(cfg.RateLimit, cfg.Security.TrustedProxyCIDRs)
+	api.Use("/auth/login", rateLimiter.LoginFailures())
+	authHandler := handler.NewAuthHandler(cfg, db)
+	authHandler.Register(api)
 
-	protected := api.Group("", appmw.NewAuthMiddleware(cfg.Auth), appmw.RateLimit())
+	protected := api.Group("", appmw.NewAuthMiddleware(cfg.Auth, db), rateLimiter.API())
+	authHandler.RegisterProtected(protected)
 	handler.NewStorageHandler(fileService).Register(protected)
 	handler.NewFileHandler(fileService, searchService).Register(protected)
 	handler.NewTrashHandler(fileService).Register(protected)

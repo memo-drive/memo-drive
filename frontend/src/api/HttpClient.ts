@@ -1,4 +1,5 @@
 const TOKEN_KEY = "memodrive.token";
+const CSRF_HEADER = "X-MemoDrive-CSRF";
 
 export interface UploadProgressUpdate {
   loaded: number;
@@ -35,12 +36,58 @@ function handleUnauth(): void {
 
 export class HttpError extends Error {
   status: number;
+  code?: string;
+  retryable?: boolean;
+  details?: Record<string, unknown>;
 
-  constructor(status: number, message: string) {
+  constructor(
+    status: number,
+    message: string,
+    options: {
+      code?: string;
+      retryable?: boolean;
+      details?: Record<string, unknown>;
+    } = {},
+  ) {
     super(message);
     this.name = "HttpError";
     this.status = status;
+    this.code = options.code;
+    this.retryable = options.retryable;
+    this.details = options.details;
   }
+}
+
+function parseHttpError(status: number, raw: string, fallback: string): HttpError {
+  if (raw) {
+    try {
+      const payload = JSON.parse(raw) as {
+        error?: string | {
+          code?: string;
+          message?: string;
+          retryable?: boolean;
+          details?: Record<string, unknown>;
+        };
+      };
+      if (payload.error && typeof payload.error === "object") {
+        return new HttpError(
+          status,
+          payload.error.message || fallback,
+          {
+            code: payload.error.code,
+            retryable: payload.error.retryable,
+            details: payload.error.details,
+          },
+        );
+      }
+      if (typeof payload.error === "string") {
+        return new HttpError(status, payload.error);
+      }
+    } catch {
+      // Fall through to the legacy plain-text response.
+    }
+  }
+  return new HttpError(status, raw || fallback);
 }
 
 class HttpClient {
@@ -54,14 +101,15 @@ class HttpClient {
     return `${this.baseUrl}${path}`;
   }
 
-  assetUrl(path: string): string {
-    const token = getToken();
-    const sep = path.includes("?") ? "&" : "?";
-    return `${this.url(path)}${token ? `${sep}token=${encodeURIComponent(token)}` : ""}`;
-  }
+	assetUrl(path: string): string {
+		return this.url(path);
+	}
 
-  private async request<T>(path: string, init: RequestInit = {}): Promise<T> {
-    const headers = new Headers(init.headers);
+	private async request<T>(path: string, init: RequestInit = {}): Promise<T> {
+		const headers = new Headers(init.headers);
+		if (isUnsafeMethod(init.method)) {
+			headers.set(CSRF_HEADER, "1");
+		}
     const token = getToken();
     if (token) {
       headers.set("Authorization", `Bearer ${token}`);
@@ -76,7 +124,11 @@ class HttpClient {
       headers.set("Content-Type", "application/json");
     }
 
-    const response = await fetch(this.url(path), { ...init, headers });
+		const response = await fetch(this.url(path), {
+			...init,
+			headers,
+			credentials: "include",
+		});
 
     if (response.status === 401) {
       handleUnauth();
@@ -84,8 +136,8 @@ class HttpClient {
     }
 
     if (!response.ok) {
-      const message = await response.text().catch(() => response.statusText);
-      throw new HttpError(response.status, message || response.statusText);
+      const raw = await response.text().catch(() => "");
+      throw parseHttpError(response.status, raw, response.statusText);
     }
 
     if (response.status === 204) {
@@ -99,8 +151,8 @@ class HttpClient {
     return (await response.text()) as T;
   }
 
-  async get<T>(path: string): Promise<T> {
-    return this.request<T>(path);
+  async get<T>(path: string, init: RequestInit = {}): Promise<T> {
+    return this.request<T>(path, init);
   }
 
   async post<T>(path: string, body?: unknown): Promise<T> {
@@ -175,8 +227,10 @@ class HttpClient {
         reject(error);
       };
 
-      xhr.open("PATCH", this.url(path));
-      const token = getToken();
+		xhr.open("PATCH", this.url(path));
+		xhr.withCredentials = true;
+		xhr.setRequestHeader(CSRF_HEADER, "1");
+		const token = getToken();
       if (token) {
         xhr.setRequestHeader("Authorization", `Bearer ${token}`);
       }
@@ -195,7 +249,7 @@ class HttpClient {
           return;
         }
         if (xhr.status < 200 || xhr.status >= 300) {
-          rejectOnce(new HttpError(xhr.status, xhr.responseText || xhr.statusText));
+          rejectOnce(parseHttpError(xhr.status, xhr.responseText, xhr.statusText));
           return;
         }
         if (xhr.status === 204) {
@@ -228,20 +282,22 @@ class HttpClient {
     handlers: SSEHandlers,
     signal?: AbortSignal,
   ): Promise<void> {
-    const headers = new Headers({
-      "Content-Type": "application/json",
-    });
+		const headers = new Headers({
+			"Content-Type": "application/json",
+			[CSRF_HEADER]: "1",
+		});
     const token = getToken();
     if (token) {
       headers.set("Authorization", `Bearer ${token}`);
     }
 
-    const response = await fetch(this.url(path), {
-      method: "POST",
-      headers,
-      body: JSON.stringify(body),
-      signal,
-    });
+		const response = await fetch(this.url(path), {
+			method: "POST",
+			headers,
+			body: JSON.stringify(body),
+			signal,
+			credentials: "include",
+		});
 
     if (response.status === 401) {
       handleUnauth();
@@ -249,10 +305,8 @@ class HttpClient {
     }
 
     if (!response.ok || !response.body) {
-      throw new HttpError(
-        response.status,
-        await response.text().catch(() => response.statusText),
-      );
+      const raw = await response.text().catch(() => "");
+      throw parseHttpError(response.status, raw, response.statusText);
     }
 
     const reader = response.body.getReader();
@@ -289,23 +343,32 @@ class HttpClient {
     return this.streamSSE(path, body, { onDelta });
   }
 
-  async login(password: string): Promise<{ token: string }> {
-    const result = await this.post<{ token: string }>("/auth/login", {
-      password,
-    });
-    setToken(result.token);
-    return result;
-  }
+	async login(password: string): Promise<{ token: string }> {
+		const result = await this.post<{ token: string }>("/auth/login", {
+			password,
+		});
+		clearToken();
+		return result;
+	}
 
-  async checkAuth(): Promise<{ required: boolean }> {
-    return this.get<{ required: boolean }>("/auth/status");
-  }
+	async logout(scope: "current" | "all" = "current"): Promise<void> {
+		await this.post<void>("/auth/logout", { scope });
+		clearToken();
+	}
+
+	async checkAuth(): Promise<{ required: boolean; authenticated: boolean }> {
+		return this.get<{ required: boolean; authenticated: boolean }>("/auth/status");
+	}
 }
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "/api";
 
 export const httpClient = new HttpClient(API_BASE);
 export { getToken, setToken, clearToken };
+
+function isUnsafeMethod(method: string | undefined): boolean {
+	return ["POST", "PUT", "PATCH", "DELETE"].includes((method ?? "GET").toUpperCase());
+}
 
 function dispatchSSEEvent(rawEvent: string, handlers: SSEHandlers): void {
   const lines = rawEvent.split(/\r?\n/);
